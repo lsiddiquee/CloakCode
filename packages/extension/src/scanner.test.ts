@@ -1,0 +1,175 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { promises as fs } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import {
+  classifyStatus,
+  parseTranscript,
+  scanSessions,
+} from "./scanner.js";
+
+describe("parseTranscript", () => {
+  it("counts turns, takes the first user message as title", () => {
+    const content = [
+      JSON.stringify({ type: "session.start", data: {} }),
+      JSON.stringify({
+        type: "user.message",
+        data: { content: "Refactor the\nauth middleware" },
+      }),
+      JSON.stringify({ type: "user.message", data: { content: "and retry" } }),
+    ].join("\n");
+    const parsed = parseTranscript(content);
+    expect(parsed.turns).toBe(2);
+    expect(parsed.title).toBe("Refactor the auth middleware");
+    expect(parsed.openInteractiveTools).toEqual([]);
+  });
+
+  it("flags an unmatched interactive tool call as an open blocker", () => {
+    const content = [
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      JSON.stringify({
+        type: "tool.execution_start",
+        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
+      }),
+    ].join("\n");
+    expect(parseTranscript(content).openInteractiveTools).toEqual([
+      "vscode_askQuestions",
+    ]);
+  });
+
+  it("does not flag a matched (completed) interactive tool call", () => {
+    const content = [
+      JSON.stringify({
+        type: "tool.execution_start",
+        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
+      }),
+      JSON.stringify({
+        type: "tool.execution_complete",
+        data: { toolCallId: "t1", success: true },
+      }),
+    ].join("\n");
+    expect(parseTranscript(content).openInteractiveTools).toEqual([]);
+  });
+
+  it("ignores non-interactive open tool calls (e.g. run_in_terminal)", () => {
+    const content = JSON.stringify({
+      type: "tool.execution_start",
+      data: { toolCallId: "t1", toolName: "run_in_terminal" },
+    });
+    expect(parseTranscript(content).openInteractiveTools).toEqual([]);
+  });
+
+  it("skips malformed lines without throwing", () => {
+    const content = ["not json", "", "{bad}"].join("\n");
+    expect(parseTranscript(content)).toEqual({
+      title: "",
+      turns: 0,
+      openInteractiveTools: [],
+    });
+  });
+});
+
+describe("classifyStatus", () => {
+  it("is blocked when live with an open interactive tool", () => {
+    expect(classifyStatus(10, true, 120)).toBe("blocked");
+  });
+  it("is active when live without a blocker", () => {
+    expect(classifyStatus(10, false, 120)).toBe("active");
+  });
+  it("is idle when past the live window regardless of open tools", () => {
+    expect(classifyStatus(9999, true, 120)).toBe("idle");
+  });
+});
+
+describe("scanSessions", () => {
+  let root: string;
+  const NOW = 1_700_000_000_000; // fixed clock
+
+  async function writeSession(
+    hashDir: string,
+    folderUri: string,
+    sessionId: string,
+    lines: object[],
+    ageSeconds: number,
+  ): Promise<void> {
+    const wsDir = path.join(root, hashDir);
+    const txDir = path.join(wsDir, "GitHub.copilot-chat", "transcripts");
+    await fs.mkdir(txDir, { recursive: true });
+    await fs.writeFile(
+      path.join(wsDir, "workspace.json"),
+      JSON.stringify({ folder: folderUri }),
+    );
+    const file = path.join(txDir, `${sessionId}.jsonl`);
+    await fs.writeFile(file, lines.map((l) => JSON.stringify(l)).join("\n"));
+    const when = new Date(NOW - ageSeconds * 1000);
+    await fs.utimes(file, when, when);
+  }
+
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "cc-scan-"));
+    await writeSession(
+      "hashA",
+      "file:///home/u/myrepo",
+      "sessA",
+      [
+        { type: "user.message", data: { content: "Refactor auth middleware" } },
+        {
+          type: "tool.execution_start",
+          data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
+        },
+      ],
+      10, // live -> blocked
+    );
+    await writeSession(
+      "hashB",
+      "file:///home/u/other",
+      "sessB",
+      [
+        { type: "user.message", data: { content: "Old task" } },
+        {
+          type: "tool.execution_start",
+          data: { toolCallId: "t2", toolName: "read_file" },
+        },
+        {
+          type: "tool.execution_complete",
+          data: { toolCallId: "t2", success: true },
+        },
+      ],
+      3 * 86400, // 3 days old -> idle
+    );
+  });
+
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("returns instance-scoped summaries, newest first", async () => {
+    const sessions = await scanSessions({
+      instanceId: "inst-test",
+      root,
+      now: () => NOW,
+    });
+    expect(sessions).toHaveLength(2);
+
+    const [first, second] = sessions;
+    expect(first).toMatchObject({
+      instanceId: "inst-test",
+      sessionId: "sessA",
+      workspace: "myrepo",
+      title: "Refactor auth middleware",
+      turns: 1,
+      status: "blocked",
+    });
+    expect(second).toMatchObject({
+      sessionId: "sessB",
+      workspace: "other",
+      status: "idle",
+    });
+  });
+
+  it("returns [] when the root does not exist", async () => {
+    expect(
+      await scanSessions({ instanceId: "x", root: "/no/such/dir" }),
+    ).toEqual([]);
+  });
+});

@@ -69,8 +69,8 @@ research/     Python PoCs: session lister + transcript/blocker inspector (stdlib
 
 ### TypeScript
 
-- Strict everywhere (extends `tsconfig.base.json`). ESM for `protocol`/`agent`/`web`; CommonJS
-  for `extension` (VS Code host).
+- Strict everywhere (extends `tsconfig.base.json`). Author everything in **ESM/TypeScript**;
+  the `extension` is **bundled to CommonJS** for the VS Code host at packaging (esbuild, I3).
 - Validate all cross-boundary/RPC payloads with **zod**.
 - pnpm workspace. Build all: `pnpm -r build`. Lint: `pnpm -r lint`. Test: `pnpm -r test` (Vitest).
 

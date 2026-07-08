@@ -2,3 +2,11 @@
 # Each package is a focused unit; see docs/03-architecture.md for the full breakdown.
 packages:
   - packages/*
+
+allowBuilds:
+  esbuild: set this to true or false
+
+# Allow esbuild (pulled in by vitest/vite) to run its install script so the
+# platform binary is linked. pnpm 11 reads build allowlists from here.
+onlyBuiltDependencies:
+  - esbuild

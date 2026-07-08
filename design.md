@@ -9,7 +9,7 @@
 CloakCode lets you **watch and drive GitHub Copilot from your phone** while your code
 **never leaves your machine**. In locked-down enterprise tenants where pushing code to
 GitHub is banned, CloakCode keeps the whole repo local and sends only prompts and minimal,
-redacted context across a private tunnel to *your* infra — never GitHub.
+redacted context across a private tunnel to _your_ infra — never GitHub.
 
 ## Why (the pain)
 
@@ -23,7 +23,7 @@ These hold for **every** version, including v0:
 
 1. **Zero code-sync to GitHub** — no push/upload/repo-sync path exists in the codebase.
 2. **Minimal, redacted egress** — only prompts + small context leave, after a redaction gate.
-3. **Localhost-only bridge** — binds `127.0.0.1`; remote access is via *your* tunnel only.
+3. **Localhost-only bridge** — binds `127.0.0.1`; remote access is via _your_ tunnel only.
 4. **Provenance tags** — every message is tagged `genuine-local-user` / `remote-operator` /
    `cloakcode-staged`; reflected/staged text is never trusted as user intent.
 5. **Never log** secrets, tokens, or raw code/prompts.
@@ -63,7 +63,7 @@ flowchart LR
 - Answering/steering a session (the actuator) — **view only** at first.
 - The cross-environment relay, Web Push notifications, multi-instance leader election.
 - A heavy redaction pipeline (v0 stays read-only and local, so egress risk is minimal;
-  the redaction gate lands before anything is *sent* on behalf of the user).
+  the redaction gate lands before anything is _sent_ on behalf of the user).
 
 v0 proves the whole height of the system with the least code, and every piece of it is on
 the path to the real thing.
@@ -78,35 +78,53 @@ The phone client is three simple views (see the mockups in
 2. **Live mirror** — the running transcript rendered as typed parts: markdown, collapsible
    "thinking", tool-call cards, progress.
 3. **Answer a blocker** — when a session is awaiting input, the full question + options
-   render as a multiple-choice card (this is *view-only* in v0, *interactive* from v1).
+   render as a multiple-choice card (this is _view-only_ in v0, _interactive_ from v1).
 
-## Iteration path (each step is shippable)
+## Build plan: full-stack thin slices (see something every step)
 
-| Version | Adds | Maps to |
-|---|---|---|
-| **v0** | Read-only mirror: list → open → live → blocker shown. One tunnel. | M1 (observer), reframed as a slice |
-| **v1** | Answer a blocker from the phone (own-loop resolve or best-effort steer). | M3 (actuator) |
-| **v2** | Web Push on `awaiting-input`; installable PWA; resumable stream (`lastSeq`). | M2 |
-| **v3** | Multi-instance: leader-per-environment + rendezvous relay, `instanceId` labels. | M3/M4 (see Q6) |
-| **v4** | Hardening: mTLS/token auth, redaction gate, audit log, provenance end-to-end. | M4 |
-| **v5** | Packaging: private `.vsix`, PWA deploy behind the tunnel. | M5 |
+We do **not** build one layer to completion before the next. Each **iteration cuts
+vertically** through `protocol → extension → web` and ends in something you can open in a
+browser. The slices get _thicker_, never _taller_.
+
+**The trick that makes this fast:** reading transcripts is pure Node `fs` — it needs **no**
+`vscode`. So the observer + bridge run as a plain Node **dev harness**
+(`pnpm --filter @cloakcode/extension dev`) and the web app points at it. You get a working
+browser view on day one; the VS Code extension host later just _wraps and launches the same
+bridge_. No waiting for the extension host to see results.
+
+| Iter    | Vertical slice (protocol → extension → web)                                                                                                                                | You can demo                                                                      |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **I0**  | RPC envelope + `SessionSummary` (zod) · `TranscriptScanner` (port of `list_sessions.py`) + WS bridge serving `sessions.list` · React app rendering the session list        | Open the browser → **your real sessions appear**, instance-labelled, with status. |
+| **I1**  | `SessionPart` subset (markdown/thinking/toolCall) + `session.subscribe` stream · transcript parser (port of `inspect_session.py`) + `tail -f` follow · session detail view | Click a session → **it streams live**.                                            |
+| **I2**  | `confirmation` part · blocker signature (unmatched interactive tool) → `awaiting-input` · blocker card + "Needs input" badge                                               | A blocked session **shows the question + options** (read-only).                   |
+| **I3**  | resumable stream (`lastSeq`) + connection config · real `activate()` hosts the bridge, `CloakCode: Restart Bridge` + status bar · settings/connect screen, installable PWA | Runs **inside VS Code**; installable PWA reachable over your tunnel.              |
+| **I4+** | actuator (`session.respond`), tool-approval detection (Q4), Web Push, multi-instance relay, redaction + mTLS                                                               | Answer blockers remotely; hardened, multi-environment.                            |
+
+Each iteration is a natural commit (or a few). The dependency direction still holds
+(`protocol` first within a slice), but we never build a layer taller than the current slice
+needs.
 
 ## Keeping it clean while moving fast
 
-Going fast does **not** mean going messy. Two cheap rules keep v0 from becoming debt:
+Going fast does **not** mean going messy. Two cheap rules keep the skeleton from becoming
+debt:
 
 - **Pure core stays pure and tested.** The transcript→`SessionPart` normalizer and the
-  blocker detector live as pure functions (`@cloakcode/protocol` shapes, tested without an
-  extension host). The WS server + web page are a thin shell around them.
-- **Respect the seams now.** Only `@cloakcode/extension` touches `vscode`; shared types come
-  from `@cloakcode/protocol`; sessions are addressed as `(instanceId, sessionId)` even in v0
-  (single instance for now) so multi-instance drops in later without repainting.
+  blocker detector are pure functions (typed by `@cloakcode/protocol`, tested without an
+  extension host or a browser). The WS bridge and the React views are thin shells over them.
+- **Respect the seams now.** Only `@cloakcode/extension` touches `vscode` (and not until
+  I3); shared types come from `@cloakcode/protocol`; sessions are addressed as
+  `(instanceId, sessionId)` from I0 (single instance for now) so multi-instance drops in
+  later without repainting.
 
-## Open choices to confirm
+## Decisions locked in
 
-- **v0 client**: plain single HTML page first (fastest), or start directly in the React/Vite
-  PWA? (Leaning: plain page for v0, migrate to the PWA at v2.)
-- **Mockup direction**: dark, Copilot-Chat-like styling (what the mockups show) — thumbs
-  up, or a different look?
-- **Tunnel for v0**: assume Tailscale/SSH you already run, or should v0 document a specific
-  one?
+- **Client**: the React/Vite **PWA** from I0 (per the approved mockups) — not a throwaway
+  HTML page. Responsive phone→desktop, device-driven light/dark.
+- **Look**: the dark/light Copilot-Chat styling in [`mockups/index.html`](mockups/index.html).
+- **Dev loop**: Node dev harness for the bridge until I3; extension host wraps it after.
+
+## Still to confirm
+
+- **Tunnel**: assume a Tailscale/SSH tunnel you already run, or should the docs pin a
+  specific one for I3?
