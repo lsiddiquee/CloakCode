@@ -219,6 +219,7 @@ surface for a **live steer/input channel** and is the first build-time investiga
 | Open/view a session transcript        | ✅ proven  | stream its JSONL (read-only)                                      |
 | Track a blocker (multiple-choice)     | ✅ proven  | unmatched interactive `tool.execution_start` by `toolCallId`      |
 | Surface the blocker richly            | ✅ proven  | full question+options in event `arguments`                        |
+| Detect a tool-approval blocker (run/edit) | ❔ unverified | likely an unmatched **action-tool** `start` (e.g. `run_in_terminal`); the narrow interactive-hint list misses it — see Q4 |
 | Access Copilot models                 | ✅ (API)   | `vscode.lm.selectChatModels({vendor:'copilot'})`                  |
 | Answer / send to a session            | 🔶 partial | queue-injection works when busy; steer/own-loop for deterministic |
 | Resume a dormant (idle) session       | ❌         | needs the session loaded in a live window + actuator              |

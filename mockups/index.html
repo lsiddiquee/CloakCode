@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>CloakCode — mockups</title>
+    <style>
+      /* ---- Dark palette (default fallback) ---- */
+      :root {
+        --bg: #0d1117;
+        --surface: #161b22;
+        --elevated: #21262d;
+        --border: #30363d;
+        --text: #e6edf3;
+        --muted: #8b949e;
+        --accent: #2f81f7;
+        --green: #3fb950;
+        --amber: #d29922;
+        --red: #f85149;
+        --purple: #bc8cff;
+        --shadow: rgba(0, 0, 0, 0.7);
+        --page-grad: #12203a;
+      }
+      /* ---- Light palette ---- */
+      :root[data-theme="light"] {
+        --bg: #ffffff;
+        --surface: #f6f8fa;
+        --elevated: #eaeef2;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --muted: #656d76;
+        --accent: #0969da;
+        --green: #1a7f37;
+        --amber: #9a6700;
+        --red: #cf222e;
+        --purple: #8250df;
+        --shadow: rgba(140, 149, 159, 0.35);
+        --page-grad: #dbeafe;
+      }
+      /* ---- Device-driven default (Auto): follow the OS ---- */
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) {
+          --bg: #ffffff;
+          --surface: #f6f8fa;
+          --elevated: #eaeef2;
+          --border: #d0d7de;
+          --text: #1f2328;
+          --muted: #656d76;
+          --accent: #0969da;
+          --green: #1a7f37;
+          --amber: #9a6700;
+          --red: #cf222e;
+          --purple: #8250df;
+          --shadow: rgba(140, 149, 159, 0.35);
+          --page-grad: #dbeafe;
+        }
+      }
+
+      :root {
+        --radius: 14px;
+        --font:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(
+            1200px 800px at 50% -10%,
+            var(--page-grad) 0%,
+            var(--bg) 55%
+          );
+        color: var(--text);
+        font-family: var(--font);
+        -webkit-font-smoothing: antialiased;
+        transition:
+          background 0.2s,
+          color 0.2s;
+      }
+      header.page {
+        text-align: center;
+        padding: 40px 20px 8px;
+      }
+      header.page h1 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: 0.3px;
+      }
+      header.page p {
+        margin: 8px auto 0;
+        color: var(--muted);
+        max-width: 660px;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      .badge-row {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin: 16px 0 4px;
+      }
+      .pill {
+        font-size: 11px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: var(--surface);
+      }
+      .theme-toggle {
+        display: inline-flex;
+        margin: 18px auto 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+      .theme-toggle button {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12.5px;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-family: var(--font);
+      }
+      .theme-toggle button[aria-pressed="true"] {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .section-title {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        margin: 40px 0 -6px;
+      }
+
+      .stage {
+        display: flex;
+        gap: 28px;
+        justify-content: center;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        padding: 28px 20px 20px;
+      }
+      .frame {
+        width: 340px;
+        max-width: 92vw;
+      }
+      .frame > .label {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .phone {
+        position: relative;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 34px;
+        padding: 12px;
+        box-shadow: 0 30px 60px -20px var(--shadow);
+        height: 700px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .notch {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 120px;
+        height: 22px;
+        background: var(--elevated);
+        border-radius: 0 0 14px 14px;
+        z-index: 5;
+      }
+      .screen {
+        flex: 1;
+        background: var(--bg);
+        border-radius: 24px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+      .screen::-webkit-scrollbar {
+        width: 0;
+      }
+
+      /* App bar */
+      .appbar {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 22px 16px 12px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+      }
+      .appbar.flush {
+        padding-top: 14px;
+      }
+      .appbar .title {
+        font-weight: 600;
+        font-size: 16px;
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .appbar .sub {
+        font-size: 11px;
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .icon-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+        font-size: 14px;
+        flex: none;
+      }
+      .conn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .dot.green {
+        background: var(--green);
+        box-shadow: 0 0 8px var(--green);
+      }
+      .dot.amber {
+        background: var(--amber);
+        box-shadow: 0 0 8px var(--amber);
+      }
+      .dot.grey {
+        background: #6e7681;
+      }
+      .dot.red {
+        background: var(--red);
+        box-shadow: 0 0 8px var(--red);
+      }
+
+      .content {
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      /* Session list */
+      .group-label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        margin: 8px 4px 2px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .env-tag {
+        font-size: 10px;
+        color: var(--purple);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 1px 6px;
+        background: color-mix(in srgb, var(--purple) 10%, transparent);
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        cursor: pointer;
+      }
+      .row.blocked {
+        border-color: var(--amber);
+        background: color-mix(in srgb, var(--amber) 9%, var(--surface));
+      }
+      .row.sel {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent) inset;
+      }
+      .row .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .row .name {
+        font-size: 14px;
+        font-weight: 550;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row .meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 4px;
+        display: flex;
+        gap: 10px;
+      }
+      .needs {
+        font-size: 10px;
+        font-weight: 600;
+        color: #fff;
+        background: var(--amber);
+        border-radius: 6px;
+        padding: 2px 7px;
+        align-self: center;
+      }
+      .chev {
+        color: var(--muted);
+        align-self: center;
+      }
+
+      /* Transcript parts */
+      .turn-label {
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin: 6px 2px 0;
+      }
+      .bubble-user {
+        align-self: flex-end;
+        max-width: 85%;
+        background: var(--accent);
+        color: #fff;
+        padding: 10px 12px;
+        border-radius: 14px 14px 4px 14px;
+        font-size: 13.5px;
+        line-height: 1.45;
+      }
+      .assistant {
+        font-size: 13.5px;
+        line-height: 1.5;
+        color: var(--text);
+        padding: 2px;
+      }
+      .assistant code {
+        font-family: var(--mono);
+        background: var(--elevated);
+        padding: 1px 5px;
+        border-radius: 5px;
+        font-size: 12px;
+      }
+      .thinking {
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        padding: 9px 11px;
+        color: var(--muted);
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card-tool {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .card-tool .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 11px;
+        font-size: 12.5px;
+      }
+      .card-tool .head .tname {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text);
+        flex: 1;
+      }
+      .card-tool .status {
+        font-size: 10.5px;
+        padding: 2px 7px;
+        border-radius: 6px;
+      }
+      .status.running {
+        color: var(--amber);
+        border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+      }
+      .status.done {
+        color: var(--green);
+        border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+      }
+      .card-tool .out {
+        border-top: 1px solid var(--border);
+        padding: 9px 11px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        white-space: pre-wrap;
+      }
+      .spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid color-mix(in srgb, var(--muted) 30%, transparent);
+        border-top-color: var(--amber);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+        flex: none;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Blocker / approval cards */
+      .blocker {
+        border: 1px solid var(--amber);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--amber) 12%, var(--surface));
+        padding: 14px;
+      }
+      .blocker.approve {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      }
+      .blocker .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--amber);
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        margin-bottom: 8px;
+      }
+      .blocker.approve .tag {
+        color: var(--accent);
+      }
+      .blocker .q {
+        font-size: 14.5px;
+        font-weight: 600;
+        line-height: 1.4;
+        margin-bottom: 12px;
+      }
+      .cmd {
+        font-family: var(--mono);
+        font-size: 12px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 10px 11px;
+        color: var(--text);
+        white-space: pre-wrap;
+        margin-bottom: 6px;
+      }
+      .cmd .prompt {
+        color: var(--green);
+      }
+      .cwd {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .choice {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 11px 12px;
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        background: var(--bg);
+        margin-bottom: 8px;
+      }
+      .choice.reco {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent)
+          inset;
+      }
+      .choice .k {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: var(--elevated);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        color: var(--muted);
+        flex: none;
+        font-family: var(--mono);
+      }
+      .choice .l {
+        flex: 1;
+        min-width: 0;
+      }
+      .choice .l .lt {
+        font-size: 13.5px;
+        font-weight: 550;
+      }
+      .choice .l .ld {
+        font-size: 11.5px;
+        color: var(--muted);
+        margin-top: 2px;
+        line-height: 1.4;
+      }
+      .reco-badge {
+        font-size: 9.5px;
+        font-weight: 700;
+        color: #fff;
+        background: var(--accent);
+        border-radius: 5px;
+        padding: 2px 6px;
+        align-self: center;
+      }
+      .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .btn {
+        flex: 1;
+        text-align: center;
+        border-radius: 10px;
+        padding: 11px 10px;
+        font-weight: 600;
+        font-size: 13px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .btn.danger {
+        color: var(--red);
+        border-color: color-mix(in srgb, var(--red) 45%, transparent);
+      }
+      .btn.small {
+        flex: 0 0 auto;
+        padding: 11px 12px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+      .freeform {
+        margin-top: 6px;
+        display: flex;
+        gap: 8px;
+      }
+      .freeform input {
+        flex: 1;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        color: var(--text);
+        font-size: 13px;
+      }
+      .send {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        padding: 0 14px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .provenance {
+        margin-top: 10px;
+        font-size: 10.5px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .unproven {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--amber);
+        border: 1px dashed color-mix(in srgb, var(--amber) 50%, transparent);
+        border-radius: 9px;
+        padding: 8px 10px;
+        line-height: 1.4;
+      }
+
+      /* bottom nav */
+      .bottomnav {
+        display: flex;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .bottomnav div {
+        flex: 1;
+        text-align: center;
+        padding: 11px 0 14px;
+        font-size: 10.5px;
+        color: var(--muted);
+      }
+      .bottomnav div.active {
+        color: var(--accent);
+      }
+      .bottomnav .gi {
+        font-size: 16px;
+        display: block;
+        margin-bottom: 3px;
+      }
+
+      /* ---- Desktop / tablet responsive frame ---- */
+      .window {
+        width: min(1040px, 96vw);
+        margin: 0 auto;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 30px 60px -24px var(--shadow);
+      }
+      .winbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+      }
+      .traffic {
+        display: flex;
+        gap: 6px;
+      }
+      .traffic i {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        display: block;
+      }
+      .traffic i:nth-child(1) {
+        background: #ff5f57;
+      }
+      .traffic i:nth-child(2) {
+        background: #febc2e;
+      }
+      .traffic i:nth-child(3) {
+        background: #28c840;
+      }
+      .urlbar {
+        flex: 1;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 12px;
+        color: var(--muted);
+        padding: 6px 12px;
+        font-family: var(--mono);
+      }
+      .install {
+        font-size: 12px;
+        color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+        border-radius: 8px;
+        padding: 5px 10px;
+        white-space: nowrap;
+      }
+      .master-detail {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        min-height: 560px;
+      }
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: var(--surface);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        overflow-y: auto;
+      }
+      .sidebar .row {
+        background: var(--bg);
+      }
+      .detail {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .detail .content {
+        overflow-y: auto;
+      }
+      @media (max-width: 720px) {
+        .master-detail {
+          grid-template-columns: 1fr;
+        }
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--border);
+          max-height: 220px;
+        }
+      }
+
+      footer.page {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 34px 20px 56px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>CloakCode — client mockups</h1>
+      <p>
+        Responsive, installable <b>PWA</b>: phone, tablet, and desktop. Colours
+        follow your device (<b>Auto</b>) — override below to preview. Static
+        HTML for review only; nothing is wired up and no code leaves the
+        machine.
+      </p>
+      <div class="badge-row">
+        <span class="pill">responsive · phone → desktop</span>
+        <span class="pill">device-driven light/dark</span>
+        <span class="pill">installable PWA</span>
+        <span class="pill">instance-labelled sessions</span>
+      </div>
+      <div
+        class="theme-toggle"
+        role="group"
+        aria-label="Theme"
+        id="themeToggle"
+      >
+        <button data-theme-choice="auto" aria-pressed="true">Auto</button>
+        <button data-theme-choice="light" aria-pressed="false">Light</button>
+        <button data-theme-choice="dark" aria-pressed="false">Dark</button>
+      </div>
+    </header>
+
+    <div class="section-title">Phone</div>
+    <div class="stage">
+      <!-- ============ SCREEN 1: SESSIONS ============ -->
+      <div class="frame">
+        <div class="label">1 · Sessions</div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="appbar">
+              <div class="title">
+                CloakCode
+                <div class="sub">4 sessions · 1 needs input</div>
+              </div>
+              <div class="conn"><span class="dot green"></span> connected</div>
+            </div>
+            <div class="content">
+              <div class="group-label">
+                myrepo <span class="env-tag">dev-container</span>
+              </div>
+              <div class="row blocked">
+                <span class="dot amber" style="margin-top: 4px"></span>
+                <div class="body">
+                  <div class="name">Refactor auth middleware</div>
+                  <div class="meta">
+                    <span>12 turns</span><span>·</span><span>blocked 3m</span>
+                  </div>
+                </div>
+                <span class="needs">Needs input</span>
+              </div>
+              <div class="row">
+                <span class="dot green" style="margin-top: 4px"></span>
+                <div class="body">
+                  <div class="name">Add pagination to results API</div>
+                  <div class="meta">
+                    <span>7 turns</span><span>·</span><span>active</span>
+                  </div>
+                </div>
+                <span class="chev">›</span>
+              </div>
+              <div class="group-label" style="margin-top: 14px">
+                Ubuntu <span class="env-tag">wsl</span>
+              </div>
+              <div class="row">
+                <span class="dot grey" style="margin-top: 4px"></span>
+                <div class="body">
+                  <div class="name">Fix flaky e2e test</div>
+                  <div class="meta">
+                    <span>23 turns</span><span>·</span><span>idle 2h</span>
+                  </div>
+                </div>
+                <span class="chev">›</span>
+              </div>
+              <div class="row">
+                <span class="dot grey" style="margin-top: 4px"></span>
+                <div class="body">
+                  <div class="name">Upgrade to Vite 6</div>
+                  <div class="meta">
+                    <span>4 turns</span><span>·</span><span>idle 1d</span>
+                  </div>
+                </div>
+                <span class="chev">›</span>
+              </div>
+            </div>
+          </div>
+          <div class="bottomnav">
+            <div class="active"><span class="gi">▤</span>Sessions</div>
+            <div><span class="gi">◎</span>Activity</div>
+            <div><span class="gi">⚙</span>Settings</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SCREEN 2: LIVE MIRROR ============ -->
+      <div class="frame">
+        <div class="label">2 · Live mirror</div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="appbar">
+              <div class="icon-btn">‹</div>
+              <div class="title">
+                Refactor auth middleware
+                <div class="sub">myrepo · dev-container</div>
+              </div>
+              <div class="conn"><span class="dot amber"></span> blocked</div>
+            </div>
+            <div class="content">
+              <div class="turn-label">You</div>
+              <div class="bubble-user">
+                Refactor the auth middleware to use the new token service and
+                keep the tests green.
+              </div>
+              <div class="turn-label">Copilot</div>
+              <div class="thinking">
+                <span>▸</span> Thinking — planning the change across 3 files…
+              </div>
+              <div class="assistant">
+                I'll switch <code>authMiddleware</code> to
+                <code>TokenService.verify()</code> and update the affected
+                tests. Reading the current implementation first.
+              </div>
+              <div class="card-tool">
+                <div class="head">
+                  <span>🔧</span><span class="tname">read_file</span>
+                  <span class="status done">done</span>
+                </div>
+                <div class="out">src/auth/middleware.ts · 1–48</div>
+              </div>
+              <div class="card-tool">
+                <div class="head">
+                  <span>🔧</span><span class="tname">apply_patch</span>
+                  <span class="status done">done</span>
+                </div>
+                <div class="out">+18 −11 · src/auth/middleware.ts</div>
+              </div>
+              <div class="card-tool">
+                <div class="head">
+                  <span class="spinner"></span
+                  ><span class="tname">run_tests</span>
+                  <span class="status running">running</span>
+                </div>
+                <div class="out">pnpm --filter @app/api test …</div>
+              </div>
+              <div class="assistant" style="color: var(--muted)">
+                Waiting on your confirmation below to continue ↓
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SCREEN 3: BLOCKER (multiple choice) ============ -->
+      <div class="frame">
+        <div class="label">3 · Answer a blocker</div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="appbar">
+              <div class="icon-btn">‹</div>
+              <div class="title">
+                Refactor auth middleware
+                <div class="sub">awaiting input · 3m</div>
+              </div>
+              <div class="conn"><span class="dot amber"></span> blocked</div>
+            </div>
+            <div class="content">
+              <div class="blocker">
+                <span class="tag">
+                  <span class="dot amber"></span> Needs your input
+                </span>
+                <div class="q">
+                  The new token service changes the error contract. How should
+                  expired tokens be handled?
+                </div>
+                <div class="choice reco">
+                  <span class="k">1</span>
+                  <div class="l">
+                    <div class="lt">
+                      Return 401 with <code>token_expired</code>
+                    </div>
+                    <div class="ld">
+                      Matches the existing client retry logic. Recommended.
+                    </div>
+                  </div>
+                  <span class="reco-badge">REC</span>
+                </div>
+                <div class="choice">
+                  <span class="k">2</span>
+                  <div class="l">
+                    <div class="lt">Silently refresh, then retry</div>
+                    <div class="ld">
+                      Transparent to callers but hides auth failures.
+                    </div>
+                  </div>
+                </div>
+                <div class="choice">
+                  <span class="k">3</span>
+                  <div class="l">
+                    <div class="lt">Throw and let the caller decide</div>
+                    <div class="ld">
+                      Most flexible; more caller boilerplate.
+                    </div>
+                  </div>
+                </div>
+                <div class="freeform">
+                  <input placeholder="Or type a different instruction…" />
+                  <button class="send">Send</button>
+                </div>
+                <div class="provenance">
+                  <span class="dot green"></span> Sent as
+                  <b style="color: var(--text)">&nbsp;remote-operator</b>
+                  &nbsp;· tagged &amp; auditable
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SCREEN 4: TOOL-CALL CONFIRMATION ============ -->
+      <div class="frame">
+        <div class="label">4 · Tool-call confirmation</div>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="screen">
+            <div class="appbar">
+              <div class="icon-btn">‹</div>
+              <div class="title">
+                Refactor auth middleware
+                <div class="sub">awaiting approval</div>
+              </div>
+              <div class="conn"><span class="dot amber"></span> blocked</div>
+            </div>
+            <div class="content">
+              <div class="blocker approve">
+                <span class="tag">
+                  <span class="dot amber"></span> Allow terminal command?
+                </span>
+                <div class="q" style="font-size: 13.5px; font-weight: 550">
+                  Copilot wants to run a command as part of the agent loop:
+                </div>
+                <div class="cmd">
+                  <span class="prompt">$</span> pnpm --filter @app/api test
+                </div>
+                <div class="cwd">in myrepo · /workspaces/app/api</div>
+                <div class="btn-row">
+                  <div class="btn primary">Allow once</div>
+                  <div class="btn danger">Reject</div>
+                </div>
+                <div class="btn-row" style="margin-top: 8px">
+                  <div class="btn small" style="flex: 1">
+                    Always allow <code>pnpm test</code> this session
+                  </div>
+                </div>
+                <div class="provenance">
+                  <span class="dot green"></span> Approval sent as
+                  <b style="color: var(--text)">&nbsp;remote-operator</b>
+                  &nbsp;· tagged &amp; auditable
+                </div>
+                <div class="unproven">
+                  ⚠︎ Observability of this prompt is <b>unproven</b> (research
+                  Q4): terminal/edit approvals may not log like
+                  <code>vscode_askQuestions</code>. This screen is the target
+                  UX; detection is being verified before it ships.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ DESKTOP / TABLET ============ -->
+    <div class="section-title">Desktop / tablet · same PWA</div>
+    <div class="stage" style="padding-top: 22px">
+      <div class="window">
+        <div class="winbar">
+          <div class="traffic"><i></i><i></i><i></i></div>
+          <div class="urlbar">cloakcode.your-tunnel.internal</div>
+          <div class="install">⤓ Install app</div>
+        </div>
+        <div class="master-detail">
+          <div class="sidebar">
+            <div class="group-label" style="margin-top: 0">
+              myrepo <span class="env-tag">dev-container</span>
+            </div>
+            <div class="row blocked sel">
+              <span class="dot amber" style="margin-top: 4px"></span>
+              <div class="body">
+                <div class="name">Refactor auth middleware</div>
+                <div class="meta"><span>12 turns</span><span>blocked 3m</span></div>
+              </div>
+              <span class="needs">!</span>
+            </div>
+            <div class="row">
+              <span class="dot green" style="margin-top: 4px"></span>
+              <div class="body">
+                <div class="name">Add pagination to API</div>
+                <div class="meta"><span>7 turns</span><span>active</span></div>
+              </div>
+            </div>
+            <div class="group-label">
+              Ubuntu <span class="env-tag">wsl</span>
+            </div>
+            <div class="row">
+              <span class="dot grey" style="margin-top: 4px"></span>
+              <div class="body">
+                <div class="name">Fix flaky e2e test</div>
+                <div class="meta"><span>23 turns</span><span>idle 2h</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="detail">
+            <div class="appbar flush">
+              <div class="title">
+                Refactor auth middleware
+                <div class="sub">myrepo · dev-container · awaiting input</div>
+              </div>
+              <div class="conn"><span class="dot amber"></span> blocked</div>
+            </div>
+            <div class="content">
+              <div class="turn-label">You</div>
+              <div class="bubble-user">
+                Refactor the auth middleware to use the new token service.
+              </div>
+              <div class="turn-label">Copilot</div>
+              <div class="assistant">
+                Updated <code>authMiddleware</code> and its tests. One decision
+                needed before I continue.
+              </div>
+              <div class="card-tool">
+                <div class="head">
+                  <span>🔧</span><span class="tname">apply_patch</span>
+                  <span class="status done">done</span>
+                </div>
+                <div class="out">+18 −11 · src/auth/middleware.ts</div>
+              </div>
+              <div class="blocker">
+                <span class="tag">
+                  <span class="dot amber"></span> Needs your input
+                </span>
+                <div class="q">
+                  How should expired tokens be handled by the new contract?
+                </div>
+                <div class="choice reco">
+                  <span class="k">1</span>
+                  <div class="l">
+                    <div class="lt">
+                      Return 401 with <code>token_expired</code>
+                    </div>
+                    <div class="ld">Matches existing client retry logic.</div>
+                  </div>
+                  <span class="reco-badge">REC</span>
+                </div>
+                <div class="choice">
+                  <span class="k">2</span>
+                  <div class="l">
+                    <div class="lt">Silently refresh, then retry</div>
+                    <div class="ld">Transparent but hides auth failures.</div>
+                  </div>
+                </div>
+                <div class="provenance">
+                  <span class="dot green"></span> Answer on desktop or phone —
+                  whichever is nearest resolves the loop.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="page">
+      Open <code>mockups/index.html</code> in any browser. Resize the window to
+      see the layout adapt; use the Auto / Light / Dark toggle to preview
+      theming.
+    </footer>
+
+    <script>
+      const toggle = document.getElementById("themeToggle");
+      toggle.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-theme-choice]");
+        if (!btn) return;
+        const choice = btn.dataset.themeChoice;
+        const root = document.documentElement;
+        if (choice === "auto") root.removeAttribute("data-theme");
+        else root.setAttribute("data-theme", choice);
+        toggle
+          .querySelectorAll("button")
+          .forEach((b) =>
+            b.setAttribute(
+              "aria-pressed",
+              String(b === btn),
+            ),
+          );
+      });
+    </script>
+  </body>
+</html>
