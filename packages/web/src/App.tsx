@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { BRIDGE_URL, fetchSessions } from "./bridge";
 import { statusLabel } from "./format";
+import { SessionView } from "./SessionView";
 
 type LoadState =
   | { kind: "loading" }
@@ -22,6 +23,7 @@ function groupByInstance(
 
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [selected, setSelected] = useState<SessionSummary | null>(null);
 
   async function load(): Promise<void> {
     setState({ kind: "loading" });
@@ -36,6 +38,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     void load();
   }, []);
+
+  if (selected) {
+    return <SessionView session={selected} onBack={() => setSelected(null)} />;
+  }
 
   const connected = state.kind === "ready";
   const blockedCount =
@@ -89,6 +95,7 @@ export function App(): JSX.Element {
                 <div
                   key={`${s.instanceId}:${s.sessionId}`}
                   className={`row ${s.status === "blocked" ? "blocked" : ""}`}
+                  onClick={() => setSelected(s)}
                 >
                   <span className={`dot ${dotClass(s.status)}`} />
                   <div className="body">

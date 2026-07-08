@@ -1,6 +1,8 @@
 import {
   rpcErrorSchema,
+  sessionSubscribeEventSchema,
   sessionsListResponseSchema,
+  type SessionEvent,
   type SessionSummary,
 } from "@cloakcode/protocol";
 
@@ -51,4 +53,53 @@ export function fetchSessions(url: string = BRIDGE_URL): Promise<SessionSummary[
       reject(new Error("cannot reach the bridge"));
     });
   });
+}
+
+/**
+ * Subscribe to a session's live event stream. Calls `onEvent` for each
+ * validated `SessionEvent`; returns an unsubscribe function that closes the
+ * socket. Resumable via `sinceSeq`.
+ */
+export function subscribeSession(
+  params: { instanceId: string; sessionId: string; sinceSeq?: number },
+  onEvent: (event: SessionEvent) => void,
+  onError: (message: string) => void = () => {},
+  url: string = BRIDGE_URL,
+): () => void {
+  const ws = new WebSocket(url);
+  const id = Math.random().toString(36).slice(2);
+
+  ws.addEventListener("open", () => {
+    ws.send(
+      JSON.stringify({
+        id,
+        op: "session.subscribe",
+        params: {
+          instanceId: params.instanceId,
+          sessionId: params.sessionId,
+          sinceSeq: params.sinceSeq ?? 0,
+        },
+      }),
+    );
+  });
+
+  ws.addEventListener("message", (ev) => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(String(ev.data));
+    } catch {
+      return;
+    }
+    const frame = sessionSubscribeEventSchema.safeParse(raw);
+    if (frame.success) {
+      onEvent(frame.data.event);
+      return;
+    }
+    const err = rpcErrorSchema.safeParse(raw);
+    if (err.success) onError(err.data.error.message);
+  });
+
+  ws.addEventListener("error", () => onError("connection lost"));
+
+  return () => ws.close();
 }

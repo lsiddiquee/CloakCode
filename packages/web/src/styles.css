@@ -191,3 +191,86 @@ body {
   font-size: 13px;
   cursor: pointer;
 }
+
+/* Session detail (transcript mirror). */
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  flex: none;
+}
+.transcript {
+  gap: 8px;
+}
+.turn-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 6px 2px 0;
+}
+.bubble-user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 14px 14px 4px 14px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.assistant {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  padding: 2px;
+  white-space: pre-wrap;
+}
+.thinking {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.card-tool {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.card-tool .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+}
+.card-tool .tname {
+  font-family:
+    "SF Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  flex: 1;
+}
+.card-tool .status {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.status.running {
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+}
+.status.done {
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+}
+.status.error {
+  color: #f85149;
+  border: 1px solid color-mix(in srgb, #f85149 45%, transparent);
+}
