@@ -2,6 +2,7 @@ import { useEffect, useReducer } from "react";
 import type { SessionEvent, SessionPart, SessionSummary } from "@cloakcode/protocol";
 import { subscribeSession } from "./bridge";
 import { statusLabel } from "./format";
+import { Markdown } from "./Markdown";
 
 interface ViewState {
   parts: SessionPart[];
@@ -90,7 +91,7 @@ function Part({ part }: { part: SessionPart }): JSX.Element {
         </div>
       );
     case "markdown":
-      return <div className="assistant">{part.text}</div>;
+      return <Markdown text={part.text} />;
     case "toolCall":
       return (
         <div className="card-tool">

@@ -6,16 +6,28 @@ import {
   type SessionSummary,
 } from "@cloakcode/protocol";
 
-/** Default localhost bridge; override via VITE_BRIDGE_URL (e.g. a tunnel) at I3. */
-export const BRIDGE_URL: string =
-  (import.meta.env["VITE_BRIDGE_URL"] as string | undefined) ??
-  "ws://localhost:7801";
+/**
+ * Resolve the bridge WebSocket URL. Defaults to a **same-origin** `/bridge`
+ * path (Vite proxies it in dev; the extension host will in prod), so the PWA
+ * connects to whatever host it was served from — localhost, a LAN IP, or a
+ * tunnel — over a single port, using `wss` when the page is served over https.
+ * Override with `VITE_BRIDGE_URL` for a direct/custom endpoint.
+ */
+export function bridgeUrl(): string {
+  const override = import.meta.env["VITE_BRIDGE_URL"] as string | undefined;
+  if (override) return override;
+  const loc = window.location;
+  const proto = loc.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${loc.host}/bridge`;
+}
 
 /**
  * One-shot `sessions.list` over the bridge WebSocket. Validates the response
  * with the shared protocol schema so nothing untyped reaches the UI.
  */
-export function fetchSessions(url: string = BRIDGE_URL): Promise<SessionSummary[]> {
+export function fetchSessions(
+  url: string = bridgeUrl(),
+): Promise<SessionSummary[]> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const id = Math.random().toString(36).slice(2);
@@ -64,7 +76,7 @@ export function subscribeSession(
   params: { instanceId: string; sessionId: string; sinceSeq?: number },
   onEvent: (event: SessionEvent) => void,
   onError: (message: string) => void = () => {},
-  url: string = BRIDGE_URL,
+  url: string = bridgeUrl(),
 ): () => void {
   const ws = new WebSocket(url);
   const id = Math.random().toString(36).slice(2);

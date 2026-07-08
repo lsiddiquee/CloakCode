@@ -41,17 +41,17 @@
       }
     }
   },
-  // 7801 = local bridge WebSocket/HTTP; 5173 = Vite PWA dev server (see docs/03-architecture.md).
+  // 7801 = local bridge WebSocket/HTTP; 5280 = Vite PWA dev server (see docs/03-architecture.md).
   "forwardPorts": [
     7801,
-    5173
+    5280
   ],
   "portsAttributes": {
     "7801": {
       "label": "CloakCode Bridge",
       "onAutoForward": "silent"
     },
-    "5173": {
+    "5280": {
       "label": "CloakCode PWA (Vite)",
       "onAutoForward": "notify"
     }

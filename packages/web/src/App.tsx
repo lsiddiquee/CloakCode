@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
-import { BRIDGE_URL, fetchSessions } from "./bridge";
+import { bridgeUrl, fetchSessions } from "./bridge";
 import { statusLabel } from "./format";
 import { SessionView } from "./SessionView";
 
@@ -75,7 +75,7 @@ export function App(): JSX.Element {
 
         {state.kind === "error" && (
           <div className="empty">
-            <p className="hint">Can’t reach the bridge at {BRIDGE_URL}.</p>
+            <p className="hint">Can’t reach the bridge at {bridgeUrl()}.</p>
             <p className="hint dim">{state.message}</p>
             <button className="btn" onClick={() => void load()}>
               Try again
