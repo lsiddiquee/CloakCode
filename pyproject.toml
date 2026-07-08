@@ -1,0 +1,40 @@
+[tool.poetry]
+# Poetry manages the Python dev environment for CloakCode's research/observer tooling
+# (the session lister + transcript/blocker inspector under research/). The runtime
+# scripts are deliberately stdlib-only so they run anywhere; Poetry provides the dev
+# toolchain (ruff, mypy, pytest) in an isolated in-project .venv.
+name = "cloakcode-research"
+version = "0.0.0"
+description = "Python research/observer tooling for CloakCode: session lister + transcript/blocker inspector."
+authors = ["CloakCode"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.6.0"
+mypy = "^1.11.0"
+pytest = "^8.3.0"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["research"]
+python_files = "test_*.py"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,4 @@
+# CloakCode pnpm workspace.
+# Each package is a focused unit; see docs/03-architecture.md for the full breakdown.
+packages:
+  - packages/*

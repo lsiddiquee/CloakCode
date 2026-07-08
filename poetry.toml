@@ -1,0 +1,5 @@
+# Poetry config for the CloakCode Python tooling (research/observer PoCs).
+# In-project .venv keeps the environment isolated and discoverable by VS Code.
+[virtualenvs]
+create = true
+in-project = true

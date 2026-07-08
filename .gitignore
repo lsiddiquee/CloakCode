@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Python
+.venv/
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Build output
+dist/
+out/
+*.tsbuildinfo
+
+# VS Code extension packaging / testing
+*.vsix
+.vscode-test/
+
+# Env / secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,14 @@
+{
+  "name": "@cloakcode/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phone-first React + Vite PWA client. Renders the live session mirror and answers blockers remotely.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run"
+  }
+}

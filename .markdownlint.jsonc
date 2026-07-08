@@ -1,0 +1,10 @@
+{
+  // CloakCode Markdown conventions. The docs deliberately hard-wrap prose at
+  // ~90–95 columns and use compact tables, so the two pure *style* rules that
+  // conflict with that choice are disabled. All structural rules stay on.
+  "default": true,
+  // Line length is a style preference here (prose wraps ~90–95 cols).
+  "MD013": false,
+  // Allow compact table pipes (no mandated inner padding).
+  "MD060": false
+}

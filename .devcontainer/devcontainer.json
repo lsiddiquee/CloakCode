@@ -1,0 +1,75 @@
+{
+  // CloakCode dev container.
+  // Pure TypeScript/Node monorepo: VS Code extension + local bridge + React PWA client.
+  "name": "CloakCode",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24-bookworm",
+  // Fixed workspace location regardless of the host folder name. This keeps every
+  // absolute path (scripts, tasks, docs) stable no matter what the source folder is called.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/cloakcode,type=bind",
+  "workspaceFolder": "/workspaces/cloakcode",
+  "features": {
+    // gh CLI is handy for release/packaging workflows; kept lean otherwise.
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    },
+    // Python 3.12 for the research/observer tooling under research/ (Poetry-managed).
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  // Persisted cache volume: survives rebuilds. bash history + npm/pnpm stores +
+  // corepack + Playwright browsers all live here (see remoteEnv below).
+  "mounts": [
+    "source=devcontainer-cache-cloakcode,target=/.devcontainercache,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.extension-test-runner",
+        "EditorConfig.EditorConfig",
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      }
+    }
+  },
+  // 7801 = local bridge WebSocket/HTTP; 5173 = Vite PWA dev server (see docs/03-architecture.md).
+  "forwardPorts": [
+    7801,
+    5173
+  ],
+  "portsAttributes": {
+    "7801": {
+      "label": "CloakCode Bridge",
+      "onAutoForward": "silent"
+    },
+    "5173": {
+      "label": "CloakCode PWA (Vite)",
+      "onAutoForward": "notify"
+    }
+  },
+  // Persisted-cache wiring. The named volume (mounted at /.devcontainercache) survives
+  // rebuilds; point bash history + package-manager stores at it so rebuilds stay warm.
+  "remoteEnv": {
+    "PROMPT_COMMAND": "history -a",
+    "HISTFILE": "/.devcontainercache/.bash_history",
+    "NPM_CONFIG_CACHE": "/.devcontainercache/npm-cache",
+    "PNPM_HOME": "/.devcontainercache/pnpm",
+    "PNPM_STORE_DIR": "/.devcontainercache/pnpm-store",
+    "COREPACK_HOME": "/.devcontainercache/corepack",
+    "PLAYWRIGHT_BROWSERS_PATH": "/.devcontainercache/ms-playwright",
+    "PIP_CACHE_DIR": "/.devcontainercache/pip-cache",
+    "POETRY_CACHE_DIR": "/.devcontainercache/poetry-cache",
+    "PRE_COMMIT_HOME": "/.devcontainercache/pre-commit"
+  },
+  "remoteUser": "node",
+  "postCreateCommand": "bash .devcontainer/post-create.sh"
+}

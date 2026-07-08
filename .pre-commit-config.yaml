@@ -1,0 +1,111 @@
+# =============================================================================
+# CloakCode pre-commit hooks — repo-wide git-hook manager for this polyglot
+# (TypeScript/pnpm monorepo + Python research tooling + docs) repo.
+#
+# Install / run:
+#   - The dev container AUTO-INSTALLS these hooks: post-create.sh runs
+#     `pre-commit install --install-hooks --hook-type pre-commit --hook-type commit-msg`.
+#     Hook environments are cached in PRE_COMMIT_HOME (/.devcontainercache/pre-commit)
+#     so they survive rebuilds.
+#   - Run against everything on demand:  pre-commit run --all-files
+#   - Bump pinned revisions with:        pre-commit autoupdate
+#
+# RESILIENCE: every hook is scoped by file pattern, so a hook only fires when
+# matching files are staged. The TypeScript packages are still stubs (no ESLint
+# config / node_modules yet), so the ESLint/Prettier LOCAL hooks NO-OP cleanly
+# until their toolchain exists. Hygiene, secret-scan, ruff (Python), markdownlint,
+# and commit-msg hooks work today.
+# =============================================================================
+
+minimum_pre_commit_version: "3.5.0"
+
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Repo hygiene — fast, language-agnostic sanity checks.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Markdown trailing whitespace is meaningful (two spaces = hard break).
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: check-yaml
+      - id: check-json
+        # JSONC (comments / trailing commas) is not strict JSON — exclude those.
+        exclude: '(^\.devcontainer/devcontainer\.json$|(^|/)tsconfig.*\.json$|^\.vscode/)'
+
+  # ---------------------------------------------------------------------------
+  # Secret scanning — critical for CloakCode's security posture (a bridge that
+  # touches prompts/context must never leak keys/tokens/credentials).
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # ---------------------------------------------------------------------------
+  # Python — lint + format the research/observer tooling with ruff.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # ---------------------------------------------------------------------------
+  # Markdown — lint AND auto-fix staged Markdown repo-wide. markdownlint-cli2
+  # bundles its own Node tool, so it needs NO repo dependencies.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
+        exclude: '(^|/)node_modules/'
+
+  # ---------------------------------------------------------------------------
+  # Conventional Commits — enforced on the commit message (commit-msg hook).
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+
+  # ---------------------------------------------------------------------------
+  # Local toolchain hooks (language: system). These call tools that only exist
+  # once the pnpm workspace is installed, and NO-OP gracefully before then, so
+  # they are safe on a fresh clone / while packages are still stubs.
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # ESLint — lint + auto-fix staged TS/JS across packages/. Skips cleanly
+      # until the root node_modules (with eslint) are installed.
+      - id: eslint
+        name: ESLint (packages)
+        language: system
+        files: '^packages/.*\.(ts|tsx|js|jsx)$'
+        entry: >-
+          bash -c 'command -v node >/dev/null 2>&1 || { echo "eslint: node not found — skipping"; exit 0; };
+          [ -x node_modules/.bin/eslint ] || { echo "eslint: not installed yet — skipping"; exit 0; };
+          node_modules/.bin/eslint --fix "$@"' --
+
+      # Prettier — auto-format staged front-end/source files across packages/.
+      # Skips cleanly until node_modules (with prettier) are installed.
+      - id: prettier
+        name: Prettier (packages)
+        language: system
+        files: '^packages/.*\.(ts|tsx|js|jsx|json|css|scss|html)$'
+        entry: >-
+          bash -c 'command -v node >/dev/null 2>&1 || { echo "prettier: node not found — skipping"; exit 0; };
+          [ -x node_modules/.bin/prettier ] || { echo "prettier: not installed yet — skipping"; exit 0; };
+          node_modules/.bin/prettier --write "$@"' --

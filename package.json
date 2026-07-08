@@ -1,0 +1,19 @@
+{
+  "name": "cloakcode",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-to-remote bridge to observe and drive GitHub Copilot from a phone/desktop with zero code-sync.",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

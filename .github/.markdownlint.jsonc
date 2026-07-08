@@ -1,0 +1,9 @@
+{
+  // Scoped overrides for the VS Code customization files under .github/
+  // (*.prompt.md, *.agent.md, copilot-instructions.md). These are tool files
+  // driven by YAML frontmatter / prose and intentionally do not open with an
+  // H1 heading, so the first-line-heading rule does not apply here. The root
+  // conventions (MD013/MD060 disabled) are inherited via "extends".
+  "extends": "../.markdownlint.jsonc",
+  "MD041": false
+}
