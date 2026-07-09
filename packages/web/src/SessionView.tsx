@@ -5,7 +5,7 @@ import type {
   SessionSummary,
 } from "@cloakcode/protocol";
 import { subscribeSession } from "./bridge";
-import { statusLabel } from "./format";
+import { statusLabel, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
 
 interface ViewState {
@@ -131,7 +131,7 @@ function Part({
       return (
         <>
           <div className="turn-label">You</div>
-          <div className="bubble-user">{part.text}</div>
+          <Markdown text={part.text} className="bubble-user markdown-body" />
         </>
       );
     case "thinking":
@@ -142,15 +142,18 @@ function Part({
       );
     case "markdown":
       return <Markdown text={part.text} />;
-    case "toolCall":
+    case "toolCall": {
+      const summary = toolSummary(part.name, part.input);
       return (
-        <div className="card-tool">
+        <div className="card-tool" title={part.name}>
           <div className="head">
-            <span className="tname">{part.name}</span>
+            <span className="tlabel">{summary.label}</span>
+            {summary.detail && <span className="tdetail">{summary.detail}</span>}
             <span className={`status ${part.status}`}>{part.status}</span>
           </div>
         </div>
       );
+    }
     case "confirmation":
       return (
         <div className={`blocker ${resolved ? "resolved" : ""}`}>

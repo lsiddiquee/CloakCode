@@ -6,9 +6,15 @@ import remarkGfm from "remark-gfm";
  * default), so untrusted transcript text cannot inject markup — GFM covers
  * headings, lists, tables, code, and emphasis, which is what Copilot emits.
  */
-export function Markdown({ text }: { text: string }): JSX.Element {
+export function Markdown({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}): JSX.Element {
   return (
-    <div className="assistant markdown-body">
+    <div className={className ?? "assistant markdown-body"}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

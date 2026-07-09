@@ -326,6 +326,23 @@ body {
   background: var(--surface);
 }
 
+/* User message bubble renders markdown inside the blue bubble. */
+.bubble-user.markdown-body {
+  white-space: normal;
+}
+.bubble-user code {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.bubble-user a {
+  color: #fff;
+  text-decoration: underline;
+}
+.bubble-user pre {
+  background: rgba(0, 0, 0, 0.25);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
 .thinking {
   border: 1px dashed var(--border);
   border-radius: 10px;
@@ -349,6 +366,21 @@ body {
   font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
   flex: 1;
+}
+.card-tool .tlabel {
+  font-weight: 600;
+  font-size: 12.5px;
+  flex: none;
+}
+.card-tool .tdetail {
+  font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .card-tool .status {
   font-size: 10.5px;

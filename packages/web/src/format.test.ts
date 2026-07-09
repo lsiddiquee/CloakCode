@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { humanAge, statusLabel } from "./format";
+import { humanAge, statusLabel, toolSummary } from "./format";
 
 describe("humanAge", () => {
   it("formats seconds, minutes, hours, days", () => {
@@ -20,5 +20,56 @@ describe("statusLabel", () => {
     expect(statusLabel("active", 0)).toBe("active");
     expect(statusLabel("blocked", 180)).toBe("blocked 3m");
     expect(statusLabel("idle", 7200)).toBe("idle 2h");
+  });
+});
+
+describe("toolSummary", () => {
+  it("summarizes reads with line range", () => {
+    expect(
+      toolSummary("read_file", {
+        filePath: "src/auth/middleware.ts",
+        startLine: 1,
+        endLine: 48,
+      }),
+    ).toEqual({ label: "Read", detail: "middleware.ts (1–48)" });
+  });
+
+  it("summarizes edits by file name", () => {
+    expect(
+      toolSummary("replace_string_in_file", { filePath: "a/b/App.tsx" }),
+    ).toEqual({ label: "Edited", detail: "App.tsx" });
+  });
+
+  it("summarizes multi-edits (one file vs many)", () => {
+    expect(
+      toolSummary("multi_replace_string_in_file", {
+        replacements: [{ filePath: "x/App.tsx" }, { filePath: "x/App.tsx" }],
+      }),
+    ).toEqual({ label: "Edited", detail: "App.tsx" });
+    expect(
+      toolSummary("multi_replace_string_in_file", {
+        replacements: [{ filePath: "a.ts" }, { filePath: "b.ts" }],
+      }),
+    ).toEqual({ label: "Edited", detail: "2 files" });
+  });
+
+  it("summarizes terminal commands", () => {
+    expect(toolSummary("run_in_terminal", { command: "pnpm test" })).toEqual({
+      label: "Ran",
+      detail: "pnpm test",
+    });
+  });
+
+  it("parses a JSON-string input", () => {
+    expect(toolSummary("create_file", '{"filePath":"/tmp/x.txt"}')).toEqual({
+      label: "Created",
+      detail: "x.txt",
+    });
+  });
+
+  it("falls back to the raw tool name", () => {
+    expect(toolSummary("weird_custom_tool", {})).toEqual({
+      label: "weird_custom_tool",
+    });
   });
 });
