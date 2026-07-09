@@ -13,7 +13,7 @@
 | Q1 | Command IDs for **Steer with Message** / **Stop and Send** / **Add to Queue**? | "Steer" is the ideal remote blocker-answer primitive. | Inspect the desktop **client's** `workbench.desktop.main.js` (not on the server); or run inside a live window and dump chat commands. |
 | Q2 | Does the `@github/copilot` **agent-host SDK** expose a live input/steer channel? | Lighter-weight actuator than owning the whole loop. | Read `.../extensions/copilot/dist/extension.js` + `node_modules/@github/copilot/sdk/index.js` and `agent-host-config.json`. |
 | Q3 | Can a **prose-only** blocker (question ending a turn, no tool) be detected? | The one blocker class the observer currently misses. | Compare `assistant.turn_end` patterns; possibly infer via "open turn, quiet for N s." |
-| Q4 | Are UI-layer **tool-approval confirmations** (run terminal / apply edits) observable, and how? | The most common agent blocker. The current detector's interactive-hint list (`ask/question/confirm/input/elicit`) would **miss** an approval that surfaces as an unmatched **action-tool** start (e.g. `run_in_terminal`). | **Partially checked (2026-07-08).** The event vocabulary holds — no distinct approval event type; under **auto-approve**, `run_in_terminal`/edit tools log as ordinary matched `start`→`complete` (median ~2.1 s, all balanced). Still open: capture a transcript while an approval is **pending** (auto-approve off) to confirm whether it appears as an unmatched action-tool `start` vs. a separate signal — then broaden blocker detection accordingly. |
+| Q4 | Are UI-layer **tool-approval confirmations** observable **and answerable**? | The most common agent blocker. | **RESOLVED (2026-07-09).** Copilot Chat **hooks** fire `PreToolUse` for *every* tool (incl. `run_in_terminal`, `vscode_askQuestions`) with `{ session_id, transcript_path, tool_name, tool_input, tool_use_id }`; returning `allow`/`deny` approves/blocks it. Observe via the transcript (zero-config); **answer via an optional hook** routed by `session_id` (= the observer's sessionId). See M3. |
 | Q5 | Do **queued/steered** messages carry any structural marker? | Cleaner provenance for the actuator. | Inspect a session where steer/queue is used with known text. |
 | Q6 | How do **many concurrent instances** (dev containers, WSL distros, host) get discovered without port collision? | The extension runs in every window; `127.0.0.1` is not shared across environments, so a fixed port false-collides (WSL↔host) and can't cross namespaces (containers). | **Two-tier** (see [03 — Multi-instance topology](03-architecture.md#multi-instance-topology--discovery)): one leader observer **per environment** (lock file in `globalStorage`, since one `~/.vscode-server` User dir = all repos in that env), each leader **registers outbound** to a rendezvous relay that serves the union to the phone. Needs `instanceId` in the protocol (M1) + ephemeral bridge port. |
 
@@ -47,11 +47,21 @@ extension/Copilot tooling), monorepo skeleton, full docs, preserved research scr
 - `@cloakcode/web`: session list + live mirror, component-per-`SessionPart`, resumable
   stream (`lastSeq`), Web Push on `awaiting-input`, installable manifest.
 
-### M3 — Actuator
+### M3 — Actuator (optional, opt-in)
 
-- Resolve Q1/Q2. Implement `session.respond` for the owned loop (deterministic) and a
-  best-effort queue/steer path for stock sessions.
-- `@cloakcode/agent`: pausable tool-calling loop with confirmation gates via `vscode.lm`.
+- **Read never depends on this.** The observer (M1) is the zero-config baseline; the actuator
+  is a layered upgrade the user opts into.
+- Implement the **Copilot-hook actuator**: a CloakCode hook command (registered in its own
+  `.github/hooks/*.json`, agent-agnostic, never overwriting `.claude/`) that on `PreToolUse`
+  relays the pending to the phone — routed by `session_id` (= the observer's sessionId) — and
+  returns `allow`/`deny`. Deterministic remote **tool approval**, no proposed API, no extension
+  required. `session.respond` carries the answer bridge→hook.
+- **Pending validation:** confirm a hook can *block* long enough to await a phone answer
+  (its `timeout` config) and how Copilot behaves when exceeded.
+- Multiple-choice answering (`vscode_askQuestions`) and token streaming need **owning the loop**
+  (`@cloakcode/agent` via `vscode.lm`) — a later, user-selectable "live" mode.
+- Q1/Q2/Q5 (command-injection / steer / agent-host SDK) are **superseded** by the hook path
+  for approvals.
 
 ### M4 — Secure tunnel + hardening
 

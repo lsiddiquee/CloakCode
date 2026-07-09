@@ -5,12 +5,38 @@
 The research produced one clean architectural insight: the problem divides into two
 halves that are solved differently.
 
-- **Observer (read) — proven, universal.** Tail the on-disk transcripts, normalize to a
-  rich schema, stream to the phone. Detects blockers. Works for **stock** Copilot sessions.
-  No proposed API, no owning the loop.
-- **Actuator (write) — the build focus.** Answering/steering a session. Deterministic path
-  = CloakCode **owns the agent loop**; lighter path = queue/steer injection (unproven for
-  precise control).
+- **Observer (read) — proven, universal, zero-config.** Tail the on-disk transcripts,
+  normalize to a rich schema, stream to the phone. Detects blockers. Works for **stock**
+  Copilot sessions with **no setup, no proposed API, no owning the loop**. This is the
+  baseline, and it is **never gated on the actuator**.
+- **Actuator (write) — optional, opt-in.** Answering/approving a session. A transcript is an
+  append-only _read sink_, so answering needs a live channel _into_ the agent (you cannot
+  answer by writing to a log). The proven, supported path is **Copilot Chat hooks** (below).
+
+### The actuator is an optional upgrade — read never depends on it
+
+CloakCode is fully useful with the observer alone: list sessions, mirror them live, and
+**surface blockers on your phone** — all read-only and zero-config. Remote _answering_ is a
+separate capability layered on top:
+
+| Tier | Setup | You get |
+|---|---|---|
+| **Baseline** | none (reads files) | session list · live mirror · blocker **detection** |
+| **+ Actuator** | opt-in **Copilot hook** | remote tool **approval** (`allow`/`deny`) + real-time push |
+| **+ Owned loop** | later | token streaming · answering multiple-choice |
+
+**Hook mechanism (verified 2026-07-09 by probe).** Copilot Chat runs external **hook
+commands** (Claude-Code-compatible; configured in `.github/hooks/*.json`) at lifecycle/tool
+boundaries. A `PreToolUse` hook receives `{ session_id, transcript_path, tool_name,
+tool_input, tool_use_id }` on stdin _before_ a tool runs and returns
+`permissionDecision: allow | deny`. CloakCode's hook relays the pending to the phone — routed
+by `session_id`, which **equals the observer's sessionId** — and returns the human's answer:
+deterministic remote approval, **no proposed API and no VS Code extension required** (the hook
+is a plain command). It is **agent-agnostic** (the same contract works for Claude Code) and
+registered in CloakCode's **own** file, never overwriting the user's `.claude/` config.
+
+- _Boundary:_ hooks gate tools (`allow`/`deny`); they do **not** select an answer for a
+  multiple-choice `vscode_askQuestions` — that needs the owned-loop tier.
 
 ## Components
 
