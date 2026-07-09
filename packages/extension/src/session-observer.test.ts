@@ -58,7 +58,7 @@ describe("parseSessionEvents", () => {
     expect(events[4]).toMatchObject({ type: "updateStatus", status: "done" });
   });
 
-  it("maps an interactive tool call to a confirmation, resolved on complete", () => {
+  it("maps vscode_askQuestions (questions[]) to one confirmation per question, resolved on complete", () => {
     const content = jsonl([
       { type: "user.message", data: { content: "go" } },
       {
@@ -67,10 +67,21 @@ describe("parseSessionEvents", () => {
           toolCallId: "q1",
           toolName: "vscode_askQuestions",
           arguments: {
-            question: "Pick one",
-            options: [
-              { label: "A", detail: "first", recommended: true },
-              { label: "B" },
+            questions: [
+              {
+                header: "File name",
+                question: "Which file name?",
+                options: [
+                  { label: "a.txt", recommended: true },
+                  { label: "b.txt" },
+                ],
+                allowFreeformInput: true,
+              },
+              {
+                header: "Write mode",
+                question: "Overwrite or append?",
+                options: [{ label: "Overwrite", recommended: true }, { label: "Append" }],
+              },
             ],
           },
         },
@@ -82,19 +93,25 @@ describe("parseSessionEvents", () => {
     ]);
     const events = parseSessionEvents(content);
 
-    const confEvent = events[1];
-    if (confEvent?.type !== "append" || confEvent.part.kind !== "confirmation") {
-      throw new Error("expected a confirmation append");
+    const first = events[1];
+    const second = events[2];
+    if (
+      first?.type !== "append" ||
+      first.part.kind !== "confirmation" ||
+      second?.type !== "append" ||
+      second.part.kind !== "confirmation"
+    ) {
+      throw new Error("expected two confirmation appends");
     }
-    expect(confEvent.part.prompt).toBe("Pick one");
-    expect(confEvent.part.options).toHaveLength(2);
-    expect(confEvent.part.options[0]).toMatchObject({
-      label: "A",
-      detail: "first",
-      recommended: true,
-    });
+    expect(first.part.prompt).toBe("Which file name?");
+    expect(first.part.options).toHaveLength(2);
+    expect(first.part.options[0]).toMatchObject({ label: "a.txt", recommended: true });
+    expect(first.part.allowFreeform).toBe(true);
+    expect(second.part.prompt).toBe("Overwrite or append?");
 
-    expect(events[2]).toMatchObject({ type: "resolve", id: confEvent.part.id });
+    // Both confirmations resolve on the single tool.execution_complete.
+    expect(events[3]).toMatchObject({ type: "resolve", id: first.part.id });
+    expect(events[4]).toMatchObject({ type: "resolve", id: second.part.id });
   });
 
   it("matches a tool-call complete to its start by toolCallId", () => {

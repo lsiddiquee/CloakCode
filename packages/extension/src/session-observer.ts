@@ -39,27 +39,11 @@ function isInteractiveTool(toolName: unknown): boolean {
 }
 
 /**
- * Build a `confirmation` part from an interactive tool's `arguments`. Tolerant
- * of shape (the blocker payload carries the full question + options) — see
- * docs/02 §3.2.
+ * Extract `Choice[]` from a question's raw `options`. Tolerant of shape.
  */
-function toConfirmation(
-  id: string,
-  args: unknown,
-): Extract<SessionPart, { kind: "confirmation" }> {
-  const a = (typeof args === "object" && args ? args : {}) as Record<
-    string,
-    unknown
-  >;
-  const prompt = String(
-    a["question"] ?? a["prompt"] ?? a["message"] ?? a["title"] ?? "Confirm",
-  );
-  const rawOptions = Array.isArray(a["options"])
-    ? a["options"]
-    : Array.isArray(a["choices"])
-      ? a["choices"]
-      : [];
-  const options: Choice[] = rawOptions.map((o: unknown, i: number) => {
+function optionsFrom(rawOptions: unknown): Choice[] {
+  const arr = Array.isArray(rawOptions) ? rawOptions : [];
+  return arr.map((o: unknown, i: number) => {
     const oo = (typeof o === "object" && o ? o : {}) as Record<string, unknown>;
     const detailRaw = oo["detail"] ?? oo["description"];
     return {
@@ -71,7 +55,54 @@ function toConfirmation(
       ...(oo["recommended"] ? { recommended: true } : {}),
     };
   });
-  return { kind: "confirmation", id, prompt, options, allowFreeform: true };
+}
+
+type ConfirmationPart = Extract<SessionPart, { kind: "confirmation" }>;
+
+/**
+ * Build `confirmation` parts from an interactive tool's `arguments`. Real
+ * `vscode_askQuestions` sends a `questions[]` array (verified 2026-07-09) — one
+ * confirmation per question, ids `${baseId}-${i}`. Falls back to a single
+ * question/options shape. See docs/02 §3.2.
+ */
+function toConfirmations(baseId: string, args: unknown): ConfirmationPart[] {
+  const a = (typeof args === "object" && args ? args : {}) as Record<
+    string,
+    unknown
+  >;
+  const freeform = (r: Record<string, unknown>): boolean =>
+    r["allowFreeformInput"] === true || r["allowFreeform"] === true;
+
+  const questions = Array.isArray(a["questions"]) ? a["questions"] : null;
+  if (questions) {
+    return questions.map((q: unknown, i: number): ConfirmationPart => {
+      const qq = (typeof q === "object" && q ? q : {}) as Record<
+        string,
+        unknown
+      >;
+      return {
+        kind: "confirmation",
+        id: `${baseId}-${i}`,
+        prompt: String(
+          qq["question"] ?? qq["message"] ?? qq["header"] ?? qq["prompt"] ?? "Confirm",
+        ),
+        options: optionsFrom(qq["options"]),
+        ...(freeform(qq) ? { allowFreeform: true } : {}),
+      };
+    });
+  }
+
+  return [
+    {
+      kind: "confirmation",
+      id: baseId,
+      prompt: String(
+        a["question"] ?? a["prompt"] ?? a["message"] ?? a["title"] ?? "Confirm",
+      ),
+      options: optionsFrom(a["options"] ?? a["choices"]),
+      ...(freeform(a) ? { allowFreeform: true } : {}),
+    },
+  ];
 }
 
 /** Convert a transcript's JSONL body into the ordered session event log. */
@@ -86,8 +117,8 @@ export function parseSessionEvents(content: string): SessionEvent[] {
   const resolve = (id: string): void => {
     events.push({ type: "resolve", seq: events.length, id });
   };
-  /** toolCallIds whose start was an interactive (blocker) call. */
-  const interactiveIds = new Set<string>();
+  /** toolCallId -> the confirmation part ids emitted for it (interactive). */
+  const interactiveIds = new Map<string, string[]>();
 
   let userIdx = 0;
   let msgIdx = 0;
@@ -127,8 +158,12 @@ export function parseSessionEvents(content: string): SessionEvent[] {
       case "tool.execution_start": {
         const cid = String(data.toolCallId);
         if (isInteractiveTool(data.toolName)) {
-          interactiveIds.add(cid);
-          append(toConfirmation(confPartId(cid), data.arguments));
+          const confs = toConfirmations(confPartId(cid), data.arguments);
+          interactiveIds.set(
+            cid,
+            confs.map((c) => c.id),
+          );
+          for (const conf of confs) append(conf);
         } else {
           append({
             kind: "toolCall",
@@ -142,8 +177,9 @@ export function parseSessionEvents(content: string): SessionEvent[] {
       }
       case "tool.execution_complete": {
         const cid = String(data.toolCallId);
-        if (interactiveIds.has(cid)) {
-          resolve(confPartId(cid));
+        const confIds = interactiveIds.get(cid);
+        if (confIds) {
+          for (const id of confIds) resolve(id);
         } else {
           updateStatus(
             toolPartId(cid),
