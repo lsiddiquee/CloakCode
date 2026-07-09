@@ -523,3 +523,59 @@ body {
   word-break: break-word;
   overflow-x: auto;
 }
+/* Tappable answer options + send affordances in the pending overlay. */
+.choice-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.choice-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.choice-btn.chosen {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.pending-freeform {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+.pending-freeform:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.pending-send {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  font: inherit;
+  font-weight: 650;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.pending-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.pending-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #f85149;
+}

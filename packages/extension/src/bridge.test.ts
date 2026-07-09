@@ -255,4 +255,58 @@ describe("startBridge", () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("routes session.respond to the respond dep and acks", async () => {
+    let got: { sessionId: string; toolCallId: string; text: string } | undefined;
+    const bridge = await startBridge(
+      deps({
+        respond: async (p) => {
+          got = p;
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: {
+          instanceId: "i",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          text: "1. scratch.txt\n2. Overwrite",
+        },
+      });
+      expect(res).toMatchObject({ id: "9", ok: true, op: "session.respond" });
+      expect(got).toEqual({
+        sessionId: "sessA",
+        toolCallId: "t1",
+        text: "1. scratch.txt\n2. Overwrite",
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("errors session.respond when no respond dep is configured", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: {
+          instanceId: "i",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          text: "x",
+        },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
 });

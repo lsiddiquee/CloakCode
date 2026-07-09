@@ -75,8 +75,12 @@ export function toConfirmations(
     string,
     unknown
   >;
+  // The VS Code picker offers "Enter custom answer" by DEFAULT — freeform is on
+  // unless a question explicitly sets allowFreeformInput:false (verified
+  // 2026-07-09: an unset question still showed the custom field). Match that so
+  // the overlay never drops the custom option the picker shows.
   const freeform = (r: Record<string, unknown>): boolean =>
-    r["allowFreeformInput"] === true || r["allowFreeform"] === true;
+    r["allowFreeformInput"] !== false && r["allowFreeform"] !== false;
 
   const questions = Array.isArray(a["questions"]) ? a["questions"] : null;
   if (questions) {

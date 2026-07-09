@@ -1,12 +1,12 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type {
   PendingBlocker,
   SessionEvent,
   SessionPart,
   SessionSummary,
 } from "@cloakcode/protocol";
-import { subscribeSession } from "./bridge";
-import { approvalSummary, statusLabel, toolSummary } from "./format";
+import { respondSession, subscribeSession } from "./bridge";
+import { approvalSummary, buildAnswerText, statusLabel, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
 
 interface ViewState {
@@ -145,7 +145,7 @@ export function SessionView({
       {state.pending.length > 0 && (
         <footer className="pending-overlay">
           {state.pending.map((b) => (
-            <PendingCard key={b.toolCallId} blocker={b} />
+            <PendingCard key={b.toolCallId} blocker={b} session={session} />
           ))}
         </footer>
       )}
@@ -217,44 +217,117 @@ function Part({
   }
 }
 
-function PendingCard({ blocker }: { blocker: PendingBlocker }): JSX.Element {
-  const isQuestion =
-    Array.isArray(blocker.confirmations) && blocker.confirmations.length > 0;
+function PendingCard({
+  blocker,
+  session,
+}: {
+  blocker: PendingBlocker;
+  session: SessionSummary;
+}): JSX.Element {
+  const confirmations = blocker.confirmations ?? [];
+  const isQuestion = confirmations.length > 0;
   const approval = approvalSummary(blocker.toolName, blocker.input);
+
+  // One chosen answer per question (option label or freeform text).
+  const [answers, setAnswers] = useState<Array<string | undefined>>([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const setAnswer = (i: number, value: string): void =>
+    setAnswers((prev) => {
+      const next = [...prev];
+      next[i] = value;
+      return next;
+    });
+
+  const text = buildAnswerText(
+    confirmations.map((c, qi) => ({
+      question: c.prompt,
+      answer: answers[qi] ?? "",
+    })),
+  );
+  const canSend = isQuestion && text.length > 0 && !sending;
+
+  const send = async (): Promise<void> => {
+    setSending(true);
+    setError(null);
+    try {
+      await respondSession({
+        instanceId: session.instanceId,
+        sessionId: session.sessionId,
+        toolCallId: blocker.toolCallId,
+        text,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSending(false);
+    }
+  };
+
   return (
     <div className="blocker pending">
       <span className="blocker-tag">
         <span className="dot amber" /> Needs your input
       </span>
       {isQuestion ? (
-        blocker.confirmations?.map((c) => (
-          <div key={c.id} className="pending-q">
-            <div className="blocker-q">{c.prompt}</div>
-            {c.options.map((o) => (
-              <div
-                key={o.id}
-                className={`choice ${o.recommended ? "reco" : ""}`}
-              >
-                <div className="choice-label">
-                  <span>{o.label}</span>
-                  {o.recommended && <span className="reco-badge">REC</span>}
-                </div>
-                {o.detail && <div className="choice-detail">{o.detail}</div>}
-              </div>
-            ))}
+        <>
+          {confirmations.map((c, qi) => (
+            <div key={c.id} className="pending-q">
+              <div className="blocker-q">{c.prompt}</div>
+              {c.options.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  className={`choice choice-btn ${o.recommended ? "reco" : ""} ${
+                    answers[qi] === o.label ? "chosen" : ""
+                  }`}
+                  onClick={() => setAnswer(qi, o.label)}
+                  disabled={sending}
+                >
+                  <div className="choice-label">
+                    <span>{o.label}</span>
+                    {o.recommended && <span className="reco-badge">REC</span>}
+                  </div>
+                  {o.detail && <div className="choice-detail">{o.detail}</div>}
+                </button>
+              ))}
+              {c.allowFreeform && (
+                <input
+                  className="pending-freeform"
+                  type="text"
+                  placeholder="Type a custom answer…"
+                  disabled={sending}
+                  onChange={(e) => setAnswer(qi, e.target.value)}
+                />
+              )}
+            </div>
+          ))}
+          {error && <div className="pending-error">send failed: {error}</div>}
+          <button
+            type="button"
+            className="pending-send"
+            onClick={() => void send()}
+            disabled={!canSend}
+          >
+            {sending ? "Sending…" : "Send answer"}
+          </button>
+          <div className="blocker-note">
+            Sends to the active chat in VS Code (remote-operator).
           </div>
-        ))
+        </>
       ) : (
-        <div className="blocker-q">
-          Approve <strong>{approval.label}</strong>
-          {approval.detail && (
-            <pre className="pending-cmd">{approval.detail}</pre>
-          )}
-        </div>
+        <>
+          <div className="blocker-q">
+            Approve <strong>{approval.label}</strong>
+            {approval.detail && (
+              <pre className="pending-cmd">{approval.detail}</pre>
+            )}
+          </div>
+          <div className="blocker-note">
+            Approve in VS Code — remote approval arrives later.
+          </div>
+        </>
       )}
-      <div className="blocker-note">
-        Answer in VS Code — remote answering arrives with the actuator.
-      </div>
     </div>
   );
 }

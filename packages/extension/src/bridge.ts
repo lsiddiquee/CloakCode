@@ -18,6 +18,17 @@ export interface BridgeDeps {
    * the observer still works fully — there is just no live-pending overlay.
    */
   spoolFile?: string;
+  /**
+   * Deliver a `remote-operator` answer into the target window (M3b question
+   * channel). Provided ONLY by the extension host (it calls
+   * `workbench.action.chat.open`); the pure dev-server leaves it unset, so the
+   * bridge stays free of `vscode`. Unset → `session.respond` is unsupported.
+   */
+  respond?: (params: {
+    sessionId: string;
+    toolCallId: string;
+    text: string;
+  }) => Promise<void>;
 }
 
 export interface BridgeOptions {
@@ -202,6 +213,33 @@ async function handleMessage(
           spoolFollowers.set(request.params.sessionId, spoolFollower);
           await spoolFollower.start();
         }
+        break;
+      }
+      case "session.respond": {
+        // A remote-operator answer (docs/04) — delivered via the extension
+        // host's `respond` (chat.open). Never treated as genuine-local intent.
+        if (!deps.respond) {
+          socket.send(
+            JSON.stringify({
+              id: request.id,
+              ok: false,
+              error: { message: "answering not supported on this bridge" },
+            }),
+          );
+          break;
+        }
+        await deps.respond({
+          sessionId: request.params.sessionId,
+          toolCallId: request.params.toolCallId,
+          text: request.params.text,
+        });
+        socket.send(
+          JSON.stringify({
+            id: request.id,
+            ok: true,
+            op: "session.respond",
+          }),
+        );
         break;
       }
     }

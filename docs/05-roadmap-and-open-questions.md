@@ -10,7 +10,7 @@
 
 | #   | Question                                                                                                        | Why it matters                                                                                                                                                        | How to answer                                                                                                                                                                                                                                                                                                                                                                                                  |
 | --- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q1  | Command IDs for **Steer with Message** / **Stop and Send** / **Add to Queue**?                                  | "Steer" is the ideal remote blocker-answer primitive.                                                                                                                 | Inspect the desktop **client's** `workbench.desktop.main.js` (not on the server); or run inside a live window and dump chat commands.                                                                                                                                                                                                                                                                          |
+| Q1  | Command IDs for **Steer with Message** / **Stop and Send** / **Add to Queue**?                                  | "Steer" is the ideal remote blocker-answer primitive.                                                                                                                 | **RESOLVED (2026-07-09).** `vscode.commands.executeCommand('workbench.action.chat.open', { query })` **submits** a message to the panel chat (verified in the copilot-chat source: `{ query }` alone sends; adding `isPartialQuery: true` only populates). This is the **question** answer channel (docs/02 §4.7) — but it needs the **extension host** (`vscode.commands`), so the actuator moves off the dev-server. v1 targets the active session; multi-session targeting is a refinement.                                                                                                                                                                    |
 | Q2  | Does the `@github/copilot` **agent-host SDK** expose a live input/steer channel?                                | Lighter-weight actuator than owning the whole loop.                                                                                                                   | Read `.../extensions/copilot/dist/extension.js` + `node_modules/@github/copilot/sdk/index.js` and `agent-host-config.json`.                                                                                                                                                                                                                                                                                    |
 | Q3  | Can a **prose-only** blocker (question ending a turn, no tool) be detected?                                     | The one blocker class the observer currently misses.                                                                                                                  | Compare `assistant.turn_end` patterns; possibly infer via "open turn, quiet for N s."                                                                                                                                                                                                                                                                                                                          |
 | Q4  | Are UI-layer **tool-approval confirmations** observable **and answerable**?                                     | The most common agent blocker.                                                                                                                                        | **RESOLVED (2026-07-09).** Copilot Chat **hooks** fire `PreToolUse` for _every_ tool (incl. `run_in_terminal`, `vscode_askQuestions`) with `{ session_id, transcript_path, tool_name, tool_input, tool_use_id }`; returning `allow`/`deny` approves/blocks it. Observe via the transcript (zero-config); **answer via an optional hook** routed by `session_id` (= the observer's sessionId). See M3.          |
@@ -51,17 +51,51 @@ extension/Copilot tooling), monorepo skeleton, full docs, preserved research scr
 
 - **Read never depends on this.** The observer (M1) is the zero-config baseline; the actuator
   is a layered upgrade the user opts into.
-- Implement the **Copilot-hook actuator**: a CloakCode hook command (registered in its own
-  `.github/hooks/*.json`, agent-agnostic, never overwriting `.claude/`) that on `PreToolUse`
-  relays the pending to the phone — routed by `session_id` (= the observer's sessionId) — and
-  returns `allow`/`deny`. Deterministic remote **tool approval**, no proposed API, no extension
-  required. `session.respond` carries the answer bridge→hook.
-- **Pending validation:** confirm a hook can _block_ long enough to await a phone answer
-  (its `timeout` config) and how Copilot behaves when exceeded.
-- Multiple-choice answering (`vscode_askQuestions`) and token streaming need **owning the loop**
-  (`@cloakcode/agent` via `vscode.lm`) — a later, user-selectable "live" mode.
-- Q1/Q2/Q5 (command-injection / steer / agent-host SDK) are **superseded** by the hook path
-  for approvals.
+
+#### M3a — Live-pending notifier (SHIPPED 2026-07-09)
+
+Read-only real-time awareness of blockers. The transcript batches interactive/approval tool
+events at completion (docs/02 §4.6), so a _pending_ blocker is invisible on disk; a
+**non-intrusive** `cloakcode` hook (emits **no** `permissionDecision`, so native VS Code
+approvals are untouched) writes `pending`/`resolved` lines to a local spool. The extension
+merges them into a separate `{kind:"pending"}` snapshot channel (deduped against the transcript
+by base `toolCallId`) and the PWA renders a **"Needs your input"** overlay. Proven live for
+both questions and tool approvals. `session.respond` is **not** yet wired — answering is M3b.
+
+#### M3b — Remote answering (next)
+
+The crux is the hook-block mechanism and its **native-prompt suppression** property:
+
+- A `PreToolUse` hook runs **synchronously**: while it blocks, Copilot **waits on the hook** —
+  the tool has not run **and the native VS Code approval prompt has not appeared yet**. Only
+  when the hook exits does Copilot act: `allow`/`deny` → bypass native and proceed/block; empty
+  `{}`/`ask` → the native prompt appears **now** for the local user.
+- **Therefore native-local and phone-remote are mutually exclusive _in time_.** If the hook
+  blocks to wait for the phone, the desktop shows only a spinner (no native prompt) during the
+  wait; if it returns immediately to show the native prompt, the phone can no longer resolve it.
+  "First-responder-wins across both surfaces" only holds when **CloakCode's own card is the
+  surface on the desktop too** — which conflicts with "keep answering natively at my desk".
+- **Reconciliation (planned): an opt-in "take control" toggle.** Default = the shipped
+  non-intrusive notifier (native local, zero blocking). When the user is leaving, they flip
+  **remote control ON** (per session) from the phone; the bridge writes a control flag the hook
+  reads at runtime, and only then does the hook **block + poll the spool for a decision** and
+  return `allow`/`deny`. Bounded by the hook `timeout` (minutes) with a safe fallback
+  (`deny` or fall through to native) on expiry.
+- **Scope of M3b — two complementary answer channels (docs/02 §4.7):**
+  - **Approvals → hook `allow`/`deny`.** Deterministic. `session.respond {sessionId,
+    toolCallId, decision}` (tagged `remote-operator`); the hook blocks + reads the decision.
+    Text/prompt does **not** approve a native modal.
+  - **Questions → injected text.** A submitted chat message _is_ interpreted as the answer
+    (verified), so a question needs a **chat-submit** path, not the hook. This requires the
+    extension host to call a chat-input/submit command (Q1) with the answer text — lighter than
+    owning the loop. `session.respond {sessionId, toolCallId, text}` routes the answer.
+  - Token streaming still needs **owning the loop** (`@cloakcode/agent` via `vscode.lm`) — a
+    later, user-selectable "live" mode.
+- **Confirmed:** a blocking hook holds synchronously for its full runtime (15s + 90s probed,
+  under `timeout: 300`); over-`timeout` kill behaviour is still unprobed (not a blocker — local
+  is the fallback).
+- Q1 (chat-submit command IDs) is now **on the critical path** for the question channel; Q2/Q5
+  (agent-host SDK / steer) remain superseded for approvals by the hook path.
 
 ### M4 — Secure tunnel + hardening
 
@@ -77,6 +111,10 @@ extension/Copilot tooling), monorepo skeleton, full docs, preserved research scr
 
 ## Explicitly deferred
 
+- **One-question-at-a-time blocker UI (polish).** `vscode_askQuestions` can carry multiple
+  questions in one tool call (e.g. file name + write mode). The overlay currently shows them
+  stacked; a nicer UX steps through them one by one with "1/2" progress (mirroring the VS Code
+  picker). Polish, not feature completeness — revisit after the actuator.
 - Native VS Code chat-UI mirroring via proposed `chatSessionsProvider` (sideload-only).
 - Multi-remote "command centre" for non-Copilot tools (the extensibility groundwork exists
   in the bridge, but no second controller is built yet).

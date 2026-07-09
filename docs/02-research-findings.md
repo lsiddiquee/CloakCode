@@ -234,6 +234,49 @@ surface for a **live steer/input channel** and is the first build-time investiga
   `questions[]` payload**. _Implication: the live-blocker notifier (the AFK-answer core)
   **requires the hook**; transcript parsing alone cannot do it. The hook is non-intrusive —
   it emits no `permissionDecision`, so local VS Code drives the prompt unchanged._
+- **4.7** "one remote channel answers any blocker" → **SPLIT (verified 2026-07-09 by manual
+  test).** The two blocker classes need **different, non-interchangeable** answer channels:
+  - _A submitted **chat message answers a `vscode_askQuestions`**_ — the agent interprets the
+    freeform text as the answer and continues (screenshot: typing the file name + "overwrite"
+    resolved the picker and the flow proceeded). So questions ← **injected text**, not the hook
+    (hook `allow` on a question only lets the picker _show_; it can't _select_).
+  - _A submitted chat message does **NOT** approve a **tool-call approval**_ ("Allow edits…") —
+    the native Allow/Skip modal persists and the message just spawns **another tool-call turn**.
+    So approvals ← hook **`allow`/`deny`**, not text.
+  - _Implication for the actuator (M3b): questions and approvals use **complementary** channels
+    — text-injection for questions, hook decision for approvals. Neither answers the other's
+    blocker._
+- **4.8** _`vscode_askQuestions` answer format_ (extracted 2026-07-09 from the built-in tool in
+  the server's `extensionHostProcess.js`). The tool returns its result to the model as a **JSON
+  text part**: `{ answers: { "<question.header>": { selected: string[], freeText: string|null,
+  skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the custom-answer
+  field (or `null`), `skipped: true` when unanswered (a skipped result is all-`skipped`).
+  Delivered as `content: [{ kind: "text", value: JSON.stringify({answers}) }]`.
+  - _Injection caveat:_ `workbench.action.chat.open { query }` submits a **user message**, not a
+    tool result, so it **cannot** produce this structure — it **skips** the pending tool and the
+    message drives the next turn (matches the manual test, §4.7). Producing the exact `{answers}`
+    result needs **owning the loop**. So the question channel is two-tier: **v1** =
+    natural-language injection (lossy, skips the tool, targets the _active_ session — Q1);
+    **high-fidelity** = owned-loop returning the JSON result.
+- **4.9** _Hook discovery locations_ (grounded 2026-07-09 via the official VS Code **"Agent
+  hooks"** + **"Agent plugins"** docs, then code — the general discovery lives in **VS Code
+  core**, not the copilot-chat extension, which only carries the Claude-specific
+  `claudeHookRegistry.ts`). Copilot loads hook config from, per the `chat.hookFilesLocations`
+  setting (folders load every `*.json`; supports `~` paths):
+  - **Workspace:** `.github/hooks/*.json` (what our probe uses) · `.claude/settings.json[.local]`.
+  - **User-global:** **`~/.copilot/hooks/*.json`** (Copilot flat format) · `~/.claude/settings.json`
+    (matcher format). These fire in **every** window/profile/workspace.
+  - **Custom agent:** a `hooks:` block in `.agent.md` frontmatter (`chat.useCustomAgentHooks`).
+  - **Plugin:** `hooks.json` / `hooks/hooks.json` in an agent plugin (registered via a marketplace,
+    `chat.pluginLocations`, or `~/.copilot/installed-plugins/`); needs `chat.plugins.enabled`.
+  - _`matcher` values are parsed but **ignored** — hooks run on every event. Tool-input props are
+    **camelCase** in VS Code (`tool_input.filePath`), not Claude's snake_case._
+  - _Product implication (supersedes earlier code-only guesses): the hook is a **config file**, not
+    an extension API. For zero-per-repo install, the extension writes **`~/.copilot/hooks/cloakcode.json`**
+    (user-global) on activate — this also fixes the **Extension Dev Host** (a separate profile that
+    workspace `.github/hooks` never reaches). An agent **plugin** is the richer alternative (bundles
+    hooks + skills + agents). The proposed `vscode.chat.registerHookProvider` exists but is
+    sideload/preview-only — the config-file path is the stable choice._
 
 ---
 

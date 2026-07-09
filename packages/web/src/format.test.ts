@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { approvalSummary, humanAge, statusLabel, toolSummary } from "./format";
+import {
+  approvalSummary,
+  buildAnswerText,
+  humanAge,
+  statusLabel,
+  toolSummary,
+} from "./format";
 
 describe("humanAge", () => {
   it("formats seconds, minutes, hours, days", () => {
@@ -93,5 +99,27 @@ describe("approvalSummary", () => {
     expect(approvalSummary("weird_custom_tool", {})).toEqual({
       label: "weird_custom_tool",
     });
+  });
+});
+
+describe("buildAnswerText", () => {
+  it("pairs each question with its answer, one per line", () => {
+    expect(
+      buildAnswerText([
+        { question: "Which file name should I use in /tmp/?", answer: "scratch.txt" },
+        { question: "Overwrite or append?", answer: "Overwrite" },
+      ]),
+    ).toBe(
+      "Which file name should I use in /tmp/? → scratch.txt\nOverwrite or append? → Overwrite",
+    );
+  });
+
+  it("skips unanswered questions and trims", () => {
+    expect(
+      buildAnswerText([
+        { question: "Q1", answer: "  " },
+        { question: "  Q2  ", answer: "  Append  " },
+      ]),
+    ).toBe("Q2 → Append");
   });
 });

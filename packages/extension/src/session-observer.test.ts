@@ -114,6 +114,9 @@ describe("parseSessionEvents", () => {
     });
     expect(first.part.allowFreeform).toBe(true);
     expect(second.part.prompt).toBe("Overwrite or append?");
+    // Freeform defaults ON unless explicitly false — the VS Code picker always
+    // offers "Enter custom answer" for a question with no allowFreeformInput.
+    expect(second.part.allowFreeform).toBe(true);
 
     // Both confirmations resolve on the single tool.execution_complete.
     expect(events[3]).toMatchObject({ type: "resolve", id: first.part.id });

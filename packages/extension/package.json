@@ -4,12 +4,19 @@
   "private": true,
   "description": "VS Code extension host: vscode.lm model access, transcript observer, and the localhost bridge server.",
   "type": "module",
+  "displayName": "CloakCode",
+  "publisher": "cloakcode",
   "main": "dist/extension.cjs",
   "engines": {
     "vscode": "^1.90.0"
   },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {},
   "scripts": {
     "dev": "tsx src/dev-server.ts",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.cjs --sourcemap",
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
@@ -24,6 +31,7 @@
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
     "@types/ws": "^8.5.12",
+    "esbuild": "^0.21.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.0",
     "vitest": "^2.1.8"

@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run CloakCode Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/packages/extension"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/packages/extension/dist/**/*.cjs"
+      ],
+      "env": {
+        "CLOAKCODE_PORT": "7803",
+        "CLOAKCODE_INSTANCE_ID": "ext-dev",
+        "CLOAKCODE_SPOOL": "${workspaceFolder}/.local/isolated/hook-spool.jsonl"
+      },
+      "preLaunchTask": "bundle-extension"
+    }
+  ]
+}

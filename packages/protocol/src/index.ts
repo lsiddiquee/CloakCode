@@ -142,6 +142,16 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       sinceSeq: z.number().int().nonnegative().default(0),
     }),
   }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.respond"),
+    params: z.object({
+      instanceId: z.string(),
+      sessionId: z.string(),
+      toolCallId: z.string(),
+      text: z.string().min(1),
+    }),
+  }),
 ]);
 export type RpcRequest = z.infer<typeof rpcRequestSchema>;
 
@@ -161,6 +171,20 @@ export const sessionsListResponseSchema = z.object({
   result: z.array(sessionSummarySchema),
 });
 export type SessionsListResponse = z.infer<typeof sessionsListResponseSchema>;
+
+/**
+ * Ack for `session.respond`. The answer is a `remote-operator`-provenance action
+ * (docs/04) — it drives `workbench.action.chat.open` in the target window and is
+ * never treated as genuine-local user intent.
+ */
+export const sessionRespondResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.respond"),
+});
+export type SessionRespondResponse = z.infer<
+  typeof sessionRespondResponseSchema
+>;
 
 /**
  * A streamed frame delivered for an active `session.subscribe`. Two separate

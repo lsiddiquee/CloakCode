@@ -2,6 +2,7 @@ import {
   rpcErrorSchema,
   sessionSubscribeEventSchema,
   sessionsListResponseSchema,
+  sessionRespondResponseSchema,
   type PendingBlocker,
   type SessionEvent,
   type SessionSummary,
@@ -120,4 +121,58 @@ export function subscribeSession(
   ws.addEventListener("error", () => onError("connection lost"));
 
   return () => ws.close();
+}
+
+/**
+ * Send a `remote-operator` answer to a session's pending blocker (M3b question
+ * channel). One-shot over the bridge; resolves on the ack, rejects on error or
+ * timeout. The extension host turns this into `workbench.action.chat.open`.
+ */
+export function respondSession(
+  params: {
+    instanceId: string;
+    sessionId: string;
+    toolCallId: string;
+    text: string;
+  },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const id = Math.random().toString(36).slice(2);
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("bridge timed out"));
+    }, 5000);
+
+    ws.addEventListener("open", () => {
+      ws.send(JSON.stringify({ id, op: "session.respond", params }));
+    });
+
+    ws.addEventListener("message", (ev) => {
+      clearTimeout(timer);
+      try {
+        const raw: unknown = JSON.parse(String(ev.data));
+        if (sessionRespondResponseSchema.safeParse(raw).success) {
+          resolve();
+          return;
+        }
+        const err = rpcErrorSchema.safeParse(raw);
+        reject(
+          new Error(
+            err.success ? err.data.error.message : "unexpected response",
+          ),
+        );
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+      } finally {
+        ws.close();
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("cannot reach the bridge"));
+    });
+  });
 }

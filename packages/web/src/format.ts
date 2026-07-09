@@ -142,3 +142,25 @@ export function approvalSummary(name: string, input: unknown): ToolSummary {
     ? { label, detail: summary.detail }
     : { label };
 }
+
+/**
+ * One answered question: the question prompt and the chosen answer (option label
+ * or freeform text).
+ */
+export interface AnswerLine {
+  question: string;
+  answer: string;
+}
+
+/**
+ * Build the injected answer text. Each answered question is echoed with its
+ * answer on its own line (`<question> → <answer>`) so the agent maps answers
+ * unambiguously — no leading number (which read as an option index and confused
+ * both the agent and the reader). Unanswered questions are skipped.
+ */
+export function buildAnswerText(lines: AnswerLine[]): string {
+  return lines
+    .filter((l) => l.answer.trim())
+    .map((l) => `${l.question.trim()} → ${l.answer.trim()}`)
+    .join("\n");
+}

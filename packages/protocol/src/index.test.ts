@@ -78,6 +78,38 @@ describe("rpcRequestSchema", () => {
       rpcRequestSchema.safeParse({ id: "1", op: "sessions.nope" }).success,
     ).toBe(false);
   });
+
+  it("parses a session.respond request", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "3",
+      op: "session.respond",
+      params: {
+        instanceId: "inst",
+        sessionId: "sessA",
+        toolCallId: "toolu_017o4WdwEJb2ruJ2PawLoPyH",
+        text: "1. scratch.txt\n2. Overwrite",
+      },
+    });
+    expect(parsed.op).toBe("session.respond");
+    if (parsed.op === "session.respond") {
+      expect(parsed.params.text).toContain("scratch.txt");
+    }
+  });
+
+  it("rejects a session.respond with empty text", () => {
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "3",
+        op: "session.respond",
+        params: {
+          instanceId: "inst",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          text: "",
+        },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("sessionPartSchema", () => {
