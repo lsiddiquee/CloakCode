@@ -1,24 +1,29 @@
 import { useEffect, useReducer, useRef } from "react";
 import type {
+  PendingBlocker,
   SessionEvent,
   SessionPart,
   SessionSummary,
 } from "@cloakcode/protocol";
 import { subscribeSession } from "./bridge";
-import { statusLabel, toolSummary } from "./format";
+import { approvalSummary, statusLabel, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
 
 interface ViewState {
   parts: SessionPart[];
   resolved: Set<string>;
+  pending: PendingBlocker[];
   error: string | null;
 }
 
-function reducer(
-  state: ViewState,
-  action: SessionEvent | { type: "error"; message: string },
-): ViewState {
+type ViewAction =
+  | SessionEvent
+  | { type: "error"; message: string }
+  | { type: "pending"; blockers: PendingBlocker[] };
+
+function reducer(state: ViewState, action: ViewAction): ViewState {
   if (action.type === "error") return { ...state, error: action.message };
+  if (action.type === "pending") return { ...state, pending: action.blockers };
   if (action.type === "append") {
     if (state.parts.some((p) => p.id === action.part.id)) return state;
     return { ...state, parts: [...state.parts, action.part] };
@@ -49,6 +54,7 @@ export function SessionView({
   const [state, dispatch] = useReducer(reducer, {
     parts: [],
     resolved: new Set<string>(),
+    pending: [],
     error: null,
   });
 
@@ -56,6 +62,7 @@ export function SessionView({
     const unsubscribe = subscribeSession(
       { instanceId: session.instanceId, sessionId: session.sessionId },
       (event) => dispatch(event),
+      (blockers) => dispatch({ type: "pending", blockers }),
       (message) => dispatch({ type: "error", message }),
     );
     return unsubscribe;
@@ -87,9 +94,11 @@ export function SessionView({
     return () => ro.disconnect();
   }, []);
 
-  const awaiting = state.parts.some(
-    (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
-  );
+  const awaiting =
+    state.pending.length > 0 ||
+    state.parts.some(
+      (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
+    );
 
   return (
     <div className="app">
@@ -113,7 +122,11 @@ export function SessionView({
         </span>
       </header>
 
-      <main className="content transcript" ref={scrollRef} onScroll={handleScroll}>
+      <main
+        className="content transcript"
+        ref={scrollRef}
+        onScroll={handleScroll}
+      >
         <div className="transcript-inner" ref={innerRef}>
           {state.error && <p className="hint dim">stream: {state.error}</p>}
           {state.parts.length === 0 && !state.error && (
@@ -128,6 +141,14 @@ export function SessionView({
           ))}
         </div>
       </main>
+
+      {state.pending.length > 0 && (
+        <footer className="pending-overlay">
+          {state.pending.map((b) => (
+            <PendingCard key={b.toolCallId} blocker={b} />
+          ))}
+        </footer>
+      )}
     </div>
   );
 }
@@ -161,7 +182,9 @@ function Part({
         <div className="card-tool" title={part.name}>
           <div className="head">
             <span className="tlabel">{summary.label}</span>
-            {summary.detail && <span className="tdetail">{summary.detail}</span>}
+            {summary.detail && (
+              <span className="tdetail">{summary.detail}</span>
+            )}
             <span className={`status ${part.status}`}>{part.status}</span>
           </div>
         </div>
@@ -192,6 +215,48 @@ function Part({
         </div>
       );
   }
+}
+
+function PendingCard({ blocker }: { blocker: PendingBlocker }): JSX.Element {
+  const isQuestion =
+    Array.isArray(blocker.confirmations) && blocker.confirmations.length > 0;
+  const approval = approvalSummary(blocker.toolName, blocker.input);
+  return (
+    <div className="blocker pending">
+      <span className="blocker-tag">
+        <span className="dot amber" /> Needs your input
+      </span>
+      {isQuestion ? (
+        blocker.confirmations?.map((c) => (
+          <div key={c.id} className="pending-q">
+            <div className="blocker-q">{c.prompt}</div>
+            {c.options.map((o) => (
+              <div
+                key={o.id}
+                className={`choice ${o.recommended ? "reco" : ""}`}
+              >
+                <div className="choice-label">
+                  <span>{o.label}</span>
+                  {o.recommended && <span className="reco-badge">REC</span>}
+                </div>
+                {o.detail && <div className="choice-detail">{o.detail}</div>}
+              </div>
+            ))}
+          </div>
+        ))
+      ) : (
+        <div className="blocker-q">
+          Approve <strong>{approval.label}</strong>
+          {approval.detail && (
+            <pre className="pending-cmd">{approval.detail}</pre>
+          )}
+        </div>
+      )}
+      <div className="blocker-note">
+        Answer in VS Code — remote answering arrives with the actuator.
+      </div>
+    </div>
+  );
 }
 
 function dotClass(status: SessionSummary["status"]): string {

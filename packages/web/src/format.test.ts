@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { humanAge, statusLabel, toolSummary } from "./format";
+import { approvalSummary, humanAge, statusLabel, toolSummary } from "./format";
 
 describe("humanAge", () => {
   it("formats seconds, minutes, hours, days", () => {
@@ -69,6 +69,28 @@ describe("toolSummary", () => {
 
   it("falls back to the raw tool name", () => {
     expect(toolSummary("weird_custom_tool", {})).toEqual({
+      label: "weird_custom_tool",
+    });
+  });
+});
+
+describe("approvalSummary", () => {
+  it("phrases pending approvals in the present tense", () => {
+    expect(approvalSummary("create_file", { filePath: "/tmp/x.txt" })).toEqual({
+      label: "Create",
+      detail: "x.txt",
+    });
+    expect(
+      approvalSummary("replace_string_in_file", { filePath: "a/App.tsx" }),
+    ).toEqual({ label: "Edit", detail: "App.tsx" });
+    expect(approvalSummary("run_in_terminal", { command: "rm -rf x" })).toEqual({
+      label: "Run",
+      detail: "rm -rf x",
+    });
+  });
+
+  it("leaves labels without a present-tense form unchanged", () => {
+    expect(approvalSummary("weird_custom_tool", {})).toEqual({
       label: "weird_custom_tool",
     });
   });

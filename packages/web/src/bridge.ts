@@ -2,6 +2,7 @@ import {
   rpcErrorSchema,
   sessionSubscribeEventSchema,
   sessionsListResponseSchema,
+  type PendingBlocker,
   type SessionEvent,
   type SessionSummary,
 } from "@cloakcode/protocol";
@@ -71,12 +72,14 @@ export function fetchSessions(
 
 /**
  * Subscribe to a session's live event stream. Calls `onEvent` for each
- * validated `SessionEvent`; returns an unsubscribe function that closes the
- * socket. Resumable via `sinceSeq`.
+ * validated seq'd `SessionEvent` (history channel) and `onPending` for each
+ * live-pending snapshot (replace-semantics overlay). Returns an unsubscribe
+ * function that closes the socket. Resumable via `sinceSeq`.
  */
 export function subscribeSession(
   params: { instanceId: string; sessionId: string; sinceSeq?: number },
   onEvent: (event: SessionEvent) => void,
+  onPending: (blockers: PendingBlocker[]) => void = () => {},
   onError: (message: string) => void = () => {},
   url: string = bridgeUrl(),
 ): () => void {
@@ -106,7 +109,8 @@ export function subscribeSession(
     }
     const frame = sessionSubscribeEventSchema.safeParse(raw);
     if (frame.success) {
-      onEvent(frame.data.event);
+      if (frame.data.kind === "event") onEvent(frame.data.event);
+      else onPending(frame.data.blockers);
       return;
     }
     const err = rpcErrorSchema.safeParse(raw);

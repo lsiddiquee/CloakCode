@@ -191,4 +191,68 @@ describe("startBridge", () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("streams a live-pending snapshot from the hook spool", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-pending-"));
+    const file = path.join(dir, "sessA.jsonl");
+    const spoolFile = path.join(dir, "spool.jsonl");
+    await fs.writeFile(
+      file,
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+    );
+    await fs.writeFile(
+      spoolFile,
+      JSON.stringify({
+        phase: "pending",
+        sessionId: "sessA",
+        toolCallId: "toolu_ABC__vscode-1783582362900",
+        toolName: "run_in_terminal",
+        input: { command: "rm -v /tmp/x" },
+        ts: "2026-07-09T12:00:00.000Z",
+      }) + "\n",
+    );
+    const bridge = await startBridge(
+      deps({ findTranscript: async () => file, spoolFile }),
+      { port: 0 },
+    );
+    try {
+      const pending = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+          ws.on("open", () =>
+            ws.send(
+              JSON.stringify({
+                id: "7",
+                op: "session.subscribe",
+                params: { instanceId: "i", sessionId: "sessA" },
+              }),
+            ),
+          );
+          ws.on("message", (data) => {
+            const frame = JSON.parse(data.toString());
+            if (frame.kind === "pending") {
+              ws.close();
+              resolve(frame);
+            }
+          });
+          ws.on("error", reject);
+        },
+      );
+      expect(pending).toMatchObject({
+        id: "7",
+        op: "session.subscribe",
+        kind: "pending",
+        blockers: [
+          {
+            toolCallId: "toolu_ABC",
+            toolName: "run_in_terminal",
+            input: { command: "rm -v /tmp/x" },
+          },
+        ],
+      });
+    } finally {
+      await bridge.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

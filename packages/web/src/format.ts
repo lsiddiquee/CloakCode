@@ -77,7 +77,9 @@ export function toolSummary(name: string, input: unknown): ToolSummary {
       return { label: "Edited", detail: file() };
     case "multi_replace_string_in_file": {
       const repls = Array.isArray(a["replacements"]) ? a["replacements"] : [];
-      const files = new Set(repls.map((r) => basename(asObject(r)["filePath"])));
+      const files = new Set(
+        repls.map((r) => basename(asObject(r)["filePath"])),
+      );
       files.delete("");
       const detail =
         files.size === 1
@@ -87,12 +89,18 @@ export function toolSummary(name: string, input: unknown): ToolSummary {
     }
     case "run_in_terminal": {
       const cmd = String(a["command"] ?? "").trim();
-      return { label: "Ran", detail: cmd.length > 90 ? cmd.slice(0, 90) + "…" : cmd };
+      return {
+        label: "Ran",
+        detail: cmd.length > 90 ? cmd.slice(0, 90) + "…" : cmd,
+      };
     }
     case "grep_search":
     case "file_search":
     case "semantic_search":
-      return { label: "Searched", detail: String(a["query"] ?? a["pattern"] ?? "") };
+      return {
+        label: "Searched",
+        detail: String(a["query"] ?? a["pattern"] ?? ""),
+      };
     case "list_dir":
       return { label: "Listed", detail: basename(a["path"]) };
     case "fetch_webpage": {
@@ -111,4 +119,26 @@ export function toolSummary(name: string, input: unknown): ToolSummary {
     default:
       return { label: name };
   }
+}
+
+/** Past-tense history verb → present-tense imperative, for pending approvals. */
+const PRESENT_TENSE: Record<string, string> = {
+  Created: "Create",
+  Edited: "Edit",
+  Ran: "Run",
+  Searched: "Search",
+  Listed: "List",
+  Fetched: "Fetch",
+};
+
+/**
+ * Like {@link toolSummary} but phrased for a still-pending approval ("Create
+ * x.ts", "Run `<cmd>`") instead of completed history ("Created", "Ran").
+ */
+export function approvalSummary(name: string, input: unknown): ToolSummary {
+  const summary = toolSummary(name, input);
+  const label = PRESENT_TENSE[summary.label] ?? summary.label;
+  return summary.detail !== undefined
+    ? { label, detail: summary.detail }
+    : { label };
 }

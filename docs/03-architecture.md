@@ -19,11 +19,11 @@ CloakCode is fully useful with the observer alone: list sessions, mirror them li
 **surface blockers on your phone** — all read-only and zero-config. Remote _answering_ is a
 separate capability layered on top:
 
-| Tier | Setup | You get |
-|---|---|---|
-| **Baseline** | none (reads files) | session list · live mirror · blocker **detection** |
-| **+ Actuator** | opt-in **Copilot hook** | remote tool **approval** (`allow`/`deny`) + real-time push |
-| **+ Owned loop** | later | token streaming · answering multiple-choice |
+| Tier             | Setup                   | You get                                                    |
+| ---------------- | ----------------------- | ---------------------------------------------------------- |
+| **Baseline**     | none (reads files)      | session list · live mirror · blocker **detection**         |
+| **+ Actuator**   | opt-in **Copilot hook** | remote tool **approval** (`allow`/`deny`) + real-time push |
+| **+ Owned loop** | later                   | token streaming · answering multiple-choice                |
 
 **Hook mechanism (verified 2026-07-09 by probe).** Copilot Chat runs external **hook
 commands** (Claude-Code-compatible; configured in `.github/hooks/*.json`) at lifecycle/tool
@@ -37,6 +37,41 @@ registered in CloakCode's **own** file, never overwriting the user's `.claude/` 
 
 - _Boundary:_ hooks gate tools (`allow`/`deny`); they do **not** select an answer for a
   multiple-choice `vscode_askQuestions` — that needs the owned-loop tier.
+
+### M3 design: the non-intrusive live-pending notifier (two channels, one subscription)
+
+The shipping M3 actuator-precursor is a **notifier, not a gate**. Verified 2026-07-09
+(docs/02 §4.6): while a blocker is _pending_, Copilot has **not** flushed its
+`tool.execution_start` to the transcript — so the observer is blind to a live blocker, and the
+**hook is the only real-time source**. The hook therefore emits **no `permissionDecision`**
+(empty `{}`) — local VS Code drives the native prompt exactly as configured — and its only job
+is to publish "this is pending" / "this resolved" for the phone.
+
+Two channels share the **one** `session.subscribe` stream, kept deliberately distinct:
+
+| Channel                  | Source              | Event                        | Semantics                                |
+| ------------------------ | ------------------- | ---------------------------- | ---------------------------------------- |
+| **History**              | transcript observer | `{kind:"event", event}`      | seq'd, append-only, `sinceSeq`-resumable |
+| **Live-pending overlay** | hook spool          | `{kind:"pending", blockers}` | replace-snapshot, idempotent, no seq     |
+
+Flow: `PreToolUse` → hook appends a `pending` line to a local spool file (localhost/fs only,
+**no inbound network write** on the bridge) → the extension (the single merge point) tails the
+spool, keyed by `session_id` (= observer sessionId), and pushes a `pending` snapshot. On
+`PostToolUse` it drops the entry and re-pushes.
+
+**Dedup is automatic** via the base `toolCallId` — the hook's `tool_use_id` with its
+`__vscode-<n>` suffix stripped equals the transcript's `toolCallId`. The extension computes
+`visible = spoolPending − transcriptToolCallIds`, so the instant an answer flushes the tool to
+the transcript, the overlay drops it and it appears in **history** instead — never both at
+once. The client renders history as today plus a **"Needs your input"** overlay; questions
+reuse the `confirmation` part, approvals show `toolName` + command.
+
+- **The phone is never a hard dependency.** The same card renders on the desktop localhost
+  browser too; if the phone is slow, the local user answers in native VS Code and the overlay
+  clears on the next snapshot. Worst case degrades to local-only — never worse than today.
+- _Deferred (not M3):_ a **blocking** `PreToolUse` that returns `allow`/`deny` to resolve
+  _remotely_ is possible (the hook holds synchronously up to its `timeout` — §4.5) but is a
+  later tier; M3 ships read-only live awareness, not remote resolution.
 
 ## Components
 

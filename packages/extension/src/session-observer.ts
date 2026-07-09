@@ -33,7 +33,7 @@ const toolPartId = (toolCallId: unknown): string =>
 const confPartId = (toolCallId: unknown): string =>
   `conf-${String(toolCallId)}`;
 
-function isInteractiveTool(toolName: unknown): boolean {
+export function isInteractiveTool(toolName: unknown): boolean {
   const name = String(toolName ?? "").toLowerCase();
   return INTERACTIVE_TOOL_HINTS.some((hint) => name.includes(hint));
 }
@@ -48,7 +48,9 @@ function optionsFrom(rawOptions: unknown): Choice[] {
     const detailRaw = oo["detail"] ?? oo["description"];
     return {
       id: String(oo["id"] ?? oo["value"] ?? oo["label"] ?? i),
-      label: String(oo["label"] ?? oo["title"] ?? oo["name"] ?? oo["value"] ?? o),
+      label: String(
+        oo["label"] ?? oo["title"] ?? oo["name"] ?? oo["value"] ?? o,
+      ),
       ...(detailRaw !== undefined && detailRaw !== null
         ? { detail: String(detailRaw) }
         : {}),
@@ -65,7 +67,10 @@ type ConfirmationPart = Extract<SessionPart, { kind: "confirmation" }>;
  * confirmation per question, ids `${baseId}-${i}`. Falls back to a single
  * question/options shape. See docs/02 §3.2.
  */
-function toConfirmations(baseId: string, args: unknown): ConfirmationPart[] {
+export function toConfirmations(
+  baseId: string,
+  args: unknown,
+): ConfirmationPart[] {
   const a = (typeof args === "object" && args ? args : {}) as Record<
     string,
     unknown
@@ -84,7 +89,11 @@ function toConfirmations(baseId: string, args: unknown): ConfirmationPart[] {
         kind: "confirmation",
         id: `${baseId}-${i}`,
         prompt: String(
-          qq["question"] ?? qq["message"] ?? qq["header"] ?? qq["prompt"] ?? "Confirm",
+          qq["question"] ??
+            qq["message"] ??
+            qq["header"] ??
+            qq["prompt"] ??
+            "Confirm",
         ),
         options: optionsFrom(qq["options"]),
         ...(freeform(qq) ? { allowFreeform: true } : {}),

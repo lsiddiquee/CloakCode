@@ -80,7 +80,10 @@ describe("parseSessionEvents", () => {
               {
                 header: "Write mode",
                 question: "Overwrite or append?",
-                options: [{ label: "Overwrite", recommended: true }, { label: "Append" }],
+                options: [
+                  { label: "Overwrite", recommended: true },
+                  { label: "Append" },
+                ],
               },
             ],
           },
@@ -105,7 +108,10 @@ describe("parseSessionEvents", () => {
     }
     expect(first.part.prompt).toBe("Which file name?");
     expect(first.part.options).toHaveLength(2);
-    expect(first.part.options[0]).toMatchObject({ label: "a.txt", recommended: true });
+    expect(first.part.options[0]).toMatchObject({
+      label: "a.txt",
+      recommended: true,
+    });
     expect(first.part.allowFreeform).toBe(true);
     expect(second.part.prompt).toBe("Overwrite or append?");
 

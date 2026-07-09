@@ -37,6 +37,20 @@ export const choiceSchema = z.object({
 export type Choice = z.infer<typeof choiceSchema>;
 
 /**
+ * A blocker `confirmation`: one question with selectable `options` and an
+ * optional freeform escape hatch. Named (not inline) so the live-pending
+ * overlay can reuse it — a `vscode_askQuestions` blocker is a list of these.
+ */
+export const confirmationPartSchema = z.object({
+  kind: z.literal("confirmation"),
+  id: z.string(),
+  prompt: z.string(),
+  options: z.array(choiceSchema),
+  allowFreeform: z.boolean().optional(),
+});
+export type ConfirmationPart = z.infer<typeof confirmationPartSchema>;
+
+/**
  * A typed piece of a rendered session, mirroring how Copilot Chat renders. I1
  * covers the read-mirror subset; `confirmation` (the blocker) lands in I2, and
  * richer parts (diff/fileTree/…) later. See docs/03 "The core abstraction".
@@ -61,13 +75,7 @@ export const sessionPartSchema = z.discriminatedUnion("kind", [
     input: z.unknown(),
     status: toolStatusSchema,
   }),
-  z.object({
-    kind: z.literal("confirmation"),
-    id: z.string(),
-    prompt: z.string(),
-    options: z.array(choiceSchema),
-    allowFreeform: z.boolean().optional(),
-  }),
+  confirmationPartSchema,
 ]);
 export type SessionPart = z.infer<typeof sessionPartSchema>;
 
@@ -96,6 +104,24 @@ export const sessionEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
+
+/**
+ * A live, still-pending blocker sourced from the Copilot hook (not the
+ * transcript). Keyed by the base `toolCallId` (the hook's `tool_use_id` with
+ * its `__vscode-<n>` suffix stripped) so it dedupes against the transcript's
+ * `toolCallId` — see docs/02 §4.6 and docs/03 "Live-pending overlay". For a
+ * question it carries `confirmations`; for a tool approval it carries the raw
+ * `input` (e.g. the command). Delivered as a replace-snapshot, never on the
+ * seq'd log, so the observer's `sinceSeq` resumption stays pure.
+ */
+export const pendingBlockerSchema = z.object({
+  toolCallId: z.string(),
+  toolName: z.string(),
+  createdAt: z.string(),
+  confirmations: z.array(confirmationPartSchema).optional(),
+  input: z.unknown().optional(),
+});
+export type PendingBlocker = z.infer<typeof pendingBlockerSchema>;
 
 /**
  * Client → bridge request envelope. A discriminated union on `op` so each
@@ -136,10 +162,25 @@ export const sessionsListResponseSchema = z.object({
 });
 export type SessionsListResponse = z.infer<typeof sessionsListResponseSchema>;
 
-/** A streamed frame delivered for an active `session.subscribe`. */
-export const sessionSubscribeEventSchema = z.object({
-  id: z.string(),
-  op: z.literal("session.subscribe"),
-  event: sessionEventSchema,
-});
+/**
+ * A streamed frame delivered for an active `session.subscribe`. Two separate
+ * kinds share the one subscription: `event` is the seq'd, append-only history
+ * log (resumable via `sinceSeq`); `pending` is a replace-snapshot of the live
+ * blocker overlay from the hook. Keeping them distinct means the history
+ * channel stays prefix-stable while the overlay updates idempotently.
+ */
+export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id: z.string(),
+    op: z.literal("session.subscribe"),
+    kind: z.literal("event"),
+    event: sessionEventSchema,
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.subscribe"),
+    kind: z.literal("pending"),
+    blockers: z.array(pendingBlockerSchema),
+  }),
+]);
 export type SessionSubscribeEvent = z.infer<typeof sessionSubscribeEventSchema>;

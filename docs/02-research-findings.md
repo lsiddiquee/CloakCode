@@ -208,24 +208,53 @@ surface for a **live steer/input channel** and is the first build-time investiga
   injection is **queued and auto-submitted** by the runtime.
 - **4.3** "The observer is blind to the blocker" → **WRONG.** Interactive blockers appear
   as unmatched interactive `tool.execution_start`s carrying the full question payload.
+- **4.4** "The actuator is unsolved / needs owning the loop" → **SUPERSEDED.** Copilot Chat
+  runs Claude-compatible **hooks** (`.github/hooks/*.json`). A `PreToolUse` hook that returns
+  `permissionDecision: allow|deny` **deterministically drives tool approval** — no proposed
+  API, no owned loop. Verified 2026-07-09 by probe (`.local/hook-probe/`, gitignored).
+  - _A hook returning `allow` **bypasses VS Code's native approval entirely** — it
+    auto-approves regardless of the user's "bypass approvals" setting. To stay a pure
+    observer the hook must emit **no `permissionDecision`** (empty `{}`), which defers to VS
+    Code. (Bit us in testing: an `allow`-returning probe silently auto-approved everything.)_
+- **4.5** "A slow hook will be killed quickly / can't block for a human" → **WRONG.** A
+  blocking `PreToolUse` hook holds the tool call **synchronously** for its full sleep and
+  Copilot does **not** proceed early. Probed 2026-07-09: 15s and 90s sleeps both ran to
+  completion (`post-sleep` line always written; `slept_ms` ≈ configured), well under the hook
+  `timeout: 300`. This makes a blocking hook a viable **pause-and-route**: hold the tool
+  server-side, fetch an answer from the phone, then release. (Over-`timeout` kill behaviour
+  not yet probed — not a blocker: the local surface is always a graceful fallback.)
+- **4.6** "4.3 — a live _pending_ interactive blocker is visible on disk" → **REFINED / mostly
+  WRONG.** Verified 2026-07-09 by a side-by-side probe while a `vscode_askQuestions` picker
+  was on screen **unanswered**: its `tool.execution_start` was **not yet on disk** — Copilot
+  buffers the turn and flushes `start`+`complete` **together at answer time** (the transcript
+  ended at `assistant.turn_start`). The on-disk start's _timestamp_ reflects when the picker
+  appeared, but the _write_ happens at completion. So for a **live, pending** blocker the
+  transcript observer is a **lagging** indicator and cannot surface it — 4.3 held only
+  post-hoc / for a frozen session. In the same instant the **`PreToolUse` hook had the full
+  `questions[]` payload**. _Implication: the live-blocker notifier (the AFK-answer core)
+  **requires the hook**; transcript parsing alone cannot do it. The hook is non-intrusive —
+  it emits no `permissionDecision`, so local VS Code drives the prompt unchanged._
 
 ---
 
 ## 5. Capability matrix (current)
 
-| Capability                            | Status     | Mechanism                                                         |
-| ------------------------------------- | ---------- | ----------------------------------------------------------------- |
-| List sessions remotely                | ✅ proven  | enumerate `transcripts/*.jsonl` + mtime liveness                  |
-| Open/view a session transcript        | ✅ proven  | stream its JSONL (read-only)                                      |
-| Track a blocker (multiple-choice)     | ✅ proven  | unmatched interactive `tool.execution_start` by `toolCallId`      |
-| Surface the blocker richly            | ✅ proven  | full question+options in event `arguments`                        |
-| Detect a tool-approval blocker (run/edit) | ❔ unverified | likely an unmatched **action-tool** `start` (e.g. `run_in_terminal`); the narrow interactive-hint list misses it — see Q4 |
-| Access Copilot models                 | ✅ (API)   | `vscode.lm.selectChatModels({vendor:'copilot'})`                  |
-| Answer / send to a session            | 🔶 partial | queue-injection works when busy; steer/own-loop for deterministic |
-| Resume a dormant (idle) session       | ❌         | needs the session loaded in a live window + actuator              |
-| Detect a prose-only blocker (no tool) | ❌         | looks like a normal turn end                                      |
+| Capability                                | Status      | Mechanism                                                                                                                          |
+| ----------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| List sessions remotely                    | ✅ proven   | enumerate `transcripts/*.jsonl` + mtime liveness                                                                                   |
+| Open/view a session transcript            | ✅ proven   | stream its JSONL (read-only)                                                                                                       |
+| Track a **post-hoc** blocker (answered)   | ✅ proven   | unmatched interactive `tool.execution_start` — but only **after** it's answered (batched flush)                                    |
+| Track a **live/pending** blocker          | ✅ via hook | `PreToolUse` fires when the picker appears, carrying the full payload; the transcript has **nothing** until answered (§4.6)        |
+| Surface the blocker richly                | ✅ proven   | full question+options in the hook `tool_input` / event `arguments`                                                                 |
+| Detect a tool-approval blocker (run/edit) | ✅ via hook | unmatched `PreToolUse` for an action tool (`run_in_terminal`, edits) — real-time, before the native prompt; transcript is post-hoc |
+| Access Copilot models                     | ✅ (API)    | `vscode.lm.selectChatModels({vendor:'copilot'})`                                                                                   |
+| Remotely **approve/deny** a tool call     | ✅ proven   | blocking `PreToolUse` hook returns `permissionDecision` (pause-and-route)                                                          |
+| Answer / send to a session                | 🔶 partial  | queue-injection works when busy; steer/own-loop for deterministic                                                                  |
+| Resume a dormant (idle) session           | ❌          | needs the session loaded in a live window + actuator                                                                               |
+| Detect a prose-only blocker (no tool)     | ❌          | looks like a normal turn end                                                                                                       |
 
 **Bottom line:** the entire **read/observe half is proven** and works for stock Copilot
-sessions with no proposed API and without owning the loop. The remaining work is the
-**actuator** (answering/steering), for which owning the loop is the deterministic path and
-the `@github/copilot` SDK is the lead to prototype a lighter-weight alternative.
+sessions with no proposed API and without owning the loop. Remote **tool approval** is also
+now proven via a blocking `PreToolUse` hook (pause-and-route, opt-in). The remaining actuator
+work is **answering multiple-choice / prose blockers** (selecting an answer, not just
+gating a tool), for which queue-injection is the partial path today.

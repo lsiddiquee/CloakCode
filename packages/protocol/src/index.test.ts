@@ -5,6 +5,8 @@ import {
   sessionPartSchema,
   sessionEventSchema,
   sessionSubscribeEventSchema,
+  pendingBlockerSchema,
+  confirmationPartSchema,
   rpcRequestSchema,
   rpcErrorSchema,
   sessionsListResponseSchema,
@@ -108,7 +110,12 @@ describe("sessionPartSchema", () => {
       id: "conf-1",
       prompt: "How should expired tokens be handled?",
       options: [
-        { id: "1", label: "Return 401", detail: "matches client", recommended: true },
+        {
+          id: "1",
+          label: "Return 401",
+          detail: "matches client",
+          recommended: true,
+        },
         { id: "2", label: "Silently refresh" },
       ],
       allowFreeform: true,
@@ -153,6 +160,53 @@ describe("sessionEventSchema", () => {
   });
 });
 
+describe("pendingBlockerSchema", () => {
+  it("parses a question blocker carrying confirmations", () => {
+    const blocker = {
+      toolCallId: "toolu_017o4WdwEJb2ruJ2PawLoPyH",
+      toolName: "vscode_askQuestions",
+      createdAt: "2026-07-09T11:30:25.455Z",
+      confirmations: [
+        {
+          kind: "confirmation" as const,
+          id: "conf-toolu_017o4WdwEJb2ruJ2PawLoPyH-1",
+          prompt: "If the file already exists, should I overwrite or append?",
+          options: [
+            { id: "Overwrite", label: "Overwrite", recommended: true },
+            { id: "Append", label: "Append" },
+          ],
+        },
+      ],
+    };
+    const parsed = pendingBlockerSchema.parse(blocker);
+    expect(parsed.toolName).toBe("vscode_askQuestions");
+    expect(confirmationPartSchema.parse(parsed.confirmations?.[0]).kind).toBe(
+      "confirmation",
+    );
+  });
+
+  it("parses an approval blocker carrying raw input", () => {
+    const blocker = {
+      toolCallId: "toolu_014s9ftYke93xQX364HyyaVo",
+      toolName: "run_in_terminal",
+      createdAt: "2026-07-09T11:42:24.584Z",
+      input: { command: "rm -v /tmp/scratch.txt", explanation: "delete it" },
+    };
+    const parsed = pendingBlockerSchema.parse(blocker);
+    expect(parsed.toolName).toBe("run_in_terminal");
+    expect(parsed.confirmations).toBeUndefined();
+  });
+
+  it("rejects a blocker missing its toolCallId", () => {
+    expect(
+      pendingBlockerSchema.safeParse({
+        toolName: "run_in_terminal",
+        createdAt: "2026-07-09T11:42:24.584Z",
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("response schemas", () => {
   it("parses a successful sessions.list response", () => {
     const res = {
@@ -168,6 +222,7 @@ describe("response schemas", () => {
     const frame = {
       id: "2",
       op: "session.subscribe" as const,
+      kind: "event" as const,
       event: {
         type: "append" as const,
         seq: 0,
@@ -175,6 +230,48 @@ describe("response schemas", () => {
       },
     };
     expect(sessionSubscribeEventSchema.parse(frame)).toEqual(frame);
+  });
+
+  it("parses a session.subscribe pending snapshot frame", () => {
+    const frame = {
+      id: "2",
+      op: "session.subscribe" as const,
+      kind: "pending" as const,
+      blockers: [
+        {
+          toolCallId: "toolu_01WPDniPbR4LTHgVs6UVj7bk",
+          toolName: "vscode_askQuestions",
+          createdAt: "2026-07-09T11:32:49.006Z",
+          confirmations: [
+            {
+              kind: "confirmation" as const,
+              id: "conf-toolu_01WPDniPbR4LTHgVs6UVj7bk-0",
+              prompt: "Which file name should I use in /tmp/?",
+              options: [
+                {
+                  id: "cloakcode-test.txt",
+                  label: "cloakcode-test.txt",
+                  recommended: true,
+                },
+              ],
+              allowFreeform: true,
+            },
+          ],
+        },
+      ],
+    };
+    expect(sessionSubscribeEventSchema.parse(frame)).toEqual(frame);
+  });
+
+  it("discriminates subscribe frames by kind", () => {
+    expect(
+      sessionSubscribeEventSchema.safeParse({
+        id: "2",
+        op: "session.subscribe",
+        kind: "pending",
+        // missing blockers
+      }).success,
+    ).toBe(false);
   });
 
   it("parses an error response", () => {

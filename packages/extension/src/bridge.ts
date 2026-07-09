@@ -1,6 +1,7 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import { rpcRequestSchema, type SessionSummary } from "@cloakcode/protocol";
 import { SessionFollower } from "./session-observer.js";
+import { SpoolFollower } from "./hook-spool.js";
 
 /**
  * The localhost bridge. Binds `127.0.0.1` only (security rule 3) and speaks the
@@ -12,6 +13,11 @@ export interface BridgeDeps {
   listSessions: () => Promise<SessionSummary[]>;
   /** Resolve a sessionId to its on-disk transcript path in this environment. */
   findTranscript: (sessionId: string) => Promise<string | undefined>;
+  /**
+   * Absolute path to the hook spool file (the live-pending source). When unset,
+   * the observer still works fully — there is just no live-pending overlay.
+   */
+  spoolFile?: string;
 }
 
 export interface BridgeOptions {
@@ -36,6 +42,8 @@ interface Connection {
   alive: boolean;
   /** One follower per subscribed sessionId; re-subscribe replaces (dedupe). */
   followers: Map<string, SessionFollower>;
+  /** Live-pending overlay follower, paired 1:1 with `followers`. */
+  spoolFollowers: Map<string, SpoolFollower>;
 }
 
 export async function startBridge(
@@ -51,18 +59,24 @@ export async function startBridge(
 
   const cleanup = (socket: WebSocket, conn: Connection): void => {
     for (const follower of conn.followers.values()) follower.stop();
+    for (const follower of conn.spoolFollowers.values()) follower.stop();
     conn.followers.clear();
+    conn.spoolFollowers.clear();
     connections.delete(socket);
   };
 
   wss.on("connection", (socket) => {
-    const conn: Connection = { alive: true, followers: new Map() };
+    const conn: Connection = {
+      alive: true,
+      followers: new Map(),
+      spoolFollowers: new Map(),
+    };
     connections.set(socket, conn);
     socket.on("pong", () => {
       conn.alive = true;
     });
     socket.on("message", (raw) => {
-      void handleMessage(socket, raw.toString(), deps, conn.followers);
+      void handleMessage(socket, raw.toString(), deps, conn);
     });
     socket.on("close", () => cleanup(socket, conn));
   });
@@ -104,8 +118,9 @@ async function handleMessage(
   socket: WebSocket,
   raw: string,
   deps: BridgeDeps,
-  followers: Map<string, SessionFollower>,
+  conn: Connection,
 ): Promise<void> {
+  const { followers, spoolFollowers } = conn;
   let request;
   try {
     request = rpcRequestSchema.parse(JSON.parse(raw));
@@ -155,6 +170,7 @@ async function handleMessage(
               JSON.stringify({
                 id: request.id,
                 op: "session.subscribe",
+                kind: "event",
                 event,
               }),
             );
@@ -163,6 +179,29 @@ async function handleMessage(
         );
         followers.set(request.params.sessionId, follower);
         await follower.start();
+
+        // Live-pending overlay (separate replace-snapshot channel). Optional:
+        // only when a spool source is configured for this environment.
+        spoolFollowers.get(request.params.sessionId)?.stop();
+        if (deps.spoolFile) {
+          const spoolFollower = new SpoolFollower(
+            deps.spoolFile,
+            file,
+            request.params.sessionId,
+            (blockers) => {
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  op: "session.subscribe",
+                  kind: "pending",
+                  blockers,
+                }),
+              );
+            },
+          );
+          spoolFollowers.set(request.params.sessionId, spoolFollower);
+          await spoolFollower.start();
+        }
         break;
       }
     }
