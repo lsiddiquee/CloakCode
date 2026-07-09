@@ -89,10 +89,12 @@ describe("approvalSummary", () => {
     expect(
       approvalSummary("replace_string_in_file", { filePath: "a/App.tsx" }),
     ).toEqual({ label: "Edit", detail: "App.tsx" });
-    expect(approvalSummary("run_in_terminal", { command: "rm -rf x" })).toEqual({
-      label: "Run",
-      detail: "rm -rf x",
-    });
+    expect(approvalSummary("run_in_terminal", { command: "rm -rf x" })).toEqual(
+      {
+        label: "Run",
+        detail: "rm -rf x",
+      },
+    );
   });
 
   it("leaves labels without a present-tense form unchanged", () => {
@@ -106,7 +108,10 @@ describe("buildAnswerText", () => {
   it("pairs each question with its answer, one per line", () => {
     expect(
       buildAnswerText([
-        { question: "Which file name should I use in /tmp/?", answer: "scratch.txt" },
+        {
+          question: "Which file name should I use in /tmp/?",
+          answer: "scratch.txt",
+        },
         { question: "Overwrite or append?", answer: "Overwrite" },
       ]),
     ).toBe(

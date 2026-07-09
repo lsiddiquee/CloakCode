@@ -73,6 +73,33 @@ reuse the `confirmation` part, approvals show `toolName` + command.
   _remotely_ is possible (the hook holds synchronously up to its `timeout` — §4.5) but is a
   later tier; M3 ships read-only live awareness, not remote resolution.
 
+### Deployment & concurrency (self-installing hook)
+
+The extension **self-installs** its hook using paths resolved from `context` — portable across
+dev container / WSL / host (each resolves to its own environment), with **no `node`-on-PATH
+assumption and nothing in the workspace**:
+
+| Piece | Location | Source |
+|---|---|---|
+| Hook binary (bundled) | `<extensionUri>/dist/hook.cjs` | `context.extensionUri` (ships in the `.vsix`) |
+| Spool (hook writes here) | `<globalStorageUri>/spool/` | `context.globalStorageUri` (writable, per-profile) |
+| Node runtime | `process.execPath` | the node running the extension host — always present |
+| Hook config | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent), `command = "<execPath>" "<hookBin>" PreToolUse` |
+
+`~` in the hook config is **per-environment** (container/WSL/host each have their own
+`~/.copilot/hooks`), so the extension installs once per environment where it runs.
+
+**Concurrency — the spool is a directory, one file per record.** A user-global hook fires in
+_every_ window of an environment, all writing the same spool. To avoid append races (POSIX
+`O_APPEND` is only atomic < ~4KB, and `tool_input` can exceed that), each pending blocker is its
+own file `<baseToolCallId>.json`: `PreToolUse` **writes** it, `PostToolUse` **deletes** it, so a
+blocker is pending iff its file exists. Separate files = no shared-log race, no matter how many
+windows fire. A missed delete can't strand a card — the transcript-subtraction dedup retires it.
+
+_Deferred (Q6/M4):_ per-window **ephemeral bridge port** + a per-environment **leader** (lock in
+globalStorage) so one observer owns the environment, and a **rendezvous relay** to unify
+_different_ environments (container ↔ WSL ↔ host) for the phone. Not built until the tunnel.
+
 ## Components
 
 ```mermaid

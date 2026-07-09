@@ -2,7 +2,7 @@ import * as os from "node:os";
 import { startBridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
 import { findTranscript } from "./session-observer.js";
-import { defaultSpoolFile } from "./hook-spool.js";
+import { defaultSpoolDir } from "./hook-spool.js";
 
 /**
  * Dev harness: run the observer + bridge as a plain Node process (no `vscode`),
@@ -15,13 +15,13 @@ import { defaultSpoolFile } from "./hook-spool.js";
 const instanceId = process.env["CLOAKCODE_INSTANCE_ID"] ?? os.hostname();
 const port = Number(process.env["CLOAKCODE_PORT"] ?? 7801);
 const root = defaultWorkspaceStorageRoot();
-const spoolFile = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolFile();
+const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();
 
 const bridge = await startBridge(
   {
     listSessions: () => scanSessions({ instanceId, root }),
     findTranscript: (sessionId) => findTranscript(root, sessionId),
-    spoolFile,
+    spoolDir,
   },
   { host: "127.0.0.1", port },
 );

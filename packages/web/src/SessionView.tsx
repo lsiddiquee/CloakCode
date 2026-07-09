@@ -6,7 +6,12 @@ import type {
   SessionSummary,
 } from "@cloakcode/protocol";
 import { respondSession, subscribeSession } from "./bridge";
-import { approvalSummary, buildAnswerText, statusLabel, toolSummary } from "./format";
+import {
+  approvalSummary,
+  buildAnswerText,
+  statusLabel,
+  toolSummary,
+} from "./format";
 import { Markdown } from "./Markdown";
 
 interface ViewState {

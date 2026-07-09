@@ -14,10 +14,11 @@ export interface BridgeDeps {
   /** Resolve a sessionId to its on-disk transcript path in this environment. */
   findTranscript: (sessionId: string) => Promise<string | undefined>;
   /**
-   * Absolute path to the hook spool file (the live-pending source). When unset,
-   * the observer still works fully — there is just no live-pending overlay.
+   * Absolute path to the hook spool DIRECTORY (the live-pending source; one
+   * file per blocker). When unset, the observer still works fully — there is
+   * just no live-pending overlay.
    */
-  spoolFile?: string;
+  spoolDir?: string;
   /**
    * Deliver a `remote-operator` answer into the target window (M3b question
    * channel). Provided ONLY by the extension host (it calls
@@ -194,9 +195,9 @@ async function handleMessage(
         // Live-pending overlay (separate replace-snapshot channel). Optional:
         // only when a spool source is configured for this environment.
         spoolFollowers.get(request.params.sessionId)?.stop();
-        if (deps.spoolFile) {
+        if (deps.spoolDir) {
           const spoolFollower = new SpoolFollower(
-            deps.spoolFile,
+            deps.spoolDir,
             file,
             request.params.sessionId,
             (blockers) => {

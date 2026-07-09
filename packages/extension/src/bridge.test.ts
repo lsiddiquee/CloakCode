@@ -195,24 +195,24 @@ describe("startBridge", () => {
   it("streams a live-pending snapshot from the hook spool", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-pending-"));
     const file = path.join(dir, "sessA.jsonl");
-    const spoolFile = path.join(dir, "spool.jsonl");
+    const spoolDir = path.join(dir, "spool");
     await fs.writeFile(
       file,
       JSON.stringify({ type: "user.message", data: { content: "go" } }),
     );
+    await fs.mkdir(spoolDir, { recursive: true });
     await fs.writeFile(
-      spoolFile,
+      path.join(spoolDir, "toolu_ABC.json"),
       JSON.stringify({
-        phase: "pending",
         sessionId: "sessA",
-        toolCallId: "toolu_ABC__vscode-1783582362900",
+        toolCallId: "toolu_ABC",
         toolName: "run_in_terminal",
         input: { command: "rm -v /tmp/x" },
         ts: "2026-07-09T12:00:00.000Z",
-      }) + "\n",
+      }),
     );
     const bridge = await startBridge(
-      deps({ findTranscript: async () => file, spoolFile }),
+      deps({ findTranscript: async () => file, spoolDir }),
       { port: 0 },
     );
     try {
@@ -257,7 +257,9 @@ describe("startBridge", () => {
   });
 
   it("routes session.respond to the respond dep and acks", async () => {
-    let got: { sessionId: string; toolCallId: string; text: string } | undefined;
+    let got:
+      | { sessionId: string; toolCallId: string; text: string }
+      | undefined;
     const bridge = await startBridge(
       deps({
         respond: async (p) => {

@@ -249,7 +249,7 @@ surface for a **live steer/input channel** and is the first build-time investiga
 - **4.8** _`vscode_askQuestions` answer format_ (extracted 2026-07-09 from the built-in tool in
   the server's `extensionHostProcess.js`). The tool returns its result to the model as a **JSON
   text part**: `{ answers: { "<question.header>": { selected: string[], freeText: string|null,
-  skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the custom-answer
+skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the custom-answer
   field (or `null`), `skipped: true` when unanswered (a skipped result is all-`skipped`).
   Delivered as `content: [{ kind: "text", value: JSON.stringify({answers}) }]`.
   - _Injection caveat:_ `workbench.action.chat.open { query }` submits a **user message**, not a

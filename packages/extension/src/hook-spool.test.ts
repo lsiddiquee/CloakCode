@@ -4,12 +4,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   spoolRecordSchema,
-  parseSpool,
   baseToolCallId,
+  spoolEntryPath,
+  readSpoolDir,
   transcriptToolCallIds,
   computePendingBlockers,
-  buildSpoolRecord,
+  pendingRecord,
+  eventToolCallId,
+  buildHookConfig,
   SpoolFollower,
+  type SpoolRecord,
 } from "./hook-spool.js";
 
 const RAW_QUESTION = "toolu_017o4WdwEJb2ruJ2PawLoPyH__vscode-1783582362827";
@@ -37,27 +41,26 @@ const questionInput = {
   ],
 };
 
-const pendingLine = (
+/** A spool record (toolCallId is stored as its base id). */
+const rec = (
   toolCallId: string,
   toolName: string,
   input: unknown,
   sessionId = "sessA",
   ts = "2026-07-09T11:30:25.455Z",
-): string =>
-  JSON.stringify({
-    phase: "pending",
-    sessionId,
-    toolCallId,
-    toolName,
-    input,
-    ts,
-  });
+): SpoolRecord => ({
+  sessionId,
+  toolCallId: baseToolCallId(toolCallId),
+  toolName,
+  input,
+  ts,
+});
 
-const resolvedLine = (
-  toolCallId: string,
-  sessionId = "sessA",
-  ts = "2026-07-09T11:30:37.263Z",
-): string => JSON.stringify({ phase: "resolved", sessionId, toolCallId, ts });
+/** Write a spool record as its own file (mirrors the hook's PreToolUse write). */
+async function writeRecord(dir: string, r: SpoolRecord): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(spoolEntryPath(dir, r.toolCallId), JSON.stringify(r));
+}
 
 describe("baseToolCallId", () => {
   it("strips the __vscode-<n> suffix", () => {
@@ -70,45 +73,18 @@ describe("baseToolCallId", () => {
 });
 
 describe("spoolRecordSchema", () => {
-  it("parses a pending record", () => {
+  it("parses a spool record", () => {
     expect(
-      spoolRecordSchema.parse(
-        JSON.parse(pendingLine(RAW_RUN, "run_in_terminal", { command: "ls" })),
-      ).phase,
-    ).toBe("pending");
+      spoolRecordSchema.parse(rec(RAW_RUN, "run_in_terminal", { command: "ls" }))
+        .toolName,
+    ).toBe("run_in_terminal");
   });
 
-  it("parses a resolved record", () => {
+  it("rejects a record missing its sessionId", () => {
     expect(
-      spoolRecordSchema.parse(JSON.parse(resolvedLine(RAW_RUN))).phase,
-    ).toBe("resolved");
-  });
-
-  it("rejects an unknown phase", () => {
-    expect(
-      spoolRecordSchema.safeParse({
-        phase: "nope",
-        sessionId: "s",
-        toolCallId: "t",
-        ts: "x",
-      }).success,
+      spoolRecordSchema.safeParse({ toolCallId: "t", toolName: "x", ts: "y" })
+        .success,
     ).toBe(false);
-  });
-});
-
-describe("parseSpool", () => {
-  it("skips blank and non-JSON lines, keeps valid records", () => {
-    const content = [
-      "",
-      "not json",
-      pendingLine(RAW_RUN, "run_in_terminal", { command: "ls" }),
-      "{}",
-      resolvedLine(RAW_RUN),
-    ].join("\n");
-    const records = parseSpool(content);
-    expect(records).toHaveLength(2);
-    expect(records[0]?.phase).toBe("pending");
-    expect(records[1]?.phase).toBe("resolved");
   });
 });
 
@@ -133,10 +109,10 @@ describe("transcriptToolCallIds", () => {
 
 describe("computePendingBlockers", () => {
   it("returns a question blocker with confirmations for an interactive tool", () => {
-    const records = parseSpool(
-      pendingLine(RAW_QUESTION, "vscode_askQuestions", questionInput),
+    const blockers = computePendingBlockers(
+      [rec(RAW_QUESTION, "vscode_askQuestions", questionInput)],
+      "sessA",
     );
-    const blockers = computePendingBlockers(records, "sessA");
     expect(blockers).toHaveLength(1);
     expect(blockers[0]?.toolCallId).toBe(BASE_QUESTION);
     expect(blockers[0]?.confirmations).toHaveLength(2);
@@ -146,10 +122,10 @@ describe("computePendingBlockers", () => {
   });
 
   it("returns an approval blocker carrying raw input for an action tool", () => {
-    const records = parseSpool(
-      pendingLine(RAW_RUN, "run_in_terminal", { command: "rm -v /tmp/x" }),
+    const blockers = computePendingBlockers(
+      [rec(RAW_RUN, "run_in_terminal", { command: "rm -v /tmp/x" })],
+      "sessA",
     );
-    const blockers = computePendingBlockers(records, "sessA");
     expect(blockers).toHaveLength(1);
     expect(blockers[0]?.toolName).toBe("run_in_terminal");
     expect(blockers[0]?.confirmations).toBeUndefined();
@@ -158,38 +134,21 @@ describe("computePendingBlockers", () => {
     );
   });
 
-  it("drops a blocker once a resolved record arrives", () => {
-    const records = parseSpool(
-      [
-        pendingLine(RAW_RUN, "run_in_terminal", { command: "ls" }),
-        resolvedLine(RAW_RUN),
-      ].join("\n"),
-    );
-    expect(computePendingBlockers(records, "sessA")).toHaveLength(0);
-  });
-
   it("subtracts blockers already present in the transcript (dedup safety net)", () => {
-    const records = parseSpool(
-      pendingLine(RAW_QUESTION, "vscode_askQuestions", questionInput),
-    );
-    const transcriptIds = new Set([BASE_QUESTION]);
     expect(
-      computePendingBlockers(records, "sessA", transcriptIds),
+      computePendingBlockers(
+        [rec(RAW_QUESTION, "vscode_askQuestions", questionInput)],
+        "sessA",
+        new Set([BASE_QUESTION]),
+      ),
     ).toHaveLength(0);
   });
 
   it("isolates blockers by session", () => {
-    const records = parseSpool(
-      [
-        pendingLine(RAW_RUN, "run_in_terminal", { command: "ls" }, "sessA"),
-        pendingLine(
-          RAW_QUESTION,
-          "vscode_askQuestions",
-          questionInput,
-          "sessB",
-        ),
-      ].join("\n"),
-    );
+    const records = [
+      rec(RAW_RUN, "run_in_terminal", { command: "ls" }, "sessA"),
+      rec(RAW_QUESTION, "vscode_askQuestions", questionInput, "sessB"),
+    ];
     expect(computePendingBlockers(records, "sessA")).toHaveLength(1);
     expect(computePendingBlockers(records, "sessB")).toHaveLength(1);
     expect(computePendingBlockers(records, "sessA")[0]?.toolName).toBe(
@@ -198,7 +157,26 @@ describe("computePendingBlockers", () => {
   });
 });
 
-describe("buildSpoolRecord", () => {
+describe("readSpoolDir", () => {
+  it("reads record files, skips junk, missing dir -> []", async () => {
+    expect(
+      await readSpoolDir(path.join(os.tmpdir(), "cc-none-" + Date.now())),
+    ).toEqual([]);
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-read-"));
+    try {
+      await writeRecord(dir, rec(RAW_RUN, "run_in_terminal", { command: "ls" }));
+      await fs.writeFile(path.join(dir, "junk.json"), "not json");
+      await fs.writeFile(path.join(dir, "ignore.txt"), "{}");
+      const records = await readSpoolDir(dir);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.toolCallId).toBe(BASE_RUN);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("pendingRecord / eventToolCallId", () => {
   const stdin = {
     session_id: "471f445d",
     tool_use_id: RAW_RUN,
@@ -206,56 +184,70 @@ describe("buildSpoolRecord", () => {
     tool_input: { command: "ls" },
   };
 
-  it("maps PreToolUse to a pending record carrying input", () => {
-    const rec = buildSpoolRecord(
-      "PreToolUse",
-      stdin,
-      "2026-07-09T12:00:00.000Z",
-    );
-    expect(rec).toMatchObject({
-      phase: "pending",
+  it("builds a pending record with the BASE toolCallId + input", () => {
+    expect(pendingRecord(stdin, "2026-07-09T12:00:00.000Z")).toMatchObject({
       sessionId: "471f445d",
-      toolCallId: RAW_RUN,
+      toolCallId: BASE_RUN,
       toolName: "run_in_terminal",
       input: { command: "ls" },
     });
   });
 
-  it("maps PostToolUse to a resolved record", () => {
-    const rec = buildSpoolRecord(
-      "PostToolUse",
-      stdin,
-      "2026-07-09T12:00:00.000Z",
-    );
-    expect(rec).toMatchObject({ phase: "resolved", toolCallId: RAW_RUN });
-    expect((rec as { input?: unknown }).input).toBeUndefined();
-  });
-
   it("returns undefined when routing keys are missing", () => {
-    expect(
-      buildSpoolRecord("PreToolUse", { tool_name: "x" }, "t"),
-    ).toBeUndefined();
+    expect(pendingRecord({ tool_name: "x" }, "t")).toBeUndefined();
   });
 
-  it("returns undefined for events we do not notify on", () => {
-    expect(buildSpoolRecord("Stop", stdin, "t")).toBeUndefined();
+  it("resolves the base toolCallId for the delete path", () => {
+    expect(eventToolCallId(stdin)).toBe(BASE_RUN);
+    expect(eventToolCallId({})).toBeUndefined();
+  });
+});
+
+describe("buildHookConfig", () => {
+  it("uses absolute runtime + hook + spool dir", () => {
+    const cfg = buildHookConfig({
+      runtime: "/usr/local/bin/node",
+      hookBin: "/ext/dist/hook.cjs",
+      spoolDir: "/store/spool",
+    }) as {
+      hooks: Record<
+        string,
+        Array<{ command: string; env: Record<string, string> }>
+      >;
+    };
+    const pre = cfg.hooks["PreToolUse"]?.[0];
+    expect(pre?.command).toBe(
+      '"/usr/local/bin/node" "/ext/dist/hook.cjs" PreToolUse',
+    );
+    expect(pre?.env["CLOAKCODE_SPOOL"]).toBe("/store/spool");
+    expect(cfg.hooks["PostToolUse"]?.[0]?.command).toContain("PostToolUse");
   });
 });
 
 describe("SpoolFollower", () => {
-  it("emits a snapshot, then clears on resolved and on transcript catch-up", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-spool-"));
-    const spoolFile = path.join(dir, "spool.jsonl");
-    const transcriptFile = path.join(dir, "sessA.jsonl");
-    await fs.writeFile(
-      spoolFile,
-      pendingLine(RAW_QUESTION, "vscode_askQuestions", questionInput) + "\n",
+  const setup = async (): Promise<{
+    base: string;
+    spoolDir: string;
+    transcriptFile: string;
+  }> => {
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), "cc-spool-"));
+    return {
+      base,
+      spoolDir: path.join(base, "spool"),
+      transcriptFile: path.join(base, "sessA.jsonl"),
+    };
+  };
+
+  it("emits on a new record file, clears when it's deleted", async () => {
+    const { base, spoolDir, transcriptFile } = await setup();
+    await writeRecord(
+      spoolDir,
+      rec(RAW_QUESTION, "vscode_askQuestions", questionInput),
     );
     await fs.writeFile(transcriptFile, "");
-
     const snapshots: number[] = [];
     const follower = new SpoolFollower(
-      spoolFile,
+      spoolDir,
       transcriptFile,
       "sessA",
       (blockers) => snapshots.push(blockers.length),
@@ -263,31 +255,53 @@ describe("SpoolFollower", () => {
     );
     try {
       await follower.start();
-      expect(snapshots.at(-1)).toBe(1); // one pending question
-
-      // resolved line clears it
-      await fs.appendFile(spoolFile, resolvedLine(RAW_QUESTION) + "\n");
+      expect(snapshots.at(-1)).toBe(1);
+      await fs.rm(spoolEntryPath(spoolDir, BASE_QUESTION), { force: true });
       await follower.refresh();
       expect(snapshots.at(-1)).toBe(0);
     } finally {
       follower.stop();
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("clears via transcript catch-up even if the file lingers", async () => {
+    const { base, spoolDir, transcriptFile } = await setup();
+    await writeRecord(spoolDir, rec(RAW_RUN, "run_in_terminal", { command: "ls" }));
+    await fs.writeFile(transcriptFile, "");
+    const snapshots: number[] = [];
+    const follower = new SpoolFollower(
+      spoolDir,
+      transcriptFile,
+      "sessA",
+      (b) => snapshots.push(b.length),
+      { pollIntervalMs: 0 },
+    );
+    try {
+      await follower.start();
+      expect(snapshots.at(-1)).toBe(1);
+      await fs.writeFile(
+        transcriptFile,
+        JSON.stringify({
+          type: "tool.execution_start",
+          data: { toolCallId: BASE_RUN },
+        }),
+      );
+      await follower.refresh();
+      expect(snapshots.at(-1)).toBe(0);
+    } finally {
+      follower.stop();
+      await fs.rm(base, { recursive: true, force: true });
     }
   });
 
   it("does not re-emit an unchanged snapshot", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-spool-"));
-    const spoolFile = path.join(dir, "spool.jsonl");
-    const transcriptFile = path.join(dir, "sessA.jsonl");
-    await fs.writeFile(
-      spoolFile,
-      pendingLine(RAW_RUN, "run_in_terminal", { command: "ls" }) + "\n",
-    );
+    const { base, spoolDir, transcriptFile } = await setup();
+    await writeRecord(spoolDir, rec(RAW_RUN, "run_in_terminal", { command: "ls" }));
     await fs.writeFile(transcriptFile, "");
-
     let emits = 0;
     const follower = new SpoolFollower(
-      spoolFile,
+      spoolDir,
       transcriptFile,
       "sessA",
       () => (emits += 1),
@@ -297,10 +311,10 @@ describe("SpoolFollower", () => {
       await follower.start();
       await follower.refresh();
       await follower.refresh();
-      expect(emits).toBe(1); // only the initial change
+      expect(emits).toBe(1);
     } finally {
       follower.stop();
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(base, { recursive: true, force: true });
     }
   });
 });
