@@ -58,6 +58,45 @@ describe("parseSessionEvents", () => {
     expect(events[4]).toMatchObject({ type: "updateStatus", status: "done" });
   });
 
+  it("maps an interactive tool call to a confirmation, resolved on complete", () => {
+    const content = jsonl([
+      { type: "user.message", data: { content: "go" } },
+      {
+        type: "tool.execution_start",
+        data: {
+          toolCallId: "q1",
+          toolName: "vscode_askQuestions",
+          arguments: {
+            question: "Pick one",
+            options: [
+              { label: "A", detail: "first", recommended: true },
+              { label: "B" },
+            ],
+          },
+        },
+      },
+      {
+        type: "tool.execution_complete",
+        data: { toolCallId: "q1", success: true },
+      },
+    ]);
+    const events = parseSessionEvents(content);
+
+    const confEvent = events[1];
+    if (confEvent?.type !== "append" || confEvent.part.kind !== "confirmation") {
+      throw new Error("expected a confirmation append");
+    }
+    expect(confEvent.part.prompt).toBe("Pick one");
+    expect(confEvent.part.options).toHaveLength(2);
+    expect(confEvent.part.options[0]).toMatchObject({
+      label: "A",
+      detail: "first",
+      recommended: true,
+    });
+
+    expect(events[2]).toMatchObject({ type: "resolve", id: confEvent.part.id });
+  });
+
   it("matches a tool-call complete to its start by toolCallId", () => {
     const start = parseSessionEvents(
       jsonl([

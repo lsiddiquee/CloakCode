@@ -10,6 +10,7 @@ import { Markdown } from "./Markdown";
 
 interface ViewState {
   parts: SessionPart[];
+  resolved: Set<string>;
   error: string | null;
 }
 
@@ -21,6 +22,11 @@ function reducer(
   if (action.type === "append") {
     if (state.parts.some((p) => p.id === action.part.id)) return state;
     return { ...state, parts: [...state.parts, action.part] };
+  }
+  if (action.type === "resolve") {
+    const resolved = new Set(state.resolved);
+    resolved.add(action.id);
+    return { ...state, resolved };
   }
   // updateStatus
   return {
@@ -40,7 +46,11 @@ export function SessionView({
   session: SessionSummary;
   onBack: () => void;
 }): JSX.Element {
-  const [state, dispatch] = useReducer(reducer, { parts: [], error: null });
+  const [state, dispatch] = useReducer(reducer, {
+    parts: [],
+    resolved: new Set<string>(),
+    error: null,
+  });
 
   useEffect(() => {
     const unsubscribe = subscribeSession(
@@ -50,6 +60,10 @@ export function SessionView({
     );
     return unsubscribe;
   }, [session.instanceId, session.sessionId]);
+
+  const awaiting = state.parts.some(
+    (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
+  );
 
   return (
     <div className="app">
@@ -64,8 +78,12 @@ export function SessionView({
           </div>
         </div>
         <span className="conn">
-          <span className={`dot ${dotClass(session.status)}`} />
-          {statusLabel(session.status, session.idleSeconds)}
+          <span
+            className={`dot ${awaiting ? "amber" : dotClass(session.status)}`}
+          />
+          {awaiting
+            ? "awaiting input"
+            : statusLabel(session.status, session.idleSeconds)}
         </span>
       </header>
 
@@ -75,14 +93,24 @@ export function SessionView({
           <p className="hint">Loading transcript…</p>
         )}
         {state.parts.map((part) => (
-          <Part key={part.id} part={part} />
+          <Part
+            key={part.id}
+            part={part}
+            resolved={state.resolved.has(part.id)}
+          />
         ))}
       </main>
     </div>
   );
 }
 
-function Part({ part }: { part: SessionPart }): JSX.Element {
+function Part({
+  part,
+  resolved,
+}: {
+  part: SessionPart;
+  resolved: boolean;
+}): JSX.Element {
   switch (part.kind) {
     case "userMessage":
       return (
@@ -106,6 +134,30 @@ function Part({ part }: { part: SessionPart }): JSX.Element {
             <span className="tname">{part.name}</span>
             <span className={`status ${part.status}`}>{part.status}</span>
           </div>
+        </div>
+      );
+    case "confirmation":
+      return (
+        <div className={`blocker ${resolved ? "resolved" : ""}`}>
+          <span className="blocker-tag">
+            <span className="dot amber" />{" "}
+            {resolved ? "Answered" : "Needs your input"}
+          </span>
+          <div className="blocker-q">{part.prompt}</div>
+          {part.options.map((o) => (
+            <div key={o.id} className={`choice ${o.recommended ? "reco" : ""}`}>
+              <div className="choice-label">
+                <span>{o.label}</span>
+                {o.recommended && <span className="reco-badge">REC</span>}
+              </div>
+              {o.detail && <div className="choice-detail">{o.detail}</div>}
+            </div>
+          ))}
+          {!resolved && (
+            <div className="blocker-note">
+              View-only for now — answering arrives with the actuator.
+            </div>
+          )}
         </div>
       );
   }

@@ -2,10 +2,12 @@ import { promises as fs } from "node:fs";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import type {
+  Choice,
   SessionEvent,
   SessionPart,
   ToolStatus,
 } from "@cloakcode/protocol";
+import { INTERACTIVE_TOOL_HINTS } from "./scanner.js";
 
 /**
  * Port of `research/inspect_session.py`, mapping the on-disk event stream onto
@@ -28,6 +30,49 @@ interface RawEvent {
 
 const toolPartId = (toolCallId: unknown): string =>
   `tool-${String(toolCallId)}`;
+const confPartId = (toolCallId: unknown): string =>
+  `conf-${String(toolCallId)}`;
+
+function isInteractiveTool(toolName: unknown): boolean {
+  const name = String(toolName ?? "").toLowerCase();
+  return INTERACTIVE_TOOL_HINTS.some((hint) => name.includes(hint));
+}
+
+/**
+ * Build a `confirmation` part from an interactive tool's `arguments`. Tolerant
+ * of shape (the blocker payload carries the full question + options) — see
+ * docs/02 §3.2.
+ */
+function toConfirmation(
+  id: string,
+  args: unknown,
+): Extract<SessionPart, { kind: "confirmation" }> {
+  const a = (typeof args === "object" && args ? args : {}) as Record<
+    string,
+    unknown
+  >;
+  const prompt = String(
+    a["question"] ?? a["prompt"] ?? a["message"] ?? a["title"] ?? "Confirm",
+  );
+  const rawOptions = Array.isArray(a["options"])
+    ? a["options"]
+    : Array.isArray(a["choices"])
+      ? a["choices"]
+      : [];
+  const options: Choice[] = rawOptions.map((o: unknown, i: number) => {
+    const oo = (typeof o === "object" && o ? o : {}) as Record<string, unknown>;
+    const detailRaw = oo["detail"] ?? oo["description"];
+    return {
+      id: String(oo["id"] ?? oo["value"] ?? oo["label"] ?? i),
+      label: String(oo["label"] ?? oo["title"] ?? oo["name"] ?? oo["value"] ?? o),
+      ...(detailRaw !== undefined && detailRaw !== null
+        ? { detail: String(detailRaw) }
+        : {}),
+      ...(oo["recommended"] ? { recommended: true } : {}),
+    };
+  });
+  return { kind: "confirmation", id, prompt, options, allowFreeform: true };
+}
 
 /** Convert a transcript's JSONL body into the ordered session event log. */
 export function parseSessionEvents(content: string): SessionEvent[] {
@@ -38,6 +83,11 @@ export function parseSessionEvents(content: string): SessionEvent[] {
   const updateStatus = (id: string, status: ToolStatus): void => {
     events.push({ type: "updateStatus", seq: events.length, id, status });
   };
+  const resolve = (id: string): void => {
+    events.push({ type: "resolve", seq: events.length, id });
+  };
+  /** toolCallIds whose start was an interactive (blocker) call. */
+  const interactiveIds = new Set<string>();
 
   let userIdx = 0;
   let msgIdx = 0;
@@ -75,20 +125,31 @@ export function parseSessionEvents(content: string): SessionEvent[] {
         break;
       }
       case "tool.execution_start": {
-        append({
-          kind: "toolCall",
-          id: toolPartId(data.toolCallId),
-          name: String(data.toolName),
-          input: data.arguments ?? null,
-          status: "running",
-        });
+        const cid = String(data.toolCallId);
+        if (isInteractiveTool(data.toolName)) {
+          interactiveIds.add(cid);
+          append(toConfirmation(confPartId(cid), data.arguments));
+        } else {
+          append({
+            kind: "toolCall",
+            id: toolPartId(cid),
+            name: String(data.toolName),
+            input: data.arguments ?? null,
+            status: "running",
+          });
+        }
         break;
       }
       case "tool.execution_complete": {
-        updateStatus(
-          toolPartId(data.toolCallId),
-          data.success === false ? "error" : "done",
-        );
+        const cid = String(data.toolCallId);
+        if (interactiveIds.has(cid)) {
+          resolve(confPartId(cid));
+        } else {
+          updateStatus(
+            toolPartId(cid),
+            data.success === false ? "error" : "done",
+          );
+        }
         break;
       }
       default:

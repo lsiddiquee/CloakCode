@@ -27,6 +27,15 @@ export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export const toolStatusSchema = z.enum(["running", "done", "error"]);
 export type ToolStatus = z.infer<typeof toolStatusSchema>;
 
+/** One selectable option of a blocker `confirmation`. */
+export const choiceSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  detail: z.string().optional(),
+  recommended: z.boolean().optional(),
+});
+export type Choice = z.infer<typeof choiceSchema>;
+
 /**
  * A typed piece of a rendered session, mirroring how Copilot Chat renders. I1
  * covers the read-mirror subset; `confirmation` (the blocker) lands in I2, and
@@ -52,13 +61,21 @@ export const sessionPartSchema = z.discriminatedUnion("kind", [
     input: z.unknown(),
     status: toolStatusSchema,
   }),
+  z.object({
+    kind: z.literal("confirmation"),
+    id: z.string(),
+    prompt: z.string(),
+    options: z.array(choiceSchema),
+    allowFreeform: z.boolean().optional(),
+  }),
 ]);
 export type SessionPart = z.infer<typeof sessionPartSchema>;
 
 /**
  * One frame of the sequence-numbered session event log. `append` adds a part;
- * `updateStatus` mutates a prior tool-call part. A reconnecting client resumes
- * from `sinceSeq`; the derived sequence is prefix-stable (append-only source).
+ * `updateStatus` mutates a prior tool-call part; `resolve` marks a
+ * `confirmation` (blocker) answered/closed. A reconnecting client resumes from
+ * `sinceSeq`; the derived sequence is prefix-stable (append-only source).
  */
 export const sessionEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -71,6 +88,11 @@ export const sessionEventSchema = z.discriminatedUnion("type", [
     seq: z.number().int().nonnegative(),
     id: z.string(),
     status: toolStatusSchema,
+  }),
+  z.object({
+    type: z.literal("resolve"),
+    seq: z.number().int().nonnegative(),
+    id: z.string(),
   }),
 ]);
 export type SessionEvent = z.infer<typeof sessionEventSchema>;

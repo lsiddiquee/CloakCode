@@ -102,6 +102,24 @@ describe("sessionPartSchema", () => {
     ).toBe("toolCall");
   });
 
+  it("parses a confirmation (blocker) part with choices", () => {
+    const part = sessionPartSchema.parse({
+      kind: "confirmation",
+      id: "conf-1",
+      prompt: "How should expired tokens be handled?",
+      options: [
+        { id: "1", label: "Return 401", detail: "matches client", recommended: true },
+        { id: "2", label: "Silently refresh" },
+      ],
+      allowFreeform: true,
+    });
+    expect(part.kind).toBe("confirmation");
+    if (part.kind === "confirmation") {
+      expect(part.options).toHaveLength(2);
+      expect(part.options[0]?.recommended).toBe(true);
+    }
+  });
+
   it("rejects an unknown part kind", () => {
     expect(
       sessionPartSchema.safeParse({ kind: "diff", id: "d1" }).success,
@@ -126,6 +144,12 @@ describe("sessionEventSchema", () => {
         status: "done",
       }).type,
     ).toBe("updateStatus");
+  });
+
+  it("parses a resolve frame", () => {
+    expect(
+      sessionEventSchema.parse({ type: "resolve", seq: 5, id: "conf-1" }).type,
+    ).toBe("resolve");
   });
 });
 

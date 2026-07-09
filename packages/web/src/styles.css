@@ -365,3 +365,70 @@ body {
   color: #f85149;
   border: 1px solid color-mix(in srgb, #f85149 45%, transparent);
 }
+
+/* Blocker (confirmation) card */
+.blocker {
+  border: 1px solid var(--amber);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--amber) 12%, var(--surface));
+  padding: 14px;
+}
+.blocker.resolved {
+  opacity: 0.6;
+  border-color: var(--border);
+  background: var(--surface);
+}
+.blocker-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+.blocker-q {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+.choice {
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+  padding: 11px 12px;
+  margin-bottom: 8px;
+}
+.choice.reco {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent) inset;
+}
+.choice-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 550;
+}
+.reco-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.choice-detail {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.blocker-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
