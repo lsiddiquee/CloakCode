@@ -13,8 +13,7 @@
       ],
       "env": {
         "CLOAKCODE_PORT": "7803",
-        "CLOAKCODE_INSTANCE_ID": "ext-dev",
-        "CLOAKCODE_SPOOL": "${workspaceFolder}/.local/isolated/spool"
+        "CLOAKCODE_INSTANCE_ID": "ext-dev"
       },
       "preLaunchTask": "bundle-extension"
     }

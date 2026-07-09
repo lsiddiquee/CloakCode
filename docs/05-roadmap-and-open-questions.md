@@ -57,10 +57,25 @@ extension/Copilot tooling), monorepo skeleton, full docs, preserved research scr
 Read-only real-time awareness of blockers. The transcript batches interactive/approval tool
 events at completion (docs/02 §4.6), so a _pending_ blocker is invisible on disk; a
 **non-intrusive** `cloakcode` hook (emits **no** `permissionDecision`, so native VS Code
-approvals are untouched) writes `pending`/`resolved` lines to a local spool. The extension
-merges them into a separate `{kind:"pending"}` snapshot channel (deduped against the transcript
-by base `toolCallId`) and the PWA renders a **"Needs your input"** overlay. Proven live for
-both questions and tool approvals. `session.respond` is **not** yet wired — answering is M3b.
+approvals are untouched) records blockers to a local spool. The extension merges them into a
+separate `{kind:"pending"}` snapshot channel (deduped against the transcript by base
+`toolCallId`) and the PWA renders a **"Needs your input"** overlay. Proven live for both
+questions and tool approvals. `session.respond` is **not** yet wired — answering is M3b.
+
+Hardened for real deployment (see docs/03 "Deployment & concurrency"): the extension
+**self-installs** the hook (`~/.copilot/hooks/cloakcode.json`) from `context` paths (bundled
+`hook.cjs` + `process.execPath`), gated by the `machine`-scoped `cloakcode.installHook`. The
+spool is a **fixed per-environment directory** (`~/.cloakcode/spool`, computed by both sides —
+no env handoff), **one file per blocker** (write on `PreToolUse`, delete on `PostToolUse`) so
+concurrent windows never race. Only **interactive** tools are spooled; routing is by
+`session_id`; a **late subscriber gets the current snapshot on subscribe** (phone need not be
+open when the question fires); and the follower **self-heals** stale files via the shared
+`isRetired` predicate, with a fast path that skips the transcript parse when nothing is pending.
+
+- _Residual edge:_ a session that **crashes mid-question** — before the interactive event ever
+  flushes to the transcript — leaves a spool file that neither `PostToolUse` nor the
+  transcript-subtraction/`isRetired` self-heal can retire. Mitigated by mtime session liveness
+  dropping dead sessions from the list; a spool TTL/GC is a later option if it bites.
 
 #### M3b — Remote answering (next)
 

@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 import { startBridge, type Bridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
 import { findTranscript } from "./session-observer.js";
-import { buildHookConfig } from "./hook-spool.js";
+import { buildHookConfig, defaultSpoolDir } from "./hook-spool.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -65,13 +65,23 @@ export async function activate(
   const instanceId = process.env["CLOAKCODE_INSTANCE_ID"] ?? os.hostname();
   const port = Number(process.env["CLOAKCODE_PORT"] ?? 7801);
   const root = defaultWorkspaceStorageRoot();
-  // Spool lives in the extension's own writable, per-profile globalStorage — not
-  // the workspace, not a hardcoded path. Overridable for the dev-server.
-  const spoolDir =
-    process.env["CLOAKCODE_SPOOL"] ??
-    path.join(context.globalStorageUri.fsPath, "spool");
+  // The spool is a fixed, per-environment dir shared by the hook and every
+  // window's follower (see hook-spool `defaultSpoolDir`) — NOT `globalStorageUri`,
+  // which is per-profile and the separate hook process can't read anyway.
+  // Overridable via env for the dev-server / isolated rig.
+  const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();
 
-  await installHook(context, spoolDir, out);
+  // Opt-out for the per-environment hook file. Machine-scoped (User/Remote
+  // settings, not per-workspace) because it controls one global file shared by
+  // every window. Off = we never write it; the user manages the hook themselves.
+  const installEnabled = vscode.workspace
+    .getConfiguration("cloakcode")
+    .get<boolean>("installHook", true);
+  if (installEnabled) {
+    await installHook(context, spoolDir, out);
+  } else {
+    out.appendLine("hook install disabled (cloakcode.installHook = false)");
+  }
 
   try {
     bridge = await startBridge(

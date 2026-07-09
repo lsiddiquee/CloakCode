@@ -79,22 +79,53 @@ The extension **self-installs** its hook using paths resolved from `context` —
 dev container / WSL / host (each resolves to its own environment), with **no `node`-on-PATH
 assumption and nothing in the workspace**:
 
-| Piece | Location | Source |
-|---|---|---|
-| Hook binary (bundled) | `<extensionUri>/dist/hook.cjs` | `context.extensionUri` (ships in the `.vsix`) |
-| Spool (hook writes here) | `<globalStorageUri>/spool/` | `context.globalStorageUri` (writable, per-profile) |
-| Node runtime | `process.execPath` | the node running the extension host — always present |
-| Hook config | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent), `command = "<execPath>" "<hookBin>" PreToolUse` |
+| Piece                    | Location                          | Source                                                                                |
+| ------------------------ | --------------------------------- | ------------------------------------------------------------------------------------- |
+| Hook binary (bundled)    | `<extensionUri>/dist/hook.cjs`    | `context.extensionUri` (ships in the `.vsix`)                                         |
+| Spool (hook writes here) | `~/.cloakcode/spool/`             | fixed per-environment dir, computed identically by hook + follower                    |
+| Node runtime             | `process.execPath`                | the node running the extension host — always present                                  |
+| Hook config              | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent), `command = "<execPath>" "<hookBin>" PreToolUse` |
 
 `~` in the hook config is **per-environment** (container/WSL/host each have their own
 `~/.copilot/hooks`), so the extension installs once per environment where it runs.
+
+**The spool location is a fixed convention, not a handoff.** It is `~/.cloakcode/spool` —
+_not_ `globalStorageUri`. The hook config is a single **user-global** file that fires for every
+window/profile in the environment, so the one spool path baked into it must be the same path
+_every_ window's follower watches; a per-profile `globalStorageUri` would leave other windows
+watching the wrong dir (no updates). And the hook is a **separate process** that cannot read
+`context.globalStorageUri` anyway. So both sides compute the same `defaultSpoolDir()` and the
+config **omits `CLOAKCODE_SPOOL` entirely** for the standard location — one source of truth,
+nothing to drift. (The env var remains only as a dev-server / isolated-rig override.)
+
+The install is gated by the `cloakcode.installHook` setting (default `true`, scope `machine` —
+set in User or Remote settings, _not_ per-workspace: it controls one per-environment file shared
+by every window, so a workspace override would be meaningless). It rewrites `cloakcode.json`
+only when the generated content differs (idempotent), and it **regenerates to the extension's
+own paths** — hand edits to that one file are replaced; other files in `~/.copilot/hooks/` are
+untouched. Disabling does not delete an already-installed file. Set it to `false` to manage the
+hook yourself.
 
 **Concurrency — the spool is a directory, one file per record.** A user-global hook fires in
 _every_ window of an environment, all writing the same spool. To avoid append races (POSIX
 `O_APPEND` is only atomic < ~4KB, and `tool_input` can exceed that), each pending blocker is its
 own file `<baseToolCallId>.json`: `PreToolUse` **writes** it, `PostToolUse` **deletes** it, so a
 blocker is pending iff its file exists. Separate files = no shared-log race, no matter how many
-windows fire. A missed delete can't strand a card — the transcript-subtraction dedup retires it.
+windows fire. A missed delete can't strand a card — the transcript-subtraction dedup (the shared
+`isRetired` predicate) hides it, and the follower **self-heals** by unlinking any file whose tool
+has already flushed to the transcript (§4.6), so stale files can't accumulate. As a fast path,
+when a session has no spool file the follower skips reading/parsing the transcript entirely.
+
+The hook only spools **interactive** tools (the §4.6 blocker signature — `tool_name` matching
+`ask/question/confirm/input/elicit`). Non-blocker tool calls (`read_file`, `grep`, …) are
+skipped, so they never churn the spool or flicker a card in the overlay.
+
+**Routing — the global spool is self-describing by `session_id`.** The spool is shared by every
+session in the environment, so each record carries the Copilot `session_id` (which equals the
+transcript/session id used everywhere else — proven live in M3a). A subscriber watching session
+_X_ only sees records where `sessionId === X` (`computePendingBlockers` filters on it). So the
+hook needs no notion of "which VS Code window" — fire-and-forget per interactive record is
+sufficient; the `session_id` in the record is the correlation key the follower routes on.
 
 _Deferred (Q6/M4):_ per-window **ephemeral bridge port** + a per-environment **leader** (lock in
 globalStorage) so one observer owns the environment, and a **rendezvous relay** to unify

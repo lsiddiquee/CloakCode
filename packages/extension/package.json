@@ -13,7 +13,19 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "contributes": {},
+  "contributes": {
+    "configuration": {
+      "title": "CloakCode",
+      "properties": {
+        "cloakcode.installHook": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "Automatically install the CloakCode Copilot notifier hook (`~/.copilot/hooks/cloakcode.json`) on activation. The hook is a non-intrusive notifier (it never approves or denies tool calls); it only powers the live-pending overlay. This is a **single per-environment file shared by every VS Code window**, so the setting is machine-scoped — set it in User or Remote settings, not per-workspace (a per-workspace toggle would be meaningless: the global file already fires for every window). Turn it off to manage the hook yourself; disabling does not delete an already-installed file."
+        }
+      }
+    }
+  },
   "scripts": {
     "dev": "tsx src/dev-server.ts",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.cjs --sourcemap && esbuild src/hook.ts --bundle --platform=node --format=cjs --outfile=dist/hook.cjs --sourcemap",

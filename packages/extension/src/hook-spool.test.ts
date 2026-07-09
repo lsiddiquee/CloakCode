@@ -9,9 +9,11 @@ import {
   readSpoolDir,
   transcriptToolCallIds,
   computePendingBlockers,
+  isRetired,
   pendingRecord,
   eventToolCallId,
   buildHookConfig,
+  defaultSpoolDir,
   SpoolFollower,
   type SpoolRecord,
 } from "./hook-spool.js";
@@ -75,8 +77,9 @@ describe("baseToolCallId", () => {
 describe("spoolRecordSchema", () => {
   it("parses a spool record", () => {
     expect(
-      spoolRecordSchema.parse(rec(RAW_RUN, "run_in_terminal", { command: "ls" }))
-        .toolName,
+      spoolRecordSchema.parse(
+        rec(RAW_RUN, "run_in_terminal", { command: "ls" }),
+      ).toolName,
     ).toBe("run_in_terminal");
   });
 
@@ -104,6 +107,15 @@ describe("transcriptToolCallIds", () => {
     const ids = transcriptToolCallIds(content);
     expect(ids.has(BASE_QUESTION)).toBe(true);
     expect(ids.size).toBe(1);
+  });
+});
+
+describe("isRetired", () => {
+  it("is true iff the record's base toolCallId is in the transcript", () => {
+    const record = rec(RAW_QUESTION, "vscode_askQuestions", questionInput);
+    expect(isRetired(record, new Set([BASE_QUESTION]))).toBe(true);
+    expect(isRetired(record, new Set())).toBe(false);
+    expect(isRetired(record, new Set([BASE_RUN]))).toBe(false);
   });
 });
 
@@ -164,7 +176,10 @@ describe("readSpoolDir", () => {
     ).toEqual([]);
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-read-"));
     try {
-      await writeRecord(dir, rec(RAW_RUN, "run_in_terminal", { command: "ls" }));
+      await writeRecord(
+        dir,
+        rec(RAW_RUN, "run_in_terminal", { command: "ls" }),
+      );
       await fs.writeFile(path.join(dir, "junk.json"), "not json");
       await fs.writeFile(path.join(dir, "ignore.txt"), "{}");
       const records = await readSpoolDir(dir);
@@ -179,32 +194,45 @@ describe("readSpoolDir", () => {
 describe("pendingRecord / eventToolCallId", () => {
   const stdin = {
     session_id: "471f445d",
-    tool_use_id: RAW_RUN,
-    tool_name: "run_in_terminal",
-    tool_input: { command: "ls" },
+    tool_use_id: RAW_QUESTION,
+    tool_name: "vscode_askQuestions",
+    tool_input: { questions: [] },
   };
 
   it("builds a pending record with the BASE toolCallId + input", () => {
     expect(pendingRecord(stdin, "2026-07-09T12:00:00.000Z")).toMatchObject({
       sessionId: "471f445d",
-      toolCallId: BASE_RUN,
-      toolName: "run_in_terminal",
-      input: { command: "ls" },
+      toolCallId: BASE_QUESTION,
+      toolName: "vscode_askQuestions",
+      input: { questions: [] },
     });
   });
 
   it("returns undefined when routing keys are missing", () => {
-    expect(pendingRecord({ tool_name: "x" }, "t")).toBeUndefined();
+    expect(
+      pendingRecord({ tool_name: "vscode_askQuestions" }, "t"),
+    ).toBeUndefined();
   });
 
-  it("resolves the base toolCallId for the delete path", () => {
-    expect(eventToolCallId(stdin)).toBe(BASE_RUN);
+  it("ignores non-interactive tools (only blockers are spooled)", () => {
+    expect(
+      pendingRecord(
+        { session_id: "s", tool_use_id: RAW_RUN, tool_name: "run_in_terminal" },
+        "t",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("resolves the base toolCallId for the delete path (any tool)", () => {
+    expect(
+      eventToolCallId({ tool_use_id: RAW_RUN, tool_name: "run_in_terminal" }),
+    ).toBe(BASE_RUN);
     expect(eventToolCallId({})).toBeUndefined();
   });
 });
 
 describe("buildHookConfig", () => {
-  it("uses absolute runtime + hook + spool dir", () => {
+  it("uses absolute runtime + hook, and passes an OVERRIDE spool via env", () => {
     const cfg = buildHookConfig({
       runtime: "/usr/local/bin/node",
       hookBin: "/ext/dist/hook.cjs",
@@ -212,15 +240,24 @@ describe("buildHookConfig", () => {
     }) as {
       hooks: Record<
         string,
-        Array<{ command: string; env: Record<string, string> }>
+        Array<{ command: string; env?: Record<string, string> }>
       >;
     };
     const pre = cfg.hooks["PreToolUse"]?.[0];
     expect(pre?.command).toBe(
       '"/usr/local/bin/node" "/ext/dist/hook.cjs" PreToolUse',
     );
-    expect(pre?.env["CLOAKCODE_SPOOL"]).toBe("/store/spool");
+    expect(pre?.env?.["CLOAKCODE_SPOOL"]).toBe("/store/spool");
     expect(cfg.hooks["PostToolUse"]?.[0]?.command).toContain("PostToolUse");
+  });
+
+  it("omits the spool env for the standard location (hook derives it itself)", () => {
+    const cfg = buildHookConfig({
+      runtime: "/usr/local/bin/node",
+      hookBin: "/ext/dist/hook.cjs",
+      spoolDir: defaultSpoolDir(),
+    }) as { hooks: Record<string, Array<{ env?: unknown }>> };
+    expect(cfg.hooks["PreToolUse"]?.[0]?.env).toBeUndefined();
   });
 });
 
@@ -265,9 +302,40 @@ describe("SpoolFollower", () => {
     }
   });
 
-  it("clears via transcript catch-up even if the file lingers", async () => {
+  it("delivers a pre-existing blocker to a LATE subscriber (initial snapshot on start)", async () => {
     const { base, spoolDir, transcriptFile } = await setup();
-    await writeRecord(spoolDir, rec(RAW_RUN, "run_in_terminal", { command: "ls" }));
+    // The question fired (hook wrote the record) BEFORE the phone subscribed —
+    // the phone was not open at the time. Opening the session must still show it.
+    await writeRecord(
+      spoolDir,
+      rec(RAW_QUESTION, "vscode_askQuestions", questionInput),
+    );
+    await fs.writeFile(transcriptFile, "");
+    const snapshots: Array<Array<{ toolCallId: string }>> = [];
+    const follower = new SpoolFollower(
+      spoolDir,
+      transcriptFile,
+      "sessA",
+      (b) => snapshots.push(b),
+      { pollIntervalMs: 0 },
+    );
+    try {
+      await follower.start();
+      // start() emits the CURRENT pending state immediately (no fs event needed).
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0]?.[0]?.toolCallId).toBe(BASE_QUESTION);
+    } finally {
+      follower.stop();
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("self-heals: transcript catch-up clears AND unlinks a lingering file", async () => {
+    const { base, spoolDir, transcriptFile } = await setup();
+    await writeRecord(
+      spoolDir,
+      rec(RAW_RUN, "run_in_terminal", { command: "ls" }),
+    );
     await fs.writeFile(transcriptFile, "");
     const snapshots: number[] = [];
     const follower = new SpoolFollower(
@@ -280,6 +348,8 @@ describe("SpoolFollower", () => {
     try {
       await follower.start();
       expect(snapshots.at(-1)).toBe(1);
+      // Tool completed (its id lands in the transcript) but PostToolUse never
+      // deleted the spool file — the follower must retire AND remove it.
       await fs.writeFile(
         transcriptFile,
         JSON.stringify({
@@ -289,6 +359,7 @@ describe("SpoolFollower", () => {
       );
       await follower.refresh();
       expect(snapshots.at(-1)).toBe(0);
+      expect(await fs.readdir(spoolDir)).toHaveLength(0);
     } finally {
       follower.stop();
       await fs.rm(base, { recursive: true, force: true });
@@ -297,7 +368,10 @@ describe("SpoolFollower", () => {
 
   it("does not re-emit an unchanged snapshot", async () => {
     const { base, spoolDir, transcriptFile } = await setup();
-    await writeRecord(spoolDir, rec(RAW_RUN, "run_in_terminal", { command: "ls" }));
+    await writeRecord(
+      spoolDir,
+      rec(RAW_RUN, "run_in_terminal", { command: "ls" }),
+    );
     await fs.writeFile(transcriptFile, "");
     let emits = 0;
     const follower = new SpoolFollower(
