@@ -62,7 +62,11 @@ export function SessionView({
   }, [session.instanceId, session.sessionId]);
 
   // Stick-to-bottom: follow the latest message unless the user scrolled up.
+  // A ResizeObserver on the inner content re-pins on any growth — including the
+  // markdown/table reflow after the initial load, which a parts-effect misses
+  // (that's why it opened at the top).
   const scrollRef = useRef<HTMLElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
   const handleScroll = (): void => {
@@ -73,8 +77,15 @@ export function SessionView({
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [state.parts, state.resolved, state.error]);
+    const inner = innerRef.current;
+    if (!el || !inner) return;
+    const toBottom = (): void => {
+      if (stickRef.current) el.scrollTop = el.scrollHeight;
+    };
+    const ro = new ResizeObserver(toBottom);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
 
   const awaiting = state.parts.some(
     (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
@@ -103,17 +114,19 @@ export function SessionView({
       </header>
 
       <main className="content transcript" ref={scrollRef} onScroll={handleScroll}>
-        {state.error && <p className="hint dim">stream: {state.error}</p>}
-        {state.parts.length === 0 && !state.error && (
-          <p className="hint">Loading transcript…</p>
-        )}
-        {state.parts.map((part) => (
-          <Part
-            key={part.id}
-            part={part}
-            resolved={state.resolved.has(part.id)}
-          />
-        ))}
+        <div className="transcript-inner" ref={innerRef}>
+          {state.error && <p className="hint dim">stream: {state.error}</p>}
+          {state.parts.length === 0 && !state.error && (
+            <p className="hint">Loading transcript…</p>
+          )}
+          {state.parts.map((part) => (
+            <Part
+              key={part.id}
+              part={part}
+              resolved={state.resolved.has(part.id)}
+            />
+          ))}
+        </div>
       </main>
     </div>
   );
