@@ -201,7 +201,5 @@ export async function scanSessions(
     }
   }
 
-  return rows
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .map((row) => row.summary);
+  return rows.sort((a, b) => b.mtimeMs - a.mtimeMs).map((row) => row.summary);
 }

@@ -23,7 +23,11 @@ describe("parseSessionEvents", () => {
       },
       {
         type: "tool.execution_start",
-        data: { toolCallId: "t1", toolName: "read_file", arguments: { p: "x" } },
+        data: {
+          toolCallId: "t1",
+          toolName: "read_file",
+          arguments: { p: "x" },
+        },
       },
       {
         type: "tool.execution_complete",
@@ -99,7 +103,8 @@ describe("parseSessionEvents", () => {
 describe("SessionFollower", () => {
   const dirs: string[] = [];
   afterEach(async () => {
-    for (const d of dirs.splice(0)) await fs.rm(d, { recursive: true, force: true });
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
   });
 
   async function tmpFile(content: string): Promise<string> {
@@ -153,7 +158,8 @@ describe("SessionFollower", () => {
 describe("findTranscript", () => {
   const dirs: string[] = [];
   afterEach(async () => {
-    for (const d of dirs.splice(0)) await fs.rm(d, { recursive: true, force: true });
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
   });
 
   it("finds a session file by id and returns undefined otherwise", async () => {

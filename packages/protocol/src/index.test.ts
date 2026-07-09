@@ -81,10 +81,12 @@ describe("rpcRequestSchema", () => {
 describe("sessionPartSchema", () => {
   it("parses each I1 part kind", () => {
     expect(
-      sessionPartSchema.parse({ kind: "userMessage", id: "u1", text: "hi" }).kind,
+      sessionPartSchema.parse({ kind: "userMessage", id: "u1", text: "hi" })
+        .kind,
     ).toBe("userMessage");
     expect(
-      sessionPartSchema.parse({ kind: "markdown", id: "m1", text: "**x**" }).kind,
+      sessionPartSchema.parse({ kind: "markdown", id: "m1", text: "**x**" })
+        .kind,
     ).toBe("markdown");
     expect(
       sessionPartSchema.parse({ kind: "thinking", id: "t1", text: "…" }).kind,
@@ -101,9 +103,9 @@ describe("sessionPartSchema", () => {
   });
 
   it("rejects an unknown part kind", () => {
-    expect(sessionPartSchema.safeParse({ kind: "diff", id: "d1" }).success).toBe(
-      false,
-    );
+    expect(
+      sessionPartSchema.safeParse({ kind: "diff", id: "d1" }).success,
+    ).toBe(false);
   });
 });
 

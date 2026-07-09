@@ -9,7 +9,10 @@ export function humanAge(seconds: number): string {
 }
 
 /** Short status word shown next to a session row. */
-export function statusLabel(status: SessionStatus, idleSeconds: number): string {
+export function statusLabel(
+  status: SessionStatus,
+  idleSeconds: number,
+): string {
   switch (status) {
     case "blocked":
       return `blocked ${humanAge(idleSeconds)}`;

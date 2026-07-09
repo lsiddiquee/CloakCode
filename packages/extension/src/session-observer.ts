@@ -1,7 +1,11 @@
 import { promises as fs } from "node:fs";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
-import type { SessionEvent, SessionPart, ToolStatus } from "@cloakcode/protocol";
+import type {
+  SessionEvent,
+  SessionPart,
+  ToolStatus,
+} from "@cloakcode/protocol";
 
 /**
  * Port of `research/inspect_session.py`, mapping the on-disk event stream onto
@@ -22,7 +26,8 @@ interface RawEvent {
   };
 }
 
-const toolPartId = (toolCallId: unknown): string => `tool-${String(toolCallId)}`;
+const toolPartId = (toolCallId: unknown): string =>
+  `tool-${String(toolCallId)}`;
 
 /** Convert a transcript's JSONL body into the ordered session event log. */
 export function parseSessionEvents(content: string): SessionEvent[] {

@@ -57,7 +57,10 @@ describe("startBridge", () => {
     const bridge = await startBridge(deps(), { port: 0 });
     try {
       const res = await request(bridge.port, { op: "not.a.real.op" });
-      expect(res).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
     } finally {
       await bridge.close();
     }
@@ -76,9 +79,12 @@ describe("startBridge", () => {
         }),
       ].join("\n"),
     );
-    const bridge = await startBridge(deps({ findTranscript: async () => file }), {
-      port: 0,
-    });
+    const bridge = await startBridge(
+      deps({ findTranscript: async () => file }),
+      {
+        port: 0,
+      },
+    );
     try {
       const frames = await new Promise<Array<Record<string, unknown>>>(
         (resolve, reject) => {
@@ -142,9 +148,12 @@ describe("startBridge", () => {
       file,
       JSON.stringify({ type: "user.message", data: { content: "go" } }),
     );
-    const bridge = await startBridge(deps({ findTranscript: async () => file }), {
-      port: 0,
-    });
+    const bridge = await startBridge(
+      deps({ findTranscript: async () => file }),
+      {
+        port: 0,
+      },
+    );
     try {
       // Second subscribe (id "b") must replace the first and replay from seq 0.
       const replayed = await new Promise<Record<string, unknown>>(

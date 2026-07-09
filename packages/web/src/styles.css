@@ -39,8 +39,11 @@ body,
   margin: 0;
 }
 body {
-  background:
-    radial-gradient(1200px 800px at 50% -10%, var(--page-grad) 0%, var(--bg) 55%);
+  background: radial-gradient(
+    1200px 800px at 50% -10%,
+    var(--page-grad) 0%,
+    var(--bg) 55%
+  );
   color: var(--text);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -341,8 +344,7 @@ body {
   padding: 9px 11px;
 }
 .card-tool .tname {
-  font-family:
-    "SF Mono", "JetBrains Mono", Consolas, monospace;
+  font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
   flex: 1;
 }

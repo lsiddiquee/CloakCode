@@ -1,5 +1,9 @@
 import { useEffect, useReducer } from "react";
-import type { SessionEvent, SessionPart, SessionSummary } from "@cloakcode/protocol";
+import type {
+  SessionEvent,
+  SessionPart,
+  SessionSummary,
+} from "@cloakcode/protocol";
 import { subscribeSession } from "./bridge";
 import { statusLabel } from "./format";
 import { Markdown } from "./Markdown";
@@ -9,7 +13,10 @@ interface ViewState {
   error: string | null;
 }
 
-function reducer(state: ViewState, action: SessionEvent | { type: "error"; message: string }): ViewState {
+function reducer(
+  state: ViewState,
+  action: SessionEvent | { type: "error"; message: string },
+): ViewState {
   if (action.type === "error") return { ...state, error: action.message };
   if (action.type === "append") {
     if (state.parts.some((p) => p.id === action.part.id)) return state;

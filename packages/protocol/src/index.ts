@@ -33,7 +33,11 @@ export type ToolStatus = z.infer<typeof toolStatusSchema>;
  * richer parts (diff/fileTree/…) later. See docs/03 "The core abstraction".
  */
 export const sessionPartSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("userMessage"), id: z.string(), text: z.string() }),
+  z.object({
+    kind: z.literal("userMessage"),
+    id: z.string(),
+    text: z.string(),
+  }),
   z.object({
     kind: z.literal("markdown"),
     id: z.string(),

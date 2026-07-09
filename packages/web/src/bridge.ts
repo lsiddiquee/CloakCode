@@ -51,7 +51,9 @@ export function fetchSessions(
         }
         const err = rpcErrorSchema.safeParse(raw);
         reject(
-          new Error(err.success ? err.data.error.message : "unexpected response"),
+          new Error(
+            err.success ? err.data.error.message : "unexpected response",
+          ),
         );
       } catch (e) {
         reject(e instanceof Error ? e : new Error(String(e)));

@@ -2,11 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  classifyStatus,
-  parseTranscript,
-  scanSessions,
-} from "./scanner.js";
+import { classifyStatus, parseTranscript, scanSessions } from "./scanner.js";
 
 describe("parseTranscript", () => {
   it("counts turns, takes the first user message as title", () => {

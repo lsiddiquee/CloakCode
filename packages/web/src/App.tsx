@@ -31,7 +31,10 @@ export function App(): JSX.Element {
       const sessions = await fetchSessions();
       setState({ kind: "ready", sessions });
     } catch (e) {
-      setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+      setState({
+        kind: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -71,7 +74,9 @@ export function App(): JSX.Element {
       </header>
 
       <main className="content">
-        {state.kind === "loading" && <p className="hint">Reaching the bridge…</p>}
+        {state.kind === "loading" && (
+          <p className="hint">Reaching the bridge…</p>
+        )}
 
         {state.kind === "error" && (
           <div className="empty">
@@ -84,7 +89,9 @@ export function App(): JSX.Element {
         )}
 
         {state.kind === "ready" && state.sessions.length === 0 && (
-          <p className="hint">No Copilot sessions found in this environment yet.</p>
+          <p className="hint">
+            No Copilot sessions found in this environment yet.
+          </p>
         )}
 
         {state.kind === "ready" &&
@@ -108,7 +115,9 @@ export function App(): JSX.Element {
                       <span>{statusLabel(s.status, s.idleSeconds)}</span>
                     </div>
                   </div>
-                  {s.status === "blocked" && <span className="needs">Needs input</span>}
+                  {s.status === "blocked" && (
+                    <span className="needs">Needs input</span>
+                  )}
                 </div>
               ))}
             </section>
