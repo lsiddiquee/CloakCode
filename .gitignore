@@ -31,3 +31,7 @@ out/
 Thumbs.db
 
 .local/
+
+# Local hook probe (Copilot reads .github/hooks/*.json). Keep the throwaway
+# probe config out of git; the real CloakCode hook file ships intentionally.
+.github/hooks/cloakcode-probe.json
