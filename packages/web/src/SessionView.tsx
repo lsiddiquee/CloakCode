@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import type {
   SessionEvent,
   SessionPart,
@@ -61,6 +61,21 @@ export function SessionView({
     return unsubscribe;
   }, [session.instanceId, session.sessionId]);
 
+  // Stick-to-bottom: follow the latest message unless the user scrolled up.
+  const scrollRef = useRef<HTMLElement>(null);
+  const stickRef = useRef(true);
+
+  const handleScroll = (): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [state.parts, state.resolved, state.error]);
+
   const awaiting = state.parts.some(
     (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
   );
@@ -87,7 +102,7 @@ export function SessionView({
         </span>
       </header>
 
-      <main className="content transcript">
+      <main className="content transcript" ref={scrollRef} onScroll={handleScroll}>
         {state.error && <p className="hint dim">stream: {state.error}</p>}
         {state.parts.length === 0 && !state.error && (
           <p className="hint">Loading transcript…</p>
