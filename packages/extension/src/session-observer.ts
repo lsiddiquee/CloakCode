@@ -132,22 +132,28 @@ export type SessionEventSink = (event: SessionEvent) => void;
 
 /**
  * Tails a single transcript file: emits every event past `sinceSeq` on start,
- * then re-emits the growing tail on each change. Refreshes are serialized on a
- * promise queue, so awaiting `refresh()` always reflects the latest file and no
- * event is dropped or double-emitted under rapid writes.
+ * then re-emits the growing tail on each change. Uses BOTH `fs.watch` (for
+ * immediacy) AND a short poll fallback — in dev containers the vscode-server
+ * storage often sits on an overlay/volume where inotify events are missed or
+ * delayed, which would otherwise stall the live mirror. Refreshes are serialized
+ * on a promise queue, so watch + poll never double-emit or drop an event.
  */
 export class SessionFollower {
   private emitted: number;
   private watcher: fsSync.FSWatcher | undefined;
+  private poller: ReturnType<typeof setInterval> | undefined;
   private queue: Promise<void> = Promise.resolve();
   private stopped = false;
+  private readonly pollIntervalMs: number;
 
   constructor(
     private readonly filePath: string,
     private readonly sink: SessionEventSink,
     sinceSeq = 0,
+    options: { pollIntervalMs?: number } = {},
   ) {
     this.emitted = sinceSeq;
+    this.pollIntervalMs = options.pollIntervalMs ?? 400;
   }
 
   async start(): Promise<void> {
@@ -159,6 +165,13 @@ export class SessionFollower {
       });
     } catch {
       // file removed between read and watch; nothing to tail
+    }
+    // Poll fallback: catches flushes when inotify events are missed/delayed.
+    if (this.pollIntervalMs > 0) {
+      this.poller = setInterval(() => {
+        void this.refresh();
+      }, this.pollIntervalMs);
+      this.poller.unref();
     }
   }
 
@@ -189,5 +202,9 @@ export class SessionFollower {
     this.stopped = true;
     this.watcher?.close();
     this.watcher = undefined;
+    if (this.poller) {
+      clearInterval(this.poller);
+      this.poller = undefined;
+    }
   }
 }

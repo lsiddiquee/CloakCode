@@ -139,6 +139,34 @@ describe("SessionFollower", () => {
     });
   });
 
+  it("auto-emits appended events via watch/poll (no manual refresh)", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "one" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 20,
+    });
+    await follower.start();
+    expect(seen).toHaveLength(1);
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({ type: "user.message", data: { content: "two" } })}`,
+    );
+    // Do NOT call refresh() — the poll fallback must pick the append up on its own.
+    const deadline = Date.now() + 1000;
+    while (seen.length < 2 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    follower.stop();
+
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toMatchObject({
+      part: { kind: "userMessage", text: "two" },
+    });
+  });
+
   it("resumes from sinceSeq (skips already-seen events)", async () => {
     const file = await tmpFile(
       jsonl([
