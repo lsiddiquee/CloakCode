@@ -35,4 +35,20 @@ export default defineConfig({
       },
     },
   },
+  // `vite preview` serves the built (frozen) app with the same same-origin
+  // /bridge proxy — used for an isolated, stable instance while dev continues.
+  // Defaults to a separate port + bridge so it never collides with `vite dev`.
+  preview: {
+    host: true,
+    port: Number(process.env["CLOAKCODE_PREVIEW_PORT"] ?? 5290),
+    strictPort: true,
+    allowedHosts: true,
+    proxy: {
+      "/bridge": {
+        target: process.env["CLOAKCODE_BRIDGE"] ?? "ws://127.0.0.1:7802",
+        ws: true,
+        changeOrigin: true,
+      },
+    },
+  },
 });
