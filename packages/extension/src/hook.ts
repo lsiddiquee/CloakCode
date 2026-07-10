@@ -29,6 +29,7 @@ import {
   blockingRecord,
   BLOCK_HOOK_TIMEOUT_SECONDS,
   controlDirFor,
+  debugLogFromTranscript,
   decisionEntryPath,
   defaultSpoolDir,
   eventToolCallId,
@@ -38,6 +39,7 @@ import {
   preToolAction,
   readControlPolicy,
   readDecision,
+  readLatestPermissionLevel,
   spoolEntryPath,
 } from "./hook-spool.js";
 
@@ -74,12 +76,23 @@ async function handlePreToolUse(
   stdin: unknown,
   spoolDir: string,
 ): Promise<string> {
-  const { sessionId, toolName } = hookRouting(stdin);
+  const { sessionId, toolName, transcriptPath } = hookRouting(stdin);
   const policy = sessionId
     ? await readControlPolicy(controlDirFor(spoolDir), sessionId)
     : NO_CONTROL;
 
-  const action = preToolAction(policy, toolName);
+  // The session's live permission level (Bypass Approvals / autopilot) actually
+  // drives VS Code's approval but is NOT in the hook stdin — read it from the
+  // debug-log (docs/02 §4.15). Only needed while in control (otherwise we defer
+  // regardless), so the tail-read never touches the common path.
+  let permissionLevel: string | undefined;
+  if (policy.control && sessionId && transcriptPath) {
+    permissionLevel = await readLatestPermissionLevel(
+      debugLogFromTranscript(transcriptPath, sessionId),
+    );
+  }
+
+  const action = preToolAction(policy, toolName, permissionLevel);
 
   if (action === "notify") {
     const record = pendingRecord(stdin, new Date().toISOString());

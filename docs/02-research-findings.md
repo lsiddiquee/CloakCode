@@ -342,13 +342,23 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   session **bypass** (`autoApprove`) → per-tool `permissions.allow` → read-in-workdir →
   write-pattern → tree-sitter shell rules → else prompt. Modes: `interactive | plan | autopilot`
   (autopilot auto-answers). **Because the hook fires before `getAutoApproval`, the hook must
-  self-decide** — VS Code won't tell it "I'd have prompted." **Reachability:** global settings are
-  readable (extension `getConfiguration`), but session `mode`/`autoApprove`/`permissions.allow`
-  are runtime state persisted only into the orchestrator session-DB (`agentService::_persistConfigValues`)
-  — **not cheaply readable**. **Decision (YAGNI/DRY):** replicate only the cheap signals — global
-  auto-approve + an operator-grown per-session allow-list (the reachable analog of `permissions.allow`)
-  — and gate all blocking behind an explicit **take-control** toggle; the read/write-path + shell
-  tree-sitter rules are **not** ported (they surface unless allow-listed). **Hook output shape**
+  self-decide** — VS Code won't tell it "I'd have prompted." **Reachability (corrected 2026-07-10):**
+  the session's effective approval mode IS reachable. It's logged **per request** in the debug-log
+  `main.jsonl` as `permissionLevel` (`default` | `assisted` | `autoApprove` [= the "Bypass Approvals"
+  status-bar toggle] | `autopilot`) — verified live (~382 hits in one session; value flows from the
+  client `ChatModel.inputState` onto `request.permissionLevel`, `toolCallingLoop.ts`). The hook
+  **stdin does NOT carry it** (`chatHookService.ts` writes only `{timestamp, hook_event_name,
+  session_id, transcript_path, tool_name, tool_input, tool_use_id, cwd}`), but it carries
+  `transcript_path` + `session_id`, so the hook derives the sibling debug-log and reads the latest
+  `permissionLevel` **live** at decision time (tail-read, best-effort). _An earlier draft wrongly
+  called this unreachable — it conflated it with the agent-host `session.db`
+  (`agentService::_persistConfigValues`), which is the separate "agent sessions" feature; that DB
+  does **not** exist for classic Copilot Chat (verified: no `agentSessionData`/`session.db` on
+  disk)._ **Decision (YAGNI/DRY):** respect the reachable signals — the global auto-approve setting,
+  the session's own `permissionLevel` (`autoApprove`/`autopilot` ⇒ defer), and an operator-grown
+  allow-list — and gate all blocking behind an explicit **take-control** toggle; VS Code's
+  read/write-path + tree-sitter shell rules are **not** ported (they surface unless allow-listed).
+  **Hook output shape**
   (authoritative, copilot-chat `hookCommandTypes.ts` + `chatHookService.ts:367-388`): the verdict
   lives inside `hookSpecificOutput` — `{ hookSpecificOutput: { hookEventName:"PreToolUse",
   permissionDecision:"allow"|"deny"|"ask" } }`; an empty `{}` (no `hookSpecificOutput`) defers.

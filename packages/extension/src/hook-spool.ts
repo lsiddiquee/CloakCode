@@ -156,27 +156,101 @@ export function writeControlPolicy(
 export type PreToolAction = "notify" | "defer" | "block";
 
 /**
+ * Session permission levels that mean "VS Code auto-approves this call" — the
+ * per-request `permissionLevel` from the debug-log (docs/02 §4.15). `autoApprove`
+ * is the "Bypass Approvals" status-bar toggle; `autopilot` auto-approves + auto-
+ * answers. `default`/`assisted` still prompt, so they are NOT here.
+ */
+export const AUTO_APPROVE_LEVELS: ReadonlySet<string> = new Set([
+  "autoApprove",
+  "autopilot",
+]);
+
+/**
  * Decide what the PreToolUse hook does with a tool call — the whole point of
  * "only block if VS Code would have blocked":
  * - interactive question tools (`ask`/`confirm`/…) → `notify` (surfaced as a
  *   question, answered via `session.respond` text; never an allow/deny),
- * - not in control, or VS Code would auto-approve (global auto-approve, or the
- *   tool is an allowed exception) → `defer` (emit `{}`, native path unchanged),
+ * - not in control, or VS Code would auto-approve — global auto-approve setting,
+ *   the session's own `permissionLevel` (Bypass Approvals / autopilot), or the
+ *   tool is an allowed exception — → `defer` (emit `{}`, native path unchanged),
  * - otherwise, while in control → `block` (hold for a remote allow/deny).
  *
- * VS Code's path/shell auto-approve rules (read-in-workdir, tree-sitter shell)
- * are deliberately NOT replicated (YAGNI/DRY) — those surface unless the operator
- * adds the tool to `allow`. See docs/02 §4.15.
+ * `permissionLevel` is the session-level state that actually drives approval; it
+ * isn't in the hook stdin but is read live from the debug-log. VS Code's
+ * path/shell auto-approve rules (read-in-workdir, tree-sitter shell) are
+ * deliberately NOT replicated (YAGNI/DRY) — those surface unless allow-listed.
+ * See docs/02 §4.15.
  */
 export function preToolAction(
   policy: ControlPolicy,
   toolName: string,
+  permissionLevel?: string,
 ): PreToolAction {
   if (isInteractiveTool(toolName)) return "notify";
   if (!policy.control) return "defer";
   if (policy.globalAutoApprove) return "defer";
+  if (permissionLevel && AUTO_APPROVE_LEVELS.has(permissionLevel)) return "defer";
   if (policy.allow?.includes(toolName)) return "defer";
   return "block";
+}
+
+/**
+ * Derive the debug-log `main.jsonl` from the hook's `transcript_path` + session
+ * id — they share the standard Copilot layout
+ * (`…/GitHub.copilot-chat/{transcripts/<id>.jsonl, debug-logs/<id>/main.jsonl}`).
+ * The debug-log records the per-request `permissionLevel` the stdin omits.
+ */
+export function debugLogFromTranscript(
+  transcriptPath: string,
+  sessionId: string,
+): string {
+  return path.join(
+    path.dirname(path.dirname(transcriptPath)),
+    "debug-logs",
+    sessionId,
+    "main.jsonl",
+  );
+}
+
+/**
+ * Extract the LAST `permissionLevel` recorded in a chunk of debug-log text
+ * (`…"permissionLevel":"<level>"…`, tolerant of JSON-in-JSON escaping). Pure.
+ */
+export function parsePermissionLevel(text: string): string | undefined {
+  const re = /permissionLevel[\\"]*:[\\"]*(default|assisted|autoApprove|autopilot)/g;
+  let last: string | undefined;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) last = m[1];
+  return last;
+}
+
+/**
+ * Read the session's CURRENT permission level from the tail of its (possibly
+ * huge) debug-log — only the last `tailBytes` are read via a seek, never the
+ * whole file. Best-effort: any failure (missing/opt-out debug-log, junk) →
+ * `undefined`, so the hook safely falls back to the policy signals.
+ */
+export async function readLatestPermissionLevel(
+  debugLogFile: string,
+  tailBytes = 512 * 1024,
+): Promise<string | undefined> {
+  try {
+    const handle = await fs.open(debugLogFile, "r");
+    try {
+      const { size } = await handle.stat();
+      const start = Math.max(0, size - tailBytes);
+      const len = size - start;
+      if (len <= 0) return undefined;
+      const buf = Buffer.allocUnsafe(len);
+      await handle.read(buf, 0, len, start);
+      return parsePermissionLevel(buf.toString("utf8"));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return undefined;
+  }
 }
 
 /** Path of the on-disk approval verdict for a (raw or base) toolCallId. */
@@ -264,6 +338,7 @@ export function hookRouting(stdin: unknown): {
   toolName: string;
   rawId: string;
   input: unknown;
+  transcriptPath: string;
 } {
   const s = (typeof stdin === "object" && stdin ? stdin : {}) as Record<
     string,
@@ -274,6 +349,7 @@ export function hookRouting(stdin: unknown): {
     toolName: String(s["tool_name"] ?? ""),
     rawId: String(s["tool_use_id"] ?? ""),
     input: s["tool_input"] ?? null,
+    transcriptPath: String(s["transcript_path"] ?? ""),
   };
 }
 

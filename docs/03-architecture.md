@@ -85,9 +85,12 @@ process. So:
   (`{control, globalAutoApprove, allow[]}`) that the hook reads. Off ⇒ the hook stays the pure
   notifier — native VS Code approval, unchanged.
 - **Only block if VS Code would have blocked.** In control, the hook's `preToolAction` **defers**
-  (emits `{}`) when VS Code would auto-approve by a **reachable** signal — global auto-approve
-  (`chat.tools.global.autoApprove`, snapshotted into the policy) or the operator-grown **allow-list**
-  (the reachable analog of session `permissions.allow`) — and only **blocks** otherwise. Interactive
+  (emits `{}`) when VS Code would auto-approve by a **reachable** signal: the global auto-approve
+  setting (`chat.tools.global.autoApprove`, snapshotted into the policy), the **session's own
+  permission level** (`autoApprove` = "Bypass Approvals" / `autopilot`), or the operator-grown
+  **allow-list**. The session level is what actually drives approval but isn't in the hook stdin —
+  the hook reads it **live** from the debug-log `main.jsonl` (deriving it from the stdin's
+  `transcript_path` + `session_id`; docs/02 §4.15). It only **blocks** otherwise. Interactive
   questions stay on the notify + `respond`-text path. VS Code's read/write-path + tree-sitter shell
   rules are **not** replicated (YAGNI); those surface unless allow-listed.
 - **Block = hold + poll.** A blocked `PreToolUse` records the pending call (`awaitingDecision`) and

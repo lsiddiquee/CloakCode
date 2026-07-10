@@ -26,6 +26,9 @@ import {
   writeDecision,
   awaitDecision,
   blockingRecord,
+  parsePermissionLevel,
+  debugLogFromTranscript,
+  readLatestPermissionLevel,
   type SpoolRecord,
 } from "./hook-spool.js";
 
@@ -444,6 +447,70 @@ describe("preToolAction", () => {
 
   it("blocks a confirmable tool when in control", () => {
     expect(preToolAction({ control: true }, "run_in_terminal")).toBe("block");
+  });
+
+  it("defers when the session's own level is Bypass Approvals (autoApprove)", () => {
+    expect(
+      preToolAction({ control: true }, "run_in_terminal", "autoApprove"),
+    ).toBe("defer");
+  });
+
+  it("defers when the session is on autopilot", () => {
+    expect(
+      preToolAction({ control: true }, "run_in_terminal", "autopilot"),
+    ).toBe("defer");
+  });
+
+  it("still blocks when the session level is default", () => {
+    expect(
+      preToolAction({ control: true }, "run_in_terminal", "default"),
+    ).toBe("block");
+  });
+});
+
+describe("session permission level (from the debug-log)", () => {
+  it("parses the LAST permissionLevel, tolerant of JSON-in-JSON escaping", () => {
+    const text =
+      'a "permissionLevel":"default" b \\"permissionLevel\\":\\"autoApprove\\"';
+    expect(parsePermissionLevel(text)).toBe("autoApprove");
+  });
+
+  it("returns undefined when no level is present", () => {
+    expect(parsePermissionLevel("nothing to see")).toBeUndefined();
+  });
+
+  it("maps a transcript path to its sibling debug-log main.jsonl", () => {
+    expect(
+      debugLogFromTranscript(
+        path.join("/r", "GitHub.copilot-chat", "transcripts", "abc.jsonl"),
+        "abc",
+      ),
+    ).toBe(
+      path.join("/r", "GitHub.copilot-chat", "debug-logs", "abc", "main.jsonl"),
+    );
+  });
+
+  it("reads the latest level from the tail of a (large-ish) debug-log", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-lvl-"));
+    try {
+      const f = path.join(dir, "main.jsonl");
+      const filler = `{"pad":"${"x".repeat(2000)}"}\n`.repeat(50);
+      await fs.writeFile(
+        f,
+        `{"permissionLevel":"default"}\n${filler}{"a":{"permissionLevel":"autoApprove"}}\n`,
+      );
+      expect(await readLatestPermissionLevel(f)).toBe("autoApprove");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined for a missing debug-log (opt-out / absent)", async () => {
+    expect(
+      await readLatestPermissionLevel(
+        path.join(os.tmpdir(), `cc-none-${Date.now()}.jsonl`),
+      ),
+    ).toBeUndefined();
   });
 });
 
