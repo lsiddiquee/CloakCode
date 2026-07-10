@@ -93,6 +93,7 @@ repos:
       - id: eslint
         name: ESLint (packages)
         language: system
+        stages: [pre-commit]
         files: '^packages/.*\.(ts|tsx|js|jsx)$'
         entry: >-
           bash -c 'command -v node >/dev/null 2>&1 || { echo "eslint: node not found — skipping"; exit 0; };
@@ -104,6 +105,7 @@ repos:
       - id: prettier
         name: Prettier (packages)
         language: system
+        stages: [pre-commit]
         files: '^packages/.*\.(ts|tsx|js|jsx|json|css|scss|html)$'
         entry: >-
           bash -c 'command -v node >/dev/null 2>&1 || { echo "prettier: node not found — skipping"; exit 0; };

@@ -27,7 +27,6 @@ const bridge = await startBridge(
   { host: "127.0.0.1", port },
 );
 
-// eslint-disable-next-line no-console
 console.log(
   `[cloakcode] bridge listening on ws://127.0.0.1:${bridge.port} (instance "${instanceId}")`,
 );
