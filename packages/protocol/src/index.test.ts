@@ -12,6 +12,7 @@ import {
   sessionsListResponseSchema,
   sessionControlResponseSchema,
   sessionDecideResponseSchema,
+  sessionAnswerResponseSchema,
   type SessionSummary,
 } from "./index.js";
 
@@ -169,6 +170,44 @@ describe("rpcRequestSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("parses a session.answer request with structured answers", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "7",
+      op: "session.answer",
+      params: {
+        instanceId: "inst",
+        sessionId: "sessA",
+        toolCallId: "toolu_016e9uTUd8Cid5XYn9FYHUKG__vscode-1783582363189",
+        answers: [
+          { selected: ["tool-call-demo.txt"], freeText: null },
+          { selected: ["Overwrite"] },
+        ],
+      },
+    });
+    expect(parsed.op).toBe("session.answer");
+    if (parsed.op === "session.answer") {
+      expect(parsed.params.answers).toHaveLength(2);
+      expect(parsed.params.answers[0]?.selected).toEqual([
+        "tool-call-demo.txt",
+      ]);
+    }
+  });
+
+  it("rejects a session.answer whose selected is not an array", () => {
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "7",
+        op: "session.answer",
+        params: {
+          instanceId: "inst",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          answers: [{ selected: "Overwrite" }],
+        },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("sessionPartSchema", () => {
@@ -307,6 +346,16 @@ describe("pendingBlockerSchema", () => {
     });
     expect(parsed.awaitingDecision).toBe(true);
   });
+
+  it("parses a question blocker carrying the raw resolveId", () => {
+    const parsed = pendingBlockerSchema.parse({
+      toolCallId: "toolu_016e9uTUd8Cid5XYn9FYHUKG",
+      toolName: "vscode_askQuestions",
+      createdAt: "2026-07-09T11:42:24.584Z",
+      resolveId: "toolu_016e9uTUd8Cid5XYn9FYHUKG__vscode-1783582363189",
+    });
+    expect(parsed.resolveId).toContain("__vscode-");
+  });
 });
 
 describe("response schemas", () => {
@@ -389,5 +438,10 @@ describe("response schemas", () => {
   it("parses a session.decide ack", () => {
     const res = { id: "6", ok: true as const, op: "session.decide" as const };
     expect(sessionDecideResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a session.answer ack", () => {
+    const res = { id: "7", ok: true as const, op: "session.answer" as const };
+    expect(sessionAnswerResponseSchema.parse(res)).toEqual(res);
   });
 });

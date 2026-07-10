@@ -29,6 +29,7 @@ import {
   parsePermissionLevel,
   debugLogFromTranscript,
   readLatestPermissionLevel,
+  buildCarouselAnswers,
   type SpoolRecord,
 } from "./hook-spool.js";
 
@@ -440,9 +441,9 @@ describe("preToolAction", () => {
   });
 
   it("defers a tool on the session allow-list (an exception)", () => {
-    expect(preToolAction({ control: true, allow: ["read_file"] }, "read_file")).toBe(
-      "defer",
-    );
+    expect(
+      preToolAction({ control: true, allow: ["read_file"] }, "read_file"),
+    ).toBe("defer");
   });
 
   it("blocks a confirmable tool when in control", () => {
@@ -462,9 +463,9 @@ describe("preToolAction", () => {
   });
 
   it("still blocks when the session level is default", () => {
-    expect(
-      preToolAction({ control: true }, "run_in_terminal", "default"),
-    ).toBe("block");
+    expect(preToolAction({ control: true }, "run_in_terminal", "default")).toBe(
+      "block",
+    );
   });
 
   it("keeps question tools on the standard response even in bypass + control", () => {
@@ -626,10 +627,13 @@ describe("blockingRecord", () => {
     expect(r?.toolCallId).toBe(BASE_RUN);
     expect(r?.awaitingDecision).toBe(true);
     expect(r?.toolName).toBe("run_in_terminal");
+    expect(r?.resolveId).toBe(RAW_RUN);
   });
 
   it("returns undefined without the routing keys", () => {
-    expect(blockingRecord({ tool_name: "run_in_terminal" }, "t")).toBeUndefined();
+    expect(
+      blockingRecord({ tool_name: "run_in_terminal" }, "t"),
+    ).toBeUndefined();
   });
 });
 
@@ -642,9 +646,27 @@ describe("computePendingBlockers awaitingDecision", () => {
       input: { command: "ls" },
       ts: "2026-07-09T00:00:00Z",
       awaitingDecision: true,
+      resolveId: RAW_RUN,
     };
     const [b] = computePendingBlockers([r], "sessA");
     expect(b?.awaitingDecision).toBe(true);
     expect(b?.input).toEqual({ command: "ls" });
+    expect(b?.resolveId).toBe(RAW_RUN);
+  });
+});
+
+describe("buildCarouselAnswers", () => {
+  it("keys answers by resolveId:index with the multi-select shape", () => {
+    const rec = buildCarouselAnswers(RAW_QUESTION, [
+      { selected: ["tool-call-demo.txt"], freeText: null },
+      { selected: [], freeText: "freeform from vscode" },
+    ]);
+    expect(rec[`${RAW_QUESTION}:0`]).toEqual({
+      selectedValues: ["tool-call-demo.txt"],
+    });
+    expect(rec[`${RAW_QUESTION}:1`]).toEqual({
+      selectedValues: [],
+      freeformValue: "freeform from vscode",
+    });
   });
 });

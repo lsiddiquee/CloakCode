@@ -133,8 +133,25 @@ export const pendingBlockerSchema = z.object({
   confirmations: z.array(confirmationPartSchema).optional(),
   input: z.unknown().optional(),
   awaitingDecision: z.boolean().optional(),
+  // For a question, the RAW `tool_use_id` (with the `__vscode-<n>` suffix
+  // intact) — the carousel's `resolveId`, needed to answer it structurally via
+  // `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16). `toolCallId` stays the
+  // base id for transcript dedup.
+  resolveId: z.string().optional(),
 });
 export type PendingBlocker = z.infer<typeof pendingBlockerSchema>;
+
+/**
+ * One question's answer in a structured `session.answer`, by question index.
+ * `selected` are the chosen option labels (empty = skipped/freeform-only);
+ * `freeText` is the freeform value when allowed. The extension maps these onto
+ * the core carousel's `{selectedValues, freeformValue}` answer shape.
+ */
+export const questionAnswerSchema = z.object({
+  selected: z.array(z.string()),
+  freeText: z.string().nullable().optional(),
+});
+export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 
 /**
  * Client → bridge request envelope. A discriminated union on `op` so each
@@ -188,6 +205,20 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       // The pending tool call being approved/denied (the base toolCallId).
       toolCallId: z.string(),
       decision: decisionSchema,
+    }),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.answer"),
+    params: z.object({
+      instanceId: z.string(),
+      sessionId: z.string(),
+      // The carousel `resolveId` (the pending blocker's `resolveId` — the RAW
+      // suffixed tool_use_id), NOT the base toolCallId.
+      toolCallId: z.string(),
+      // One entry per question, by index; delivered structurally to the core
+      // `vscode_askQuestions` carousel (docs/02 §4.16) — never as chat text.
+      answers: z.array(questionAnswerSchema),
     }),
   }),
 ]);
@@ -251,9 +282,21 @@ export const sessionDecideResponseSchema = z.object({
   ok: z.literal(true),
   op: z.literal("session.decide"),
 });
-export type SessionDecideResponse = z.infer<
-  typeof sessionDecideResponseSchema
->;
+export type SessionDecideResponse = z.infer<typeof sessionDecideResponseSchema>;
+
+/**
+ * Ack for `session.answer` — the operator's structured answer to a pending
+ * `vscode_askQuestions` carousel has been delivered (via the extension host's
+ * `_chat.notifyQuestionCarouselAnswer`). A `remote-operator`-provenance action
+ * (docs/04); unlike a chat message it resolves the tool with the proper
+ * `{answers}` result instead of cancelling it.
+ */
+export const sessionAnswerResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.answer"),
+});
+export type SessionAnswerResponse = z.infer<typeof sessionAnswerResponseSchema>;
 
 /**
  * A streamed frame delivered for an active `session.subscribe`. Two separate

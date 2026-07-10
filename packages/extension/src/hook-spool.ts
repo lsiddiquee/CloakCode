@@ -4,7 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
 import { decisionSchema } from "@cloakcode/protocol";
-import type { Decision, PendingBlocker } from "@cloakcode/protocol";
+import type {
+  Decision,
+  PendingBlocker,
+  QuestionAnswer,
+} from "@cloakcode/protocol";
 import { isInteractiveTool, toConfirmations } from "./session-observer.js";
 
 /**
@@ -22,6 +26,9 @@ export const spoolRecordSchema = z.object({
   input: z.unknown().optional(),
   ts: z.string(),
   awaitingDecision: z.boolean().optional(),
+  // The RAW `tool_use_id` (with the `__vscode-<n>` suffix intact) — the carousel
+  // `resolveId` used to answer a question structurally (docs/02 §4.16).
+  resolveId: z.string().optional(),
 });
 export type SpoolRecord = z.infer<typeof spoolRecordSchema>;
 
@@ -149,7 +156,10 @@ export function writeControlPolicy(
   policy: ControlPolicy,
 ): void {
   fsSync.mkdirSync(dir, { recursive: true });
-  fsSync.writeFileSync(controlPolicyPath(dir, sessionId), JSON.stringify(policy));
+  fsSync.writeFileSync(
+    controlPolicyPath(dir, sessionId),
+    JSON.stringify(policy),
+  );
 }
 
 /** The hook's action for one PreToolUse, given the session's policy. */
@@ -190,7 +200,8 @@ export function preToolAction(
   if (isInteractiveTool(toolName)) return "notify";
   if (!policy.control) return "defer";
   if (policy.globalAutoApprove) return "defer";
-  if (permissionLevel && AUTO_APPROVE_LEVELS.has(permissionLevel)) return "defer";
+  if (permissionLevel && AUTO_APPROVE_LEVELS.has(permissionLevel))
+    return "defer";
   if (policy.allow?.includes(toolName)) return "defer";
   return "block";
 }
@@ -218,7 +229,8 @@ export function debugLogFromTranscript(
  * (`…"permissionLevel":"<level>"…`, tolerant of JSON-in-JSON escaping). Pure.
  */
 export function parsePermissionLevel(text: string): string | undefined {
-  const re = /permissionLevel[\\"]*:[\\"]*(default|assisted|autoApprove|autopilot)/g;
+  const re =
+    /permissionLevel[\\"]*:[\\"]*(default|assisted|autoApprove|autopilot)/g;
   let last: string | undefined;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) last = m[1];
@@ -313,6 +325,33 @@ export async function awaitDecision(opts: {
   }
 }
 
+/** The core carousel answer value shape (`IChatQuestionAnswerValue`, multi form). */
+export interface CarouselAnswerValue {
+  selectedValues: string[];
+  freeformValue?: string;
+}
+
+/**
+ * Build the core carousel answer record for `_chat.notifyQuestionCarouselAnswer`
+ * from CloakCode's per-question `answers` (docs/02 §4.16). Keyed by the internal
+ * question id `${resolveId}:${index}`; values use the multi-select shape
+ * (`selectedValues` + optional `freeformValue`), which the tool accepts for both
+ * single- and multi-select questions. Pure.
+ */
+export function buildCarouselAnswers(
+  resolveId: string,
+  answers: readonly QuestionAnswer[],
+): Record<string, CarouselAnswerValue> {
+  const record: Record<string, CarouselAnswerValue> = {};
+  answers.forEach((a, i) => {
+    record[`${resolveId}:${i}`] = {
+      selectedValues: a.selected,
+      ...(a.freeText ? { freeformValue: a.freeText } : {}),
+    };
+  });
+  return record;
+}
+
 /**
  * Strip the `__vscode-<n>` suffix the hook receives so the id matches the
  * transcript's `toolCallId` (docs/02 §4.6 — this is the dedup join key) and
@@ -373,6 +412,7 @@ export function pendingRecord(
     toolName,
     input,
     ts,
+    resolveId: rawId,
   };
 }
 
@@ -401,6 +441,7 @@ export function blockingRecord(
     input,
     ts,
     awaitingDecision: true,
+    resolveId: rawId,
   };
 }
 
@@ -481,6 +522,7 @@ export function computePendingBlockers(
       toolName: r.toolName,
       createdAt: r.ts,
       ...(r.awaitingDecision ? { awaitingDecision: true } : {}),
+      ...(r.resolveId ? { resolveId: r.resolveId } : {}),
       ...(isInteractiveTool(r.toolName)
         ? { confirmations: toConfirmations(`conf-${base}`, r.input) }
         : { input: r.input ?? null }),

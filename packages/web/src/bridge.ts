@@ -5,8 +5,10 @@ import {
   sessionRespondResponseSchema,
   sessionControlResponseSchema,
   sessionDecideResponseSchema,
+  sessionAnswerResponseSchema,
   type Decision,
   type PendingBlocker,
+  type QuestionAnswer,
   type SessionEvent,
   type SessionSummary,
 } from "@cloakcode/protocol";
@@ -237,6 +239,30 @@ export function decideSession(
     "session.decide",
     params,
     (raw) => sessionDecideResponseSchema.safeParse(raw).success,
+    url,
+  );
+}
+
+/**
+ * Deliver a STRUCTURED answer to a pending `vscode_askQuestions` carousel — one
+ * entry per question, by index. `toolCallId` is the blocker's `resolveId` (the
+ * raw suffixed id). The extension host resolves the tool with `{answers}` via
+ * `_chat.notifyQuestionCarouselAnswer`, instead of the chat-text path (which
+ * cancels the carousel). See docs/02 §4.16.
+ */
+export function answerSession(
+  params: {
+    instanceId: string;
+    sessionId: string;
+    toolCallId: string;
+    answers: QuestionAnswer[];
+  },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return oneShotRpc(
+    "session.answer",
+    params,
+    (raw) => sessionAnswerResponseSchema.safeParse(raw).success,
     url,
   );
 }

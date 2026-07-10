@@ -2,6 +2,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   rpcRequestSchema,
   type Decision,
+  type QuestionAnswer,
   type SessionSummary,
 } from "@cloakcode/protocol";
 import { SessionFollower, type SessionLog } from "./session-observer.js";
@@ -57,6 +58,17 @@ export interface BridgeDeps {
     sessionId: string;
     toolCallId: string;
     decision: Decision;
+  }) => Promise<void>;
+  /**
+   * Deliver the operator's structured answer to a pending `vscode_askQuestions`
+   * carousel (docs/02 §4.16) via the extension host's
+   * `_chat.notifyQuestionCarouselAnswer`. Extension-host only; unset →
+   * `session.answer` is unsupported.
+   */
+  answer?: (params: {
+    sessionId: string;
+    toolCallId: string;
+    answers: QuestionAnswer[];
   }) => Promise<void>;
 }
 
@@ -328,6 +340,35 @@ async function handleMessage(
             id: request.id,
             ok: true,
             op: "session.decide",
+          }),
+        );
+        break;
+      }
+      case "session.answer": {
+        // A remote-operator structured answer to a pending question carousel
+        // (docs/02 §4.16) — resolves the tool with `{answers}`, never chat text.
+        if (!deps.answer) {
+          socket.send(
+            JSON.stringify({
+              id: request.id,
+              ok: false,
+              error: {
+                message: "answering questions not supported on this bridge",
+              },
+            }),
+          );
+          break;
+        }
+        await deps.answer({
+          sessionId: request.params.sessionId,
+          toolCallId: request.params.toolCallId,
+          answers: request.params.answers,
+        });
+        socket.send(
+          JSON.stringify({
+            id: request.id,
+            ok: true,
+            op: "session.answer",
           }),
         );
         break;

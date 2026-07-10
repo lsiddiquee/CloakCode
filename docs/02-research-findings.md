@@ -348,7 +348,7 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   status-bar toggle] | `autopilot`) — verified live (~382 hits in one session; value flows from the
   client `ChatModel.inputState` onto `request.permissionLevel`, `toolCallingLoop.ts`). The hook
   **stdin does NOT carry it** (`chatHookService.ts` writes only `{timestamp, hook_event_name,
-  session_id, transcript_path, tool_name, tool_input, tool_use_id, cwd}`), but it carries
+session_id, transcript_path, tool_name, tool_input, tool_use_id, cwd}`), but it carries
   `transcript_path` + `session_id`, so the hook derives the sibling debug-log and reads the latest
   `permissionLevel` **live** at decision time (tail-read, best-effort). _An earlier draft wrongly
   called this unreachable — it conflated it with the agent-host `session.db`
@@ -361,7 +361,7 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   **Hook output shape**
   (authoritative, copilot-chat `hookCommandTypes.ts` + `chatHookService.ts:367-388`): the verdict
   lives inside `hookSpecificOutput` — `{ hookSpecificOutput: { hookEventName:"PreToolUse",
-  permissionDecision:"allow"|"deny"|"ask" } }`; an empty `{}` (no `hookSpecificOutput`) defers.
+permissionDecision:"allow"|"deny"|"ask" } }`; an empty `{}` (no `hookSpecificOutput`) defers.
   Multiple hooks combine **most-restrictive**. _Note: `rg` is not installed in the container — use
   `grep`._
 - **4.16** _Take-control blocking + the question/approval split_ (**live-verified 2026-07-10**). A
@@ -382,7 +382,7 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   **`_chat.notifyQuestionCarouselAnswer(resolveId, answers)`** (`chat.shared.contribution.ts`). So
   CloakCode can call that command from the ext host to submit a **structured** answer — no chat-text,
   no owning-the-loop. `answers` = `Record<"${resolveId}:${index}", {selectedValue|selectedValues,
-  freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamToolCallId ?? callId`,
+freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamToolCallId ?? callId`,
   runSubagentTool.ts:248), derivable from the hook's `tool_use_id`. (Autopilot / auto-reply
   auto-answer in-tool — confirms mode #3.) _So "owning the loop" is NOT required for questions; that
   earlier claim was wrong._

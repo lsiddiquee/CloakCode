@@ -98,17 +98,19 @@ separate process. So:
 **How the three VS Code approval modes map** (the session's `permissionLevel`, read live from the
 debug-log — docs/02 §4.15):
 
-| Mode | `permissionLevel` | Tool calls | Questions (`ask`/`confirm`/…) |
-| --- | --- | --- | --- |
-| **Default** | `default` / `assisted` | take-control **blocks** → remote Allow/Deny | notifier → remote answer (text/options) |
-| **Bypass Approvals** | `autoApprove` | auto-run → CloakCode **defers** (never blocks) | native prompt → notifier → remote answer |
-| **Autopilot** | `autopilot` | auto-run → **defers** | VS Code auto-answers; the notifier card self-clears |
+| Mode                 | `permissionLevel`      | Tool calls                                     | Questions (`ask`/`confirm`/…)                       |
+| -------------------- | ---------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| **Default**          | `default` / `assisted` | take-control **blocks** → remote Allow/Deny    | notifier → **structured** answer             |
+| **Bypass Approvals** | `autoApprove`          | auto-run → CloakCode **defers** (never blocks) | native prompt → notifier → **structured** answer            |
+| **Autopilot**        | `autopilot`            | auto-run → **defers**                          | VS Code auto-answers; the notifier card self-clears |
 
-Questions are **always** the notify + `respond`-text channel — an interactive `ask`/`confirm`/…
-tool short-circuits to `notify` **before** any block check — so the standard question response works
-in every mode. Take-control is only about tool **approvals** (Default mode). The common "bypass +
-drive the questions myself" flow therefore needs **no** take-control: tools auto-run, and questions
-surface on the always-on notifier for a remote answer.
+Questions are **always** the notify channel — an interactive `ask`/`confirm`/…
+tool short-circuits to `notify` **before** any block check — and are answered **structurally** via
+`session.answer` → `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16), which resolves the tool
+with `{answers}` (a chat-text answer instead _cancels_ the carousel). So the standard question
+response works in every mode. Take-control is only about tool **approvals** (Default mode). The
+common "bypass + drive the questions myself" flow therefore needs **no** take-control: tools
+auto-run, and questions surface on the always-on notifier for a structured remote answer.
 
 - **Block = hold + poll.** A blocked `PreToolUse` records the pending call (`awaitingDecision`) and
   **holds synchronously** (Copilot blocks on the hook up to its `timeout`, raised to 120 s for

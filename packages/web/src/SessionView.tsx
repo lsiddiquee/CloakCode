@@ -2,22 +2,19 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type {
   Decision,
   PendingBlocker,
+  QuestionAnswer,
   SessionEvent,
   SessionPart,
   SessionSummary,
 } from "@cloakcode/protocol";
 import {
+  answerSession,
   controlSession,
   decideSession,
   respondSession,
   subscribeSession,
 } from "./bridge";
-import {
-  approvalSummary,
-  buildAnswerText,
-  statusLabel,
-  toolSummary,
-} from "./format";
+import { approvalSummary, statusLabel, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
 
 interface ViewState {
@@ -360,6 +357,44 @@ function useDecide(session: SessionSummary): {
   return { deciding, decided, error, decide };
 }
 
+/**
+ * Structured-answer state for one pending question carousel. Delivers the
+ * operator's per-question selections via `answerSession` (which the extension
+ * resolves through `_chat.notifyQuestionCarouselAnswer`) — the proper structured
+ * answer, not a chat message that cancels the carousel (docs/02 §4.16).
+ */
+function useAnswer(session: SessionSummary): {
+  sending: boolean;
+  error: string | null;
+  sent: boolean;
+  answer: (toolCallId: string, answers: QuestionAnswer[]) => Promise<void>;
+} {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const answer = async (
+    toolCallId: string,
+    answers: QuestionAnswer[],
+  ): Promise<void> => {
+    setSending(true);
+    setError(null);
+    try {
+      await answerSession({
+        instanceId: session.instanceId,
+        sessionId: session.sessionId,
+        toolCallId,
+        answers,
+      });
+      setSent(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+  return { sending, error, sent, answer };
+}
+
 function PendingCard({
   blocker,
   session,
@@ -373,7 +408,7 @@ function PendingCard({
 
   // One chosen answer per question (option label or freeform text).
   const [answers, setAnswers] = useState<Array<string | undefined>>([]);
-  const { sending, error, sent, send } = useRemoteSend(session);
+  const { sending, error, sent, answer } = useAnswer(session);
   const decision = useDecide(session);
 
   const setAnswer = (i: number, value: string): void =>
@@ -383,13 +418,19 @@ function PendingCard({
       return next;
     });
 
-  const text = buildAnswerText(
-    confirmations.map((c, qi) => ({
-      question: c.prompt,
-      answer: answers[qi] ?? "",
-    })),
-  );
-  const canSend = isQuestion && text.length > 0 && !sending && !sent;
+  // Map each chosen value to the structured answer: a value matching an option
+  // label is a selection; anything else is freeform (docs/02 §4.16).
+  const structuredAnswers: QuestionAnswer[] = confirmations.map((c, qi) => {
+    const v = answers[qi] ?? "";
+    return c.options.some((o) => o.label === v)
+      ? { selected: [v], freeText: null }
+      : { selected: [], freeText: v || null };
+  });
+  const canSend =
+    isQuestion &&
+    confirmations.every((_, qi) => (answers[qi] ?? "") !== "") &&
+    !sending &&
+    !sent;
 
   return (
     <div className="blocker pending">
@@ -433,15 +474,20 @@ function PendingCard({
           <button
             type="button"
             className="pending-send"
-            onClick={() => void send(text, blocker.toolCallId)}
+            onClick={() =>
+              void answer(
+                blocker.resolveId ?? blocker.toolCallId,
+                structuredAnswers,
+              )
+            }
             disabled={!canSend}
           >
             {sent ? "Answer sent ✓" : sending ? "Sending…" : "Send answer"}
           </button>
           <div className="blocker-note">
             {sent
-              ? "Sent to the active chat — waiting for VS Code to pick it up."
-              : "Sends to the active chat in VS Code (remote-operator)."}
+              ? "Answer delivered — the question resolves in VS Code."
+              : "Answers the question structurally in VS Code (remote-operator)."}
           </div>
         </>
       ) : blocker.awaitingDecision ? (

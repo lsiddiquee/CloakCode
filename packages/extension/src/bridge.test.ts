@@ -417,4 +417,34 @@ describe("startBridge", () => {
       await bridge.close();
     }
   });
+
+  it("routes session.answer to the answer dep and acks", async () => {
+    let got:
+      | { sessionId: string; toolCallId: string; answers: unknown }
+      | undefined;
+    const bridge = await startBridge(
+      deps({
+        answer: async (p) => {
+          got = p;
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "12",
+        op: "session.answer",
+        params: {
+          instanceId: "i",
+          sessionId: "sessA",
+          toolCallId: "toolu_X__vscode-9",
+          answers: [{ selected: ["Overwrite"], freeText: null }],
+        },
+      });
+      expect(res).toMatchObject({ id: "12", ok: true, op: "session.answer" });
+      expect(got?.toolCallId).toBe("toolu_X__vscode-9");
+    } finally {
+      await bridge.close();
+    }
+  });
 });

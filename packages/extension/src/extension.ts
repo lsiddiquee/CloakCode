@@ -6,6 +6,7 @@ import { startBridge, type Bridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
 import { findSessionLog, findTranscript } from "./session-observer.js";
 import {
+  buildCarouselAnswers,
   buildHookConfig,
   controlDirFor,
   defaultSpoolDir,
@@ -140,6 +141,21 @@ export async function activate(
           // Record the operator's verdict where the held hook is polling.
           writeDecision(spoolDir, toolCallId, decision);
           out.appendLine(`decide ${decision} for ${toolCallId} (${sessionId})`);
+        },
+        answer: async ({ sessionId, toolCallId, answers }) => {
+          // Deliver the operator's STRUCTURED answer to the pending question
+          // carousel (docs/02 §4.16). `toolCallId` is the RAW resolveId; this
+          // resolves `vscode_askQuestions` with `{answers}` instead of
+          // cancelling it (what a chat-text answer does).
+          const record = buildCarouselAnswers(toolCallId, answers);
+          out.appendLine(
+            `answer ${toolCallId} (${sessionId}): ${answers.length} question(s)`,
+          );
+          await vscode.commands.executeCommand(
+            "_chat.notifyQuestionCarouselAnswer",
+            toolCallId,
+            record,
+          );
         },
       },
       { host: "127.0.0.1", port },
