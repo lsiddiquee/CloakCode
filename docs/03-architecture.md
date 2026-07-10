@@ -76,9 +76,10 @@ reuse the `confirmation` part, approvals show `toolName` + command.
 
 Remote **approval** upgrades the notifier from read-only awareness to remote resolution, without
 re-implementing VS Code's approval engine (docs/02 §4.15). Two constraints shape it: the
-`PreToolUse` hook fires for **every** tool call _before_ VS Code's own decision, and the session's
-runtime approval state (`mode`/bypass/`permissions.allow`) isn't cheaply readable from a separate
-process. So:
+`PreToolUse` hook fires for **every** tool call _before_ VS Code's own decision, and while the
+session's approval **mode** is readable (its `permissionLevel` is in the debug-log — docs/02 §4.15),
+VS Code's fine-grained per-tool path/shell auto-approve rules aren't cheaply replicable from a
+separate process. So:
 
 - **Opt-in per session.** The operator taps **Take control** (`session.control {control}`); the
   extension writes a per-session policy `~/.cloakcode/control/<sessionId>.json`
@@ -93,6 +94,22 @@ process. So:
   `transcript_path` + `session_id`; docs/02 §4.15). It only **blocks** otherwise. Interactive
   questions stay on the notify + `respond`-text path. VS Code's read/write-path + tree-sitter shell
   rules are **not** replicated (YAGNI); those surface unless allow-listed.
+
+**How the three VS Code approval modes map** (the session's `permissionLevel`, read live from the
+debug-log — docs/02 §4.15):
+
+| Mode | `permissionLevel` | Tool calls | Questions (`ask`/`confirm`/…) |
+| --- | --- | --- | --- |
+| **Default** | `default` / `assisted` | take-control **blocks** → remote Allow/Deny | notifier → remote answer (text/options) |
+| **Bypass Approvals** | `autoApprove` | auto-run → CloakCode **defers** (never blocks) | native prompt → notifier → remote answer |
+| **Autopilot** | `autopilot` | auto-run → **defers** | VS Code auto-answers; the notifier card self-clears |
+
+Questions are **always** the notify + `respond`-text channel — an interactive `ask`/`confirm`/…
+tool short-circuits to `notify` **before** any block check — so the standard question response works
+in every mode. Take-control is only about tool **approvals** (Default mode). The common "bypass +
+drive the questions myself" flow therefore needs **no** take-control: tools auto-run, and questions
+surface on the always-on notifier for a remote answer.
+
 - **Block = hold + poll.** A blocked `PreToolUse` records the pending call (`awaitingDecision`) and
   **holds synchronously** (Copilot blocks on the hook up to its `timeout`, raised to 120 s for
   PreToolUse), polling a decision file `<spool>/<baseToolCallId>.decision`. The phone shows

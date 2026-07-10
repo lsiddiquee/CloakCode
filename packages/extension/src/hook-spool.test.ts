@@ -466,6 +466,15 @@ describe("preToolAction", () => {
       preToolAction({ control: true }, "run_in_terminal", "default"),
     ).toBe("block");
   });
+
+  it("keeps question tools on the standard response even in bypass + control", () => {
+    // A question (ask/confirm/…) must NEVER become an allow/deny — it stays a
+    // `notify` answered with the standard text/options, in every mode. Guards
+    // the "bypass + drive the questions myself" flow.
+    expect(
+      preToolAction({ control: true }, "vscode_askQuestions", "autoApprove"),
+    ).toBe("notify");
+  });
 });
 
 describe("session permission level (from the debug-log)", () => {

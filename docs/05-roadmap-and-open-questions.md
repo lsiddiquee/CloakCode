@@ -142,6 +142,14 @@ the critical path.
   tokens, `ttft`, request duration, and cost (`copilotUsageNanoAiu` / `copilotCredits`) from the
   debug-log `llm_request` spans — a session-total header plus a small per-turn badge. Read-only,
   so it can ship any time.
+- **Per-session allow-list ("Allow for session").** A third option on the take-control approve card
+  — beyond one-off Allow/Deny — that appends the tool to the session's `allow[]` policy so future
+  calls of that tool **defer** instead of re-prompting. The operator-driven analog of VS Code's
+  "Allow in this Session", and the reachable substitute for the read/write-path + shell rules we do
+  not replicate (docs/02 §4.15). The hook already respects `policy.allow`; this is just the write
+  path (extend `session.decide` with `scope: "once" | "session"` + the button). **Deferred from
+  MVP.** Only relevant to Default-mode take-control; without it, take-control re-prompts every
+  non-auto-approved tool. (Not needed for the common "bypass + drive the questions myself" flow.)
 - **Remote session controls.** Let the phone read _and_ change the session's input state, which
   the client store exposes under `inputState` (`selectedModel` / `mode` / `modelConfiguration`):
   - **Agent selection** — e.g. `github.copilot.editsAgent`, ask, or custom agents.
