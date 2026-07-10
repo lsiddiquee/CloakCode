@@ -364,6 +364,28 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   permissionDecision:"allow"|"deny"|"ask" } }`; an empty `{}` (no `hookSpecificOutput`) defers.
   Multiple hooks combine **most-restrictive**. _Note: `rg` is not installed in the container — use
   `grep`._
+- **4.16** _Take-control blocking + the question/approval split_ (**live-verified 2026-07-10**). A
+  real take-control run held `run_in_terminal` calls (`printf …`, `rm -v …`) and resolved them
+  remotely via Allow/Deny — the held tool **never** surfaced the native VS Code prompt. **Key
+  constraint confirmed:** the hook's `permissionDecision` only gates whether a tool _runs_; it has
+  **no channel to supply a tool result**, so it **cannot answer `vscode_askQuestions`** — `allow`
+  runs the picker (native, local), `deny` rejects it, neither selects an option. Therefore a
+  question **must run** and is answered only by the **text-inject** path (Copilot treats a submitted
+  chat message as the answer — verified live: `"…→ scratch.txt …→ Overwrite"` yielded "Both answers
+  received"). Consequences that are **by design, not bugs**: questions go `notify` + text (never
+  block), and the native picker **also** appears (first-responder-wins across phone/desktop).
+  **Correction (from the live test):** answering a question via chat-text actually **cancels** the
+  carousel (tool result `ERROR: Canceled`) and relies on the agent re-reading free text — the proper
+  answer is the structured `{"answers":{<header>:{selected,freeText,skipped}}}` the tool returns.
+  And it **is** producible programmatically: the core `AskQuestionsTool` listens on
+  `IChatService.onDidReceiveQuestionCarouselAnswer`, fired by the registered command
+  **`_chat.notifyQuestionCarouselAnswer(resolveId, answers)`** (`chat.shared.contribution.ts`). So
+  CloakCode can call that command from the ext host to submit a **structured** answer — no chat-text,
+  no owning-the-loop. `answers` = `Record<"${resolveId}:${index}", {selectedValue|selectedValues,
+  freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamToolCallId ?? callId`,
+  runSubagentTool.ts:248), derivable from the hook's `tool_use_id`. (Autopilot / auto-reply
+  auto-answer in-tool — confirms mode #3.) _So "owning the loop" is NOT required for questions; that
+  earlier claim was wrong._
 
 ---
 
