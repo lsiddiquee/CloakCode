@@ -96,6 +96,19 @@ describe("rpcRequestSchema", () => {
     }
   });
 
+  it("parses a session.respond chat message with no toolCallId", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "4",
+      op: "session.respond",
+      params: { instanceId: "inst", sessionId: "sessA", text: "run the tests" },
+    });
+    expect(parsed.op).toBe("session.respond");
+    if (parsed.op === "session.respond") {
+      expect(parsed.params.toolCallId).toBeUndefined();
+      expect(parsed.params.text).toBe("run the tests");
+    }
+  });
+
   it("rejects a session.respond with empty text", () => {
     expect(
       rpcRequestSchema.safeParse({

@@ -154,6 +154,7 @@ export function SessionView({
           ))}
         </footer>
       )}
+      <ChatComposer session={session} />
     </div>
   );
 }
@@ -222,6 +223,42 @@ function Part({
   }
 }
 
+/**
+ * Shared send state for remote-operator text (a blocker answer or a free chat
+ * message). Resets `sending` on BOTH success and failure (via `finally`) and
+ * exposes `sent`, so callers never get stuck on a "Sending…" state.
+ */
+function useRemoteSend(session: SessionSummary): {
+  sending: boolean;
+  error: string | null;
+  sent: boolean;
+  send: (text: string, toolCallId?: string) => Promise<boolean>;
+} {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const send = async (text: string, toolCallId?: string): Promise<boolean> => {
+    setSending(true);
+    setError(null);
+    try {
+      await respondSession({
+        instanceId: session.instanceId,
+        sessionId: session.sessionId,
+        text,
+        ...(toolCallId ? { toolCallId } : {}),
+      });
+      setSent(true);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
+  return { sending, error, sent, send };
+}
+
 function PendingCard({
   blocker,
   session,
@@ -235,8 +272,7 @@ function PendingCard({
 
   // One chosen answer per question (option label or freeform text).
   const [answers, setAnswers] = useState<Array<string | undefined>>([]);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { sending, error, sent, send } = useRemoteSend(session);
 
   const setAnswer = (i: number, value: string): void =>
     setAnswers((prev) => {
@@ -251,23 +287,7 @@ function PendingCard({
       answer: answers[qi] ?? "",
     })),
   );
-  const canSend = isQuestion && text.length > 0 && !sending;
-
-  const send = async (): Promise<void> => {
-    setSending(true);
-    setError(null);
-    try {
-      await respondSession({
-        instanceId: session.instanceId,
-        sessionId: session.sessionId,
-        toolCallId: blocker.toolCallId,
-        text,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setSending(false);
-    }
-  };
+  const canSend = isQuestion && text.length > 0 && !sending && !sent;
 
   return (
     <div className="blocker pending">
@@ -311,13 +331,15 @@ function PendingCard({
           <button
             type="button"
             className="pending-send"
-            onClick={() => void send()}
+            onClick={() => void send(text, blocker.toolCallId)}
             disabled={!canSend}
           >
-            {sending ? "Sending…" : "Send answer"}
+            {sent ? "Answer sent ✓" : sending ? "Sending…" : "Send answer"}
           </button>
           <div className="blocker-note">
-            Sends to the active chat in VS Code (remote-operator).
+            {sent
+              ? "Sent to the active chat — waiting for VS Code to pick it up."
+              : "Sends to the active chat in VS Code (remote-operator)."}
           </div>
         </>
       ) : (
@@ -334,6 +356,49 @@ function PendingCard({
         </>
       )}
     </div>
+  );
+}
+
+function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
+  const [msg, setMsg] = useState("");
+  const { sending, error, send } = useRemoteSend(session);
+
+  const submit = async (): Promise<void> => {
+    const text = msg.trim();
+    if (text.length === 0 || sending) return;
+    if (await send(text)) setMsg("");
+  };
+
+  return (
+    <form
+      className="chat-composer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      {error && <div className="pending-error">send failed: {error}</div>}
+      <div className="chat-composer-row">
+        <input
+          className="chat-input"
+          type="text"
+          placeholder="Message the active chat…"
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+          disabled={sending}
+        />
+        <button
+          type="submit"
+          className="chat-send"
+          disabled={sending || msg.trim().length === 0}
+        >
+          {sending ? "…" : "Send"}
+        </button>
+      </div>
+      <div className="blocker-note">
+        Sends to the active chat in VS Code (remote-operator).
+      </div>
+    </form>
   );
 }
 

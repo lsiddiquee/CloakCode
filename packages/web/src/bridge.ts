@@ -124,15 +124,17 @@ export function subscribeSession(
 }
 
 /**
- * Send a `remote-operator` answer to a session's pending blocker (M3b question
- * channel). One-shot over the bridge; resolves on the ack, rejects on error or
- * timeout. The extension host turns this into `workbench.action.chat.open`.
+ * Send a `remote-operator` message to a session's active chat (M3b). With a
+ * `toolCallId` it answers a specific pending blocker; without one it's a
+ * free-form chat prompt. One-shot over the bridge; resolves on the ack, rejects
+ * on error or timeout. The extension host turns this into
+ * `workbench.action.chat.open`.
  */
 export function respondSession(
   params: {
     instanceId: string;
     sessionId: string;
-    toolCallId: string;
+    toolCallId?: string;
     text: string;
   },
   url: string = bridgeUrl(),

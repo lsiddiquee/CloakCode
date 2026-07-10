@@ -137,6 +137,92 @@ async function readWorkspaceName(
 }
 
 /**
+ * Extract the text of a debug-log `agent_response.response`, whose shape is
+ * `[{ role, parts: [{type:'text', content} | …] }]`. Kept local to the scanner
+ * (avoids a scanner↔session-observer import cycle); the stream parser has its
+ * own copy for the event log.
+ */
+function responseText(response: unknown): string {
+  let arr: unknown = response;
+  if (typeof response === "string") {
+    try {
+      arr = JSON.parse(response);
+    } catch {
+      return response.trim();
+    }
+  }
+  if (!Array.isArray(arr)) return "";
+  const out: string[] = [];
+  for (const msg of arr) {
+    const parts =
+      msg && typeof msg === "object"
+        ? (msg as Record<string, unknown>)["parts"]
+        : null;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) {
+      if (
+        p &&
+        typeof p === "object" &&
+        (p as Record<string, unknown>)["type"] === "text"
+      ) {
+        const c = (p as Record<string, unknown>)["content"];
+        if (typeof c === "string") out.push(c);
+      }
+    }
+  }
+  return out.join("").trim();
+}
+
+/**
+ * The LLM-generated session title from the debug-log's "title" child session —
+ * the exact title VS Code shows (it equals `ChatModel.customTitle`, verified
+ * 2026-07-10 against the client-side store). Reads
+ * `<debugLogsDir>/<sessionId>/title-*.jsonl` → its `agent_response` text.
+ * Returns `undefined` when there's no debug-log (the transcript's first user
+ * message stays the zero-config fallback).
+ */
+export async function debugLogTitle(
+  debugLogsDir: string,
+  sessionId: string,
+): Promise<string | undefined> {
+  const dir = path.join(debugLogsDir, sessionId);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return undefined;
+  }
+  const titleFile = names.find(
+    (n) => n.startsWith("title-") && n.endsWith(".jsonl"),
+  );
+  if (!titleFile) return undefined;
+  let content: string;
+  try {
+    content = await fs.readFile(path.join(dir, titleFile), "utf8");
+  } catch {
+    return undefined;
+  }
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let o: { type?: string; attrs?: { response?: unknown } };
+    try {
+      o = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (o.type === "agent_response") {
+      const t = responseText(o.attrs?.response)
+        .replace(/\n/g, " ")
+        .trim()
+        .slice(0, 80);
+      if (t) return t;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Enumerate every session transcript under one environment's workspaceStorage
  * and derive the phone's session picker rows, newest first.
  */
@@ -163,6 +249,12 @@ export async function scanSessions(
       "GitHub.copilot-chat",
       "transcripts",
     );
+    const debugLogsDir = path.join(
+      root,
+      hashDir,
+      "GitHub.copilot-chat",
+      "debug-logs",
+    );
     let files: string[];
     try {
       files = await fs.readdir(transcriptsDir);
@@ -180,15 +272,19 @@ export async function scanSessions(
       } catch {
         continue;
       }
+      const sessionId = file.slice(0, -".jsonl".length);
       const { title, turns, openInteractiveTools } = parseTranscript(content);
+      // Prefer VS Code's own LLM-generated title (from the debug-log) over the
+      // first user message; fall back when there's no debug-log.
+      const generatedTitle = await debugLogTitle(debugLogsDir, sessionId);
       const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
       rows.push({
         mtimeMs,
         summary: {
           instanceId: opts.instanceId,
-          sessionId: file.slice(0, -".jsonl".length),
+          sessionId,
           workspace: await readWorkspaceName(root, hashDir),
-          title: title || "(no user message)",
+          title: generatedTitle || title || "(no user message)",
           turns,
           status: classifyStatus(
             idleSeconds,

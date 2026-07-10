@@ -209,6 +209,183 @@ export function parseSessionEvents(content: string): SessionEvent[] {
   return events;
 }
 
+interface RawSpan {
+  type?: string;
+  name?: string;
+  spanId?: string;
+  attrs?: Record<string, unknown>;
+}
+
+/** Parse a JSON-encoded attribute string, tolerant of a plain value. */
+function parseAttr(v: unknown): unknown {
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
+  }
+  return v;
+}
+
+/**
+ * Pull the assistant's markdown out of an `agent_response` span. Its `response`
+ * is `[{ role, parts: [{type:'text', content} | {type:'tool_call', …}] }]`
+ * (the LM message shape). We keep the `text` parts — tool calls are rendered
+ * from the separate `tool_call` spans (which carry status/result).
+ */
+function assistantText(response: unknown): string {
+  const arr = parseAttr(response);
+  if (typeof arr === "string") return arr.trim();
+  if (!Array.isArray(arr)) return "";
+  const out: string[] = [];
+  for (const msg of arr) {
+    const parts =
+      msg && typeof msg === "object"
+        ? (msg as Record<string, unknown>)["parts"]
+        : null;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) {
+      if (
+        p &&
+        typeof p === "object" &&
+        (p as Record<string, unknown>)["type"] === "text"
+      ) {
+        const c = (p as Record<string, unknown>)["content"];
+        if (typeof c === "string" && c.trim()) out.push(c);
+      }
+    }
+  }
+  return out.join("\n\n").trim();
+}
+
+/**
+ * Convert a Copilot **debug-log** (`debug-logs/<id>/main.jsonl`, OTel spans)
+ * into the same event log as `parseSessionEvents`. This is the PREFERRED source:
+ * unlike the transcript it stays complete for editor-hosted sessions (docs/02).
+ * Relevant spans: `user_message` (attrs.content), `agent_response`
+ * (attrs.reasoning + attrs.response parts), `tool_call` (one COMPLETED span —
+ * `name` is the tool, attrs.args the input, attrs.error a failure). Other spans
+ * (llm_request telemetry, hook, discovery, turn_*, child_session_ref) are not
+ * conversation parts here.
+ */
+export function parseDebugLogEvents(content: string): SessionEvent[] {
+  const events: SessionEvent[] = [];
+  const append = (part: SessionPart): void => {
+    events.push({ type: "append", seq: events.length, part });
+  };
+  const resolve = (id: string): void => {
+    events.push({ type: "resolve", seq: events.length, id });
+  };
+  let userIdx = 0;
+  let msgIdx = 0;
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let raw: RawSpan;
+    try {
+      raw = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const attrs = (
+      typeof raw.attrs === "object" && raw.attrs ? raw.attrs : {}
+    ) as Record<string, unknown>;
+
+    switch (raw.type) {
+      case "user_message": {
+        append({
+          kind: "userMessage",
+          id: `user-${userIdx++}`,
+          text: String(attrs["content"] ?? ""),
+        });
+        break;
+      }
+      case "agent_response": {
+        const reasoning = String(attrs["reasoning"] ?? "").trim();
+        if (reasoning) {
+          append({ kind: "thinking", id: `think-${msgIdx}`, text: reasoning });
+        }
+        const text = assistantText(attrs["response"]);
+        if (text) {
+          append({ kind: "markdown", id: `msg-${msgIdx}`, text });
+        }
+        msgIdx += 1;
+        break;
+      }
+      case "tool_call": {
+        const cid = String(raw.spanId ?? `span-${events.length}`);
+        const toolName = String(raw.name ?? "");
+        if (isInteractiveTool(toolName)) {
+          const confs = toConfirmations(
+            confPartId(cid),
+            parseAttr(attrs["args"]),
+          );
+          for (const conf of confs) append(conf);
+          for (const conf of confs) resolve(conf.id);
+        } else {
+          append({
+            kind: "toolCall",
+            id: toolPartId(cid),
+            name: toolName,
+            input: parseAttr(attrs["args"]) ?? null,
+            status: attrs["error"] ? "error" : "done",
+          });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return events;
+}
+
+/** A resolved session log: the file to tail and the parser for its format. */
+export interface SessionLog {
+  file: string;
+  parse: (content: string) => SessionEvent[];
+}
+
+/**
+ * Locate the best log for a session under one environment's storage root,
+ * PREFERRING the complete debug-log (`debug-logs/<id>/main.jsonl`) and falling
+ * back to the transcript (`transcripts/<id>.jsonl`). The debug-log stays
+ * complete for editor-hosted sessions where the transcript does not (docs/02);
+ * the transcript is the zero-config fallback when debug-logging is off.
+ */
+export async function findSessionLog(
+  root: string,
+  sessionId: string,
+): Promise<SessionLog | undefined> {
+  let hashDirs: string[];
+  try {
+    hashDirs = await fs.readdir(root);
+  } catch {
+    return undefined;
+  }
+  for (const hashDir of hashDirs) {
+    const base = path.join(root, hashDir, "GitHub.copilot-chat");
+    const debugLog = path.join(base, "debug-logs", sessionId, "main.jsonl");
+    try {
+      await fs.access(debugLog);
+      return { file: debugLog, parse: parseDebugLogEvents };
+    } catch {
+      // no debug-log for this session in this env; try the transcript
+    }
+    const transcript = path.join(base, "transcripts", `${sessionId}.jsonl`);
+    try {
+      await fs.access(transcript);
+      return { file: transcript, parse: parseSessionEvents };
+    } catch {
+      // keep looking across envs
+    }
+  }
+  return undefined;
+}
+
 /** Locate a session's transcript file under one environment's storage root. */
 export async function findTranscript(
   root: string,
@@ -255,15 +432,20 @@ export class SessionFollower {
   private queue: Promise<void> = Promise.resolve();
   private stopped = false;
   private readonly pollIntervalMs: number;
+  private readonly parse: (content: string) => SessionEvent[];
 
   constructor(
     private readonly filePath: string,
     private readonly sink: SessionEventSink,
     sinceSeq = 0,
-    options: { pollIntervalMs?: number } = {},
+    options: {
+      pollIntervalMs?: number;
+      parse?: (content: string) => SessionEvent[];
+    } = {},
   ) {
     this.emitted = sinceSeq;
     this.pollIntervalMs = options.pollIntervalMs ?? 400;
+    this.parse = options.parse ?? parseSessionEvents;
   }
 
   async start(): Promise<void> {
@@ -299,7 +481,7 @@ export class SessionFollower {
     } catch {
       return; // transient read error; a later change will retrigger
     }
-    const events = parseSessionEvents(content);
+    const events = this.parse(content);
     for (let i = this.emitted; i < events.length; i += 1) {
       if (this.stopped) return;
       const event = events[i];

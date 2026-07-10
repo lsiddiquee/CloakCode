@@ -1,6 +1,6 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import { rpcRequestSchema, type SessionSummary } from "@cloakcode/protocol";
-import { SessionFollower } from "./session-observer.js";
+import { SessionFollower, type SessionLog } from "./session-observer.js";
 import { SpoolFollower } from "./hook-spool.js";
 
 /**
@@ -11,6 +11,11 @@ import { SpoolFollower } from "./hook-spool.js";
 
 export interface BridgeDeps {
   listSessions: () => Promise<SessionSummary[]>;
+  /**
+   * Resolve a sessionId to the best on-disk log to tail (the complete debug-log
+   * when present, else the transcript) plus the parser for its format.
+   */
+  findSessionLog: (sessionId: string) => Promise<SessionLog | undefined>;
   /** Resolve a sessionId to its on-disk transcript path in this environment. */
   findTranscript: (sessionId: string) => Promise<string | undefined>;
   /**
@@ -27,7 +32,7 @@ export interface BridgeDeps {
    */
   respond?: (params: {
     sessionId: string;
-    toolCallId: string;
+    toolCallId?: string;
     text: string;
   }) => Promise<void>;
 }
@@ -162,8 +167,8 @@ async function handleMessage(
         break;
       }
       case "session.subscribe": {
-        const file = await deps.findTranscript(request.params.sessionId);
-        if (!file) {
+        const log = await deps.findSessionLog(request.params.sessionId);
+        if (!log) {
           socket.send(
             JSON.stringify({
               id: request.id,
@@ -176,7 +181,7 @@ async function handleMessage(
         // Dedupe: a re-subscribe for the same session replaces its follower.
         followers.get(request.params.sessionId)?.stop();
         const follower = new SessionFollower(
-          file,
+          log.file,
           (event) => {
             socket.send(
               JSON.stringify({
@@ -188,6 +193,7 @@ async function handleMessage(
             );
           },
           request.params.sinceSeq,
+          { parse: log.parse },
         );
         followers.set(request.params.sessionId, follower);
         await follower.start();
@@ -196,9 +202,14 @@ async function handleMessage(
         // only when a spool source is configured for this environment.
         spoolFollowers.get(request.params.sessionId)?.stop();
         if (deps.spoolDir) {
+          // The pending dedup joins on the TRANSCRIPT's tool ids (its format),
+          // independent of which log drives the conversation; fall back to the
+          // conversation log if no transcript exists (dedup then no-ops).
+          const transcript =
+            (await deps.findTranscript(request.params.sessionId)) ?? log.file;
           const spoolFollower = new SpoolFollower(
             deps.spoolDir,
-            file,
+            transcript,
             request.params.sessionId,
             (blockers) => {
               socket.send(
@@ -231,7 +242,9 @@ async function handleMessage(
         }
         await deps.respond({
           sessionId: request.params.sessionId,
-          toolCallId: request.params.toolCallId,
+          ...(request.params.toolCallId !== undefined
+            ? { toolCallId: request.params.toolCallId }
+            : {}),
           text: request.params.text,
         });
         socket.send(

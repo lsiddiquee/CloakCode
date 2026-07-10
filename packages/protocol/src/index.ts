@@ -148,7 +148,9 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     params: z.object({
       instanceId: z.string(),
       sessionId: z.string(),
-      toolCallId: z.string(),
+      // Present when answering a specific pending blocker; omitted for a
+      // free-form chat message. Either way it's injected into the active chat.
+      toolCallId: z.string().optional(),
       text: z.string().min(1),
     }),
   }),
@@ -173,9 +175,10 @@ export const sessionsListResponseSchema = z.object({
 export type SessionsListResponse = z.infer<typeof sessionsListResponseSchema>;
 
 /**
- * Ack for `session.respond`. The answer is a `remote-operator`-provenance action
- * (docs/04) — it drives `workbench.action.chat.open` in the target window and is
- * never treated as genuine-local user intent.
+ * Ack for `session.respond`. The text is a `remote-operator`-provenance action
+ * (docs/04) — an answer to a blocker (`toolCallId` set) or a free-form chat
+ * message (`toolCallId` omitted). It drives `workbench.action.chat.open` in the
+ * target window and is never treated as genuine-local user intent.
  */
 export const sessionRespondResponseSchema = z.object({
   id: z.string(),

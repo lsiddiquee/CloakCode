@@ -124,6 +124,25 @@ toolCallId, decision}` (tagged `remote-operator`); the hook blocks + reads the d
 
 - Private `.vsix` via `@vscode/vsce`; PWA deploy behind the tunnel.
 
+## Future / post-MVP capabilities
+
+Not needed for MVP, but planned — grouped here so the design accounts for them early. All are
+unlocked by the debug-log + client-store richness we mapped (docs/02 §4.11, §4.14); none is on
+the critical path.
+
+- **Session telemetry (was "Slice 2").** Surface per-turn `model`, input/output/**cached**
+  tokens, `ttft`, request duration, and cost (`copilotUsageNanoAiu` / `copilotCredits`) from the
+  debug-log `llm_request` spans — a session-total header plus a small per-turn badge. Read-only,
+  so it can ship any time.
+- **Remote session controls.** Let the phone read _and_ change the session's input state, which
+  the client store exposes under `inputState` (`selectedModel` / `mode` / `modelConfiguration`):
+  - **Agent selection** — e.g. `github.copilot.editsAgent`, ask, or custom agents.
+  - **Model selection** — e.g. `claude-opus-4.8` (with vendor / family / pricing).
+  - **Context size** — the model's `contextSize` option (e.g. 1M).
+  - **Thinking depth** — `reasoningEffort`: `low` / `medium` / `high` / `xhigh` / `max`.
+  - _Reading these is straightforward; **setting** them remotely is a write action that needs
+    the actuator (owned loop or a config/command path) — sequenced after M3b answering._
+
 ## Explicitly deferred
 
 - **One-question-at-a-time blocker UI (polish).** `vscode_askQuestions` can carry multiple

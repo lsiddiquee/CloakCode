@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { startBridge, type Bridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
-import { findTranscript } from "./session-observer.js";
+import { findSessionLog, findTranscript } from "./session-observer.js";
 import { buildHookConfig, defaultSpoolDir } from "./hook-spool.js";
 
 /**
@@ -87,12 +87,24 @@ export async function activate(
     bridge = await startBridge(
       {
         listSessions: () => scanSessions({ instanceId, root }),
+        findSessionLog: (sessionId) => findSessionLog(root, sessionId),
         findTranscript: (sessionId) => findTranscript(root, sessionId),
         spoolDir,
-        respond: async ({ text }) => {
-          // M3b question channel: submit the remote operator's answer as a chat
-          // message to the ACTIVE panel chat (Q1). `{ query }` alone auto-sends;
-          // `isPartialQuery` would only populate. v1 targets the active session.
+        respond: async ({ sessionId, text }) => {
+          // M3b targeted-send PROBE. Instead of only the active chat, focus the
+          // SPECIFIC local session by its resource URI, then submit. Verified in
+          // source: our observed `sessionId` names the transcript AND is exactly
+          // what Copilot base64url-encodes into `vscode-chat-session://local/<id>`
+          // (toolCalling.tsx), and that scheme is a registered editor
+          // (chat.shared.contribution.ts) — so opening it should load THAT session
+          // and `chat.open` should target it. See docs/02.
+          const uri = vscode.Uri.parse(
+            `vscode-chat-session://local/${Buffer.from(sessionId).toString(
+              "base64url",
+            )}`,
+          );
+          out.appendLine(`respond: open ${uri.toString()} then chat.open`);
+          await vscode.commands.executeCommand("vscode.open", uri);
           await vscode.commands.executeCommand("workbench.action.chat.open", {
             query: text,
           });

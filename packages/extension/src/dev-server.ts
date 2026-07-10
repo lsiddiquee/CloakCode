@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import { startBridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
-import { findTranscript } from "./session-observer.js";
+import { findSessionLog, findTranscript } from "./session-observer.js";
 import { defaultSpoolDir } from "./hook-spool.js";
 
 /**
@@ -20,6 +20,7 @@ const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();
 const bridge = await startBridge(
   {
     listSessions: () => scanSessions({ instanceId, root }),
+    findSessionLog: (sessionId) => findSessionLog(root, sessionId),
     findTranscript: (sessionId) => findTranscript(root, sessionId),
     spoolDir,
   },

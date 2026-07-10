@@ -5,6 +5,7 @@ import * as path from "node:path";
 import WebSocket from "ws";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { startBridge, type BridgeDeps } from "./bridge.js";
+import { parseSessionEvents } from "./session-observer.js";
 
 const sample: SessionSummary[] = [
   {
@@ -18,11 +19,20 @@ const sample: SessionSummary[] = [
   },
 ];
 
-const deps = (over: Partial<BridgeDeps> = {}): BridgeDeps => ({
-  listSessions: async () => sample,
-  findTranscript: async () => undefined,
-  ...over,
-});
+const deps = (over: Partial<BridgeDeps> = {}): BridgeDeps => {
+  const findTranscript = over.findTranscript ?? (async () => undefined);
+  return {
+    listSessions: async () => sample,
+    findTranscript,
+    // Default the conversation source to the transcript (parseSessionEvents) so
+    // existing tests that set `findTranscript` keep driving the stream.
+    findSessionLog: async (id) => {
+      const file = await findTranscript(id);
+      return file ? { file, parse: parseSessionEvents } : undefined;
+    },
+    ...over,
+  };
+};
 
 function request(port: number, payload: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {

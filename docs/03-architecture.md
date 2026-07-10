@@ -131,6 +131,23 @@ _Deferred (Q6/M4):_ per-window **ephemeral bridge port** + a per-environment **l
 globalStorage) so one observer owns the environment, and a **rendezvous relay** to unify
 _different_ environments (container ↔ WSL ↔ host) for the phone. Not built until the tunnel.
 
+### Session log source (debug-log primary, transcript fallback)
+
+The observer reads whichever Copilot log is complete for a session (`findSessionLog`):
+
+1. **`debug-logs/<id>/main.jsonl`** (OTel spans) — **preferred**. Complete for **both** panel-
+   and editor-hosted sessions; `parseDebugLogEvents` maps `user_message` / `agent_response`
+   (text + reasoning) / `tool_call` → the same `SessionPart`s as the transcript parser. Opt-in
+   (`chat.chatDebug.fileLogging.enabled`), ~4s buffered flush (docs/02 §4.10).
+2. **`transcripts/<id>.jsonl`** — **fallback** (zero-config). Complete for panel/agent sessions
+   but records only `assistant.turn_start` for **editor-hosted** ones — hence the preference.
+
+Both are Copilot's own **server-side** logs. VS Code's authoritative `ChatModel` (title, full
+conversation, per-turn tokens/credits) is **client-side** and unreachable from the container
+(docs/02 §4.11) — so these two logs are all the observer can read. The session **title** comes
+from the debug-log's `title` child session (`debugLogTitle`), matching VS Code's generated
+title, with the first user message as the fallback (docs/02 §4.13).
+
 ## Components
 
 ```mermaid

@@ -6,7 +6,9 @@ import type { SessionEvent } from "@cloakcode/protocol";
 import {
   SessionFollower,
   findTranscript,
+  findSessionLog,
   parseSessionEvents,
+  parseDebugLogEvents,
 } from "./session-observer.js";
 
 const jsonl = (lines: object[]): string =>
@@ -266,5 +268,162 @@ describe("findTranscript", () => {
       path.join(tx, "sessZ.jsonl"),
     );
     expect(await findTranscript(root, "nope")).toBeUndefined();
+  });
+});
+
+describe("parseDebugLogEvents", () => {
+  const otel = (lines: object[]): string =>
+    lines.map((l) => JSON.stringify(l)).join("\n");
+
+  it("maps OTel spans (user_message, tool_call, agent_response) onto parts", () => {
+    const content = otel([
+      {
+        type: "session_start",
+        name: "session_start",
+        attrs: { copilotVersion: "0.56.0" },
+      },
+      {
+        type: "user_message",
+        name: "user_message",
+        attrs: { content: "Refactor auth" },
+      },
+      {
+        type: "llm_request",
+        name: "chat:claude-opus-4.8",
+        attrs: { model: "claude-opus-4.8", inputTokens: "100" },
+      },
+      {
+        type: "tool_call",
+        name: "read_file",
+        spanId: "s1",
+        attrs: { args: JSON.stringify({ p: "x" }), result: "ok" },
+      },
+      {
+        type: "tool_call",
+        name: "run_in_terminal",
+        spanId: "s2",
+        attrs: { args: "{}", error: "Canceled" },
+      },
+      { type: "hook", name: "PreToolUse", attrs: {} },
+      {
+        type: "agent_response",
+        name: "agent_response",
+        attrs: {
+          reasoning: "planning",
+          response: JSON.stringify([
+            {
+              role: "assistant",
+              parts: [
+                { type: "text", content: "Doing it now." },
+                {
+                  type: "tool_call",
+                  id: "x",
+                  name: "read_file",
+                  arguments: {},
+                },
+              ],
+            },
+          ]),
+        },
+      },
+    ]);
+    const events = parseDebugLogEvents(content);
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    expect(events[0]).toMatchObject({
+      type: "append",
+      part: { kind: "userMessage", text: "Refactor auth" },
+    });
+    expect(events[1]).toMatchObject({
+      type: "append",
+      part: {
+        kind: "toolCall",
+        name: "read_file",
+        status: "done",
+        input: { p: "x" },
+      },
+    });
+    expect(events[2]).toMatchObject({
+      type: "append",
+      part: { kind: "toolCall", name: "run_in_terminal", status: "error" },
+    });
+    expect(events[3]).toMatchObject({
+      type: "append",
+      part: { kind: "thinking", text: "planning" },
+    });
+    expect(events[4]).toMatchObject({
+      type: "append",
+      part: { kind: "markdown", text: "Doing it now." },
+    });
+  });
+
+  it("maps an interactive tool_call to confirmations, resolved (completed span)", () => {
+    const content = otel([
+      {
+        type: "tool_call",
+        name: "vscode_askQuestions",
+        spanId: "q1",
+        attrs: {
+          args: JSON.stringify({
+            questions: [
+              {
+                question: "Which file?",
+                options: [
+                  { label: "a.txt", recommended: true },
+                  { label: "b.txt" },
+                ],
+              },
+            ],
+          }),
+        },
+      },
+    ]);
+    const events = parseDebugLogEvents(content);
+    const appended = events[0];
+    if (appended?.type !== "append" || appended.part.kind !== "confirmation") {
+      throw new Error("expected a confirmation append");
+    }
+    expect(appended.part.prompt).toBe("Which file?");
+    expect(appended.part.options).toHaveLength(2);
+    expect(events[1]).toMatchObject({ type: "resolve", id: appended.part.id });
+  });
+});
+
+describe("findSessionLog", () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
+  });
+
+  it("prefers the complete debug-log over the transcript", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cc-log-"));
+    dirs.push(root);
+    const base = path.join(root, "hashX", "GitHub.copilot-chat");
+    await fs.mkdir(path.join(base, "transcripts"), { recursive: true });
+    await fs.writeFile(path.join(base, "transcripts", "sessZ.jsonl"), "");
+    await fs.mkdir(path.join(base, "debug-logs", "sessZ"), { recursive: true });
+    await fs.writeFile(
+      path.join(base, "debug-logs", "sessZ", "main.jsonl"),
+      "",
+    );
+
+    const log = await findSessionLog(root, "sessZ");
+    expect(log?.file).toBe(
+      path.join(base, "debug-logs", "sessZ", "main.jsonl"),
+    );
+    expect(log?.parse).toBe(parseDebugLogEvents);
+  });
+
+  it("falls back to the transcript when no debug-log exists", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cc-log2-"));
+    dirs.push(root);
+    const base = path.join(root, "hashX", "GitHub.copilot-chat");
+    await fs.mkdir(path.join(base, "transcripts"), { recursive: true });
+    await fs.writeFile(path.join(base, "transcripts", "sessZ.jsonl"), "");
+
+    const log = await findSessionLog(root, "sessZ");
+    expect(log?.file).toBe(path.join(base, "transcripts", "sessZ.jsonl"));
+    expect(log?.parse).toBe(parseSessionEvents);
+    expect(await findSessionLog(root, "nope")).toBeUndefined();
   });
 });

@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { classifyStatus, parseTranscript, scanSessions } from "./scanner.js";
+import {
+  classifyStatus,
+  debugLogTitle,
+  parseTranscript,
+  scanSessions,
+} from "./scanner.js";
 
 describe("parseTranscript", () => {
   it("counts turns, takes the first user message as title", () => {
@@ -167,5 +172,88 @@ describe("scanSessions", () => {
     expect(
       await scanSessions({ instanceId: "x", root: "/no/such/dir" }),
     ).toEqual([]);
+  });
+
+  it("prefers the debug-log generated title over the first user message", async () => {
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-scan-title-"));
+    const ws = path.join(r, "hashT");
+    const tx = path.join(ws, "GitHub.copilot-chat", "transcripts");
+    const dl = path.join(ws, "GitHub.copilot-chat", "debug-logs", "sessT");
+    await fs.mkdir(tx, { recursive: true });
+    await fs.mkdir(dl, { recursive: true });
+    await fs.writeFile(
+      path.join(ws, "workspace.json"),
+      JSON.stringify({ folder: "file:///home/u/repo" }),
+    );
+    await fs.writeFile(
+      path.join(tx, "sessT.jsonl"),
+      JSON.stringify({
+        type: "user.message",
+        data: { content: "opening a new chat session for testing" },
+      }),
+    );
+    await fs.writeFile(
+      path.join(dl, "title-c1.jsonl"),
+      JSON.stringify({
+        type: "agent_response",
+        name: "agent_response",
+        attrs: {
+          response: JSON.stringify([
+            {
+              role: "assistant",
+              parts: [{ type: "text", content: "New chat session testing" }],
+            },
+          ]),
+        },
+      }),
+    );
+    try {
+      const sessions = await scanSessions({
+        instanceId: "i",
+        root: r,
+        now: () => NOW,
+      });
+      expect(sessions[0]?.title).toBe("New chat session testing");
+    } finally {
+      await fs.rm(r, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("debugLogTitle", () => {
+  it("extracts the generated title from the title child log", async () => {
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), "cc-title-"));
+    const dir = path.join(base, "sessX");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "title-child123.jsonl"),
+      [
+        JSON.stringify({
+          type: "session_start",
+          name: "session_start",
+          attrs: {},
+        }),
+        JSON.stringify({
+          type: "agent_response",
+          name: "agent_response",
+          attrs: {
+            response: JSON.stringify([
+              {
+                role: "assistant",
+                parts: [{ type: "text", content: "Testing VS Code extension" }],
+              },
+            ]),
+          },
+        }),
+      ].join("\n"),
+    );
+    try {
+      expect(await debugLogTitle(base, "sessX")).toBe(
+        "Testing VS Code extension",
+      );
+      expect(await debugLogTitle(base, "nope")).toBeUndefined();
+    } finally {
+      await fs.rm(base, { recursive: true, force: true });
+    }
   });
 });
