@@ -1,5 +1,9 @@
 import { WebSocketServer, type WebSocket } from "ws";
-import { rpcRequestSchema, type SessionSummary } from "@cloakcode/protocol";
+import {
+  rpcRequestSchema,
+  type Decision,
+  type SessionSummary,
+} from "@cloakcode/protocol";
 import { SessionFollower, type SessionLog } from "./session-observer.js";
 import { SpoolFollower } from "./hook-spool.js";
 
@@ -34,6 +38,25 @@ export interface BridgeDeps {
     sessionId: string;
     toolCallId?: string;
     text: string;
+  }) => Promise<void>;
+  /**
+   * Toggle the operator's take-control state for a session (docs/04). Provided
+   * ONLY by the extension host — it writes the on-disk control policy and reads
+   * VS Code's global auto-approve setting. Unset → `session.control` unsupported.
+   */
+  setControl?: (params: {
+    sessionId: string;
+    control: boolean;
+  }) => Promise<void>;
+  /**
+   * Record the operator's allow/deny verdict for a held tool call (docs/04) by
+   * writing the hook's on-disk decision file. Extension-host only; unset →
+   * `session.decide` is unsupported.
+   */
+  decide?: (params: {
+    sessionId: string;
+    toolCallId: string;
+    decision: Decision;
   }) => Promise<void>;
 }
 
@@ -252,6 +275,59 @@ async function handleMessage(
             id: request.id,
             ok: true,
             op: "session.respond",
+          }),
+        );
+        break;
+      }
+      case "session.control": {
+        // Flip CloakCode's own per-session policy marker (docs/04). Never itself
+        // approves a tool — it only decides whether the hook engages blocking.
+        if (!deps.setControl) {
+          socket.send(
+            JSON.stringify({
+              id: request.id,
+              ok: false,
+              error: { message: "take-control not supported on this bridge" },
+            }),
+          );
+          break;
+        }
+        await deps.setControl({
+          sessionId: request.params.sessionId,
+          control: request.params.control,
+        });
+        socket.send(
+          JSON.stringify({
+            id: request.id,
+            ok: true,
+            op: "session.control",
+          }),
+        );
+        break;
+      }
+      case "session.decide": {
+        // A remote-operator allow/deny for a held tool call (docs/04), recorded
+        // as the hook's on-disk decision file. Never genuine-local intent.
+        if (!deps.decide) {
+          socket.send(
+            JSON.stringify({
+              id: request.id,
+              ok: false,
+              error: { message: "approvals not supported on this bridge" },
+            }),
+          );
+          break;
+        }
+        await deps.decide({
+          sessionId: request.params.sessionId,
+          toolCallId: request.params.toolCallId,
+          decision: request.params.decision,
+        });
+        socket.send(
+          JSON.stringify({
+            id: request.id,
+            ok: true,
+            op: "session.decide",
           }),
         );
         break;

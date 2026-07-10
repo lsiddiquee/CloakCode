@@ -48,6 +48,13 @@ Design implications for an actuator that can stage/inject prompts:
   the operator.
 - **Audit log.** The bridge records every prompt (redacted/hashed body + token count + model
   - provenance) so exactly what left — and why — is reviewable.
+- **Remote approval is `remote-operator`, fail-safe to local.** The take-control toggle and each
+  allow/deny (`session.control` / `session.decide`) are `remote-operator` actions delivered only
+  via a **localhost file** (the hook's on-disk decision file) — never a network write on the
+  bridge, never GitHub. Blocking is **opt-in per session** and **falls through to native VS Code**
+  on timeout, so the local user is always the backstop. CloakCode only ever tightens a native
+  prompt into a remote one — it defers to global auto-approve / the operator's allow-list and never
+  auto-approves what VS Code would have blocked (docs/03 "blocking-hook handoff", docs/02 §4.15).
 
 ## Tunnel & transport
 

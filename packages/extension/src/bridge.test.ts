@@ -321,4 +321,100 @@ describe("startBridge", () => {
       await bridge.close();
     }
   });
+
+  it("routes session.control to the setControl dep and acks", async () => {
+    let got: { sessionId: string; control: boolean } | undefined;
+    const bridge = await startBridge(
+      deps({
+        setControl: async (p) => {
+          got = p;
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "10",
+        op: "session.control",
+        params: { instanceId: "i", sessionId: "sessA", control: true },
+      });
+      expect(res).toMatchObject({ id: "10", ok: true, op: "session.control" });
+      expect(got).toEqual({ sessionId: "sessA", control: true });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("errors session.control when no setControl dep is configured", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await request(bridge.port, {
+        id: "10",
+        op: "session.control",
+        params: { instanceId: "i", sessionId: "sessA", control: true },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("routes session.decide to the decide dep and acks", async () => {
+    let got:
+      | { sessionId: string; toolCallId: string; decision: string }
+      | undefined;
+    const bridge = await startBridge(
+      deps({
+        decide: async (p) => {
+          got = p;
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "11",
+        op: "session.decide",
+        params: {
+          instanceId: "i",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          decision: "allow",
+        },
+      });
+      expect(res).toMatchObject({ id: "11", ok: true, op: "session.decide" });
+      expect(got).toEqual({
+        sessionId: "sessA",
+        toolCallId: "t1",
+        decision: "allow",
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("errors session.decide when no decide dep is configured", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await request(bridge.port, {
+        id: "11",
+        op: "session.decide",
+        params: {
+          instanceId: "i",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          decision: "deny",
+        },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
 });

@@ -14,7 +14,18 @@ import {
   eventToolCallId,
   buildHookConfig,
   defaultSpoolDir,
+  BLOCK_HOOK_TIMEOUT_SECONDS,
   SpoolFollower,
+  preToolAction,
+  controlPolicyPath,
+  readControlPolicy,
+  writeControlPolicy,
+  defaultControlDir,
+  controlDirFor,
+  readDecision,
+  writeDecision,
+  awaitDecision,
+  blockingRecord,
   type SpoolRecord,
 } from "./hook-spool.js";
 
@@ -259,6 +270,18 @@ describe("buildHookConfig", () => {
     }) as { hooks: Record<string, Array<{ env?: unknown }>> };
     expect(cfg.hooks["PreToolUse"]?.[0]?.env).toBeUndefined();
   });
+
+  it("gives PreToolUse the blocking timeout (a held call needs time for a verdict)", () => {
+    const cfg = buildHookConfig({
+      runtime: "/usr/local/bin/node",
+      hookBin: "/ext/dist/hook.cjs",
+      spoolDir: defaultSpoolDir(),
+    }) as { hooks: Record<string, Array<{ timeout?: number }>> };
+    expect(cfg.hooks["PreToolUse"]?.[0]?.timeout).toBe(
+      BLOCK_HOOK_TIMEOUT_SECONDS,
+    );
+    expect(cfg.hooks["PostToolUse"]?.[0]?.timeout).toBe(30);
+  });
 });
 
 describe("SpoolFollower", () => {
@@ -390,5 +413,162 @@ describe("SpoolFollower", () => {
       follower.stop();
       await fs.rm(base, { recursive: true, force: true });
     }
+  });
+});
+
+describe("preToolAction", () => {
+  it("routes interactive question tools to notify", () => {
+    expect(preToolAction({ control: true }, "vscode_askQuestions")).toBe(
+      "notify",
+    );
+  });
+
+  it("defers non-interactive tools when not in control", () => {
+    expect(preToolAction({ control: false }, "run_in_terminal")).toBe("defer");
+  });
+
+  it("defers everything under global auto-approve (matches VS Code bypass)", () => {
+    expect(
+      preToolAction(
+        { control: true, globalAutoApprove: true },
+        "run_in_terminal",
+      ),
+    ).toBe("defer");
+  });
+
+  it("defers a tool on the session allow-list (an exception)", () => {
+    expect(preToolAction({ control: true, allow: ["read_file"] }, "read_file")).toBe(
+      "defer",
+    );
+  });
+
+  it("blocks a confirmable tool when in control", () => {
+    expect(preToolAction({ control: true }, "run_in_terminal")).toBe("block");
+  });
+});
+
+describe("control policy round-trip", () => {
+  it("writes then reads a policy", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-ctl-"));
+    try {
+      writeControlPolicy(dir, "sessA", { control: true, allow: ["read_file"] });
+      expect(await readControlPolicy(dir, "sessA")).toEqual({
+        control: true,
+        allow: ["read_file"],
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns NO_CONTROL when the policy is absent", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-ctl-"));
+    try {
+      expect(await readControlPolicy(dir, "ghost")).toEqual({ control: false });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns NO_CONTROL on junk (never throws into the hook)", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-ctl-"));
+    try {
+      await fs.writeFile(controlPolicyPath(dir, "sessA"), "not json");
+      expect(await readControlPolicy(dir, "sessA")).toEqual({ control: false });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("controlDirFor is a sibling of the spool dir", () => {
+    expect(controlDirFor(path.join("/x", ".cloakcode", "spool"))).toBe(
+      path.join("/x", ".cloakcode", "control"),
+    );
+    expect(defaultControlDir()).toBe(controlDirFor(defaultSpoolDir()));
+  });
+});
+
+describe("decision file round-trip", () => {
+  it("writes a base-id decision that reads back from the raw id", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-dec-"));
+    try {
+      writeDecision(dir, BASE_RUN, "allow");
+      expect(await readDecision(dir, RAW_RUN)).toBe("allow");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined when no decision has been written", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-dec-"));
+    try {
+      expect(await readDecision(dir, BASE_RUN)).toBeUndefined();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("awaitDecision", () => {
+  it("resolves as soon as a decision appears", async () => {
+    let calls = 0;
+    const d = await awaitDecision({
+      read: async () => (++calls >= 3 ? "allow" : undefined),
+      timeoutMs: 10_000,
+      intervalMs: 1,
+      sleep: async () => {},
+      now: () => 0,
+    });
+    expect(d).toBe("allow");
+    expect(calls).toBe(3);
+  });
+
+  it("returns undefined once the timeout elapses (falls through to native)", async () => {
+    let n = 0;
+    const d = await awaitDecision({
+      read: async () => undefined,
+      timeoutMs: 100,
+      intervalMs: 10,
+      sleep: async () => {},
+      now: () => (n++ === 0 ? 0 : 1000),
+    });
+    expect(d).toBeUndefined();
+  });
+});
+
+describe("blockingRecord", () => {
+  it("records any tool (not just interactive) and flags awaitingDecision", () => {
+    const r = blockingRecord(
+      {
+        session_id: "sessA",
+        tool_use_id: RAW_RUN,
+        tool_name: "run_in_terminal",
+        tool_input: { command: "ls" },
+      },
+      "2026-07-09T00:00:00Z",
+    );
+    expect(r?.toolCallId).toBe(BASE_RUN);
+    expect(r?.awaitingDecision).toBe(true);
+    expect(r?.toolName).toBe("run_in_terminal");
+  });
+
+  it("returns undefined without the routing keys", () => {
+    expect(blockingRecord({ tool_name: "run_in_terminal" }, "t")).toBeUndefined();
+  });
+});
+
+describe("computePendingBlockers awaitingDecision", () => {
+  it("propagates awaitingDecision and the raw input onto the blocker", () => {
+    const r: SpoolRecord = {
+      sessionId: "sessA",
+      toolCallId: BASE_RUN,
+      toolName: "run_in_terminal",
+      input: { command: "ls" },
+      ts: "2026-07-09T00:00:00Z",
+      awaitingDecision: true,
+    };
+    const [b] = computePendingBlockers([r], "sessA");
+    expect(b?.awaitingDecision).toBe(true);
+    expect(b?.input).toEqual({ command: "ls" });
   });
 });

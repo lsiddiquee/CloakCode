@@ -331,6 +331,29 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   **`copilotUsageNanoAiu`** (billing); the Windows store confirms per-turn `copilotCredits`.
   `tool_call` spans add duration + error; `agent_response` adds `reasoning`. Surfacing this as
   session telemetry is a future slice (docs/05).
+- **4.15** _Tool-approval replication for the blocking hook_ (verified from source 2026-07-10,
+  vscode @ 789c53ec). To "only block if VS Code would have blocked" we read the actual decision.
+  **Two independent mechanisms** in the agent-host (the path that honors `~/.copilot/hooks/`):
+  (a) the **`PreToolUse` hook** fires for **every** tool call, before/independent of approval —
+  VS Code even uses it internally for edit-tracking (`copilotAgentSession.ts::_handlePreToolUse`);
+  (b) the **decision** `sessionPermissions.ts::getAutoApproval` returns a reason (auto-approved)
+  or `undefined` (**confirmation needed**), precedence: global auto-approve
+  (`chat.tools.global.autoApprove`, id in `constants.ts` `ChatConfiguration.GlobalAutoApprove`) →
+  session **bypass** (`autoApprove`) → per-tool `permissions.allow` → read-in-workdir →
+  write-pattern → tree-sitter shell rules → else prompt. Modes: `interactive | plan | autopilot`
+  (autopilot auto-answers). **Because the hook fires before `getAutoApproval`, the hook must
+  self-decide** — VS Code won't tell it "I'd have prompted." **Reachability:** global settings are
+  readable (extension `getConfiguration`), but session `mode`/`autoApprove`/`permissions.allow`
+  are runtime state persisted only into the orchestrator session-DB (`agentService::_persistConfigValues`)
+  — **not cheaply readable**. **Decision (YAGNI/DRY):** replicate only the cheap signals — global
+  auto-approve + an operator-grown per-session allow-list (the reachable analog of `permissions.allow`)
+  — and gate all blocking behind an explicit **take-control** toggle; the read/write-path + shell
+  tree-sitter rules are **not** ported (they surface unless allow-listed). **Hook output shape**
+  (authoritative, copilot-chat `hookCommandTypes.ts` + `chatHookService.ts:367-388`): the verdict
+  lives inside `hookSpecificOutput` — `{ hookSpecificOutput: { hookEventName:"PreToolUse",
+  permissionDecision:"allow"|"deny"|"ask" } }`; an empty `{}` (no `hookSpecificOutput`) defers.
+  Multiple hooks combine **most-restrictive**. _Note: `rg` is not installed in the container — use
+  `grep`._
 
 ---
 

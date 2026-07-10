@@ -10,6 +10,8 @@ import {
   rpcRequestSchema,
   rpcErrorSchema,
   sessionsListResponseSchema,
+  sessionControlResponseSchema,
+  sessionDecideResponseSchema,
   type SessionSummary,
 } from "./index.js";
 
@@ -119,6 +121,50 @@ describe("rpcRequestSchema", () => {
           sessionId: "sessA",
           toolCallId: "t1",
           text: "",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses a session.control request", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "5",
+      op: "session.control",
+      params: { instanceId: "inst", sessionId: "sessA", control: true },
+    });
+    expect(parsed.op).toBe("session.control");
+    if (parsed.op === "session.control") {
+      expect(parsed.params.control).toBe(true);
+    }
+  });
+
+  it("parses a session.decide request", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "6",
+      op: "session.decide",
+      params: {
+        instanceId: "inst",
+        sessionId: "sessA",
+        toolCallId: "toolu_014s9ftYke93xQX364HyyaVo",
+        decision: "allow",
+      },
+    });
+    expect(parsed.op).toBe("session.decide");
+    if (parsed.op === "session.decide") {
+      expect(parsed.params.decision).toBe("allow");
+    }
+  });
+
+  it("rejects a session.decide with an unknown decision", () => {
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "6",
+        op: "session.decide",
+        params: {
+          instanceId: "inst",
+          sessionId: "sessA",
+          toolCallId: "t1",
+          decision: "maybe",
         },
       }).success,
     ).toBe(false);
@@ -250,6 +296,17 @@ describe("pendingBlockerSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("parses an approval blocker awaiting a remote decision", () => {
+    const parsed = pendingBlockerSchema.parse({
+      toolCallId: "toolu_014s9ftYke93xQX364HyyaVo",
+      toolName: "run_in_terminal",
+      createdAt: "2026-07-09T11:42:24.584Z",
+      input: { command: "rm -rf build" },
+      awaitingDecision: true,
+    });
+    expect(parsed.awaitingDecision).toBe(true);
+  });
 });
 
 describe("response schemas", () => {
@@ -322,5 +379,15 @@ describe("response schemas", () => {
   it("parses an error response", () => {
     const err = { id: "1", ok: false as const, error: { message: "boom" } };
     expect(rpcErrorSchema.parse(err)).toEqual(err);
+  });
+
+  it("parses a session.control ack", () => {
+    const res = { id: "5", ok: true as const, op: "session.control" as const };
+    expect(sessionControlResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a session.decide ack", () => {
+    const res = { id: "6", ok: true as const, op: "session.decide" as const };
+    expect(sessionDecideResponseSchema.parse(res)).toEqual(res);
   });
 });

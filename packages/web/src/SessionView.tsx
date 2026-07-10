@@ -1,11 +1,17 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type {
+  Decision,
   PendingBlocker,
   SessionEvent,
   SessionPart,
   SessionSummary,
 } from "@cloakcode/protocol";
-import { respondSession, subscribeSession } from "./bridge";
+import {
+  controlSession,
+  decideSession,
+  respondSession,
+  subscribeSession,
+} from "./bridge";
 import {
   approvalSummary,
   buildAnswerText,
@@ -62,6 +68,8 @@ export function SessionView({
     pending: [],
     error: null,
   });
+
+  const control = useControl(session);
 
   useEffect(() => {
     const unsubscribe = subscribeSession(
@@ -126,6 +134,28 @@ export function SessionView({
             : statusLabel(session.status, session.idleSeconds)}
         </span>
       </header>
+
+      <div className={`control-bar ${control.control ? "on" : ""}`}>
+        <button
+          type="button"
+          className="control-toggle"
+          onClick={() => void control.toggle()}
+          disabled={control.pending}
+        >
+          {control.pending
+            ? "…"
+            : control.control
+              ? "\u25c9 In control"
+              : "\u25cb Take control"}
+        </button>
+        <span className="control-hint">
+          {control.error
+            ? control.error
+            : control.control
+              ? "Holding confirmable tool calls for your approval"
+              : "VS Code drives approvals (native)"}
+        </span>
+      </div>
 
       <main
         className="content transcript"
@@ -259,6 +289,77 @@ function useRemoteSend(session: SessionSummary): {
   return { sending, error, sent, send };
 }
 
+/**
+ * Take-control toggle state for one session. Flips on ack; `pending` guards the
+ * button and `error` surfaces a failed toggle. The blocking hook reads the
+ * resulting on-disk policy (see the extension's `setControl`).
+ */
+function useControl(session: SessionSummary): {
+  control: boolean;
+  pending: boolean;
+  error: string | null;
+  toggle: () => Promise<void>;
+} {
+  const [control, setControl] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toggle = async (): Promise<void> => {
+    const next = !control;
+    setPending(true);
+    setError(null);
+    try {
+      await controlSession({
+        instanceId: session.instanceId,
+        sessionId: session.sessionId,
+        control: next,
+      });
+      setControl(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPending(false);
+    }
+  };
+  return { control, pending, error, toggle };
+}
+
+/**
+ * Approve/deny state for one held tool call. Records the verdict once (buttons
+ * lock after) via `decideSession`, which the extension writes as the hook's
+ * on-disk decision file to unblock the held PreToolUse.
+ */
+function useDecide(session: SessionSummary): {
+  deciding: boolean;
+  decided: Decision | null;
+  error: string | null;
+  decide: (toolCallId: string, decision: Decision) => Promise<void>;
+} {
+  const [deciding, setDeciding] = useState(false);
+  const [decided, setDecided] = useState<Decision | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const decide = async (
+    toolCallId: string,
+    decision: Decision,
+  ): Promise<void> => {
+    setDeciding(true);
+    setError(null);
+    try {
+      await decideSession({
+        instanceId: session.instanceId,
+        sessionId: session.sessionId,
+        toolCallId,
+        decision,
+      });
+      setDecided(decision);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeciding(false);
+    }
+  };
+  return { deciding, decided, error, decide };
+}
+
 function PendingCard({
   blocker,
   session,
@@ -273,6 +374,7 @@ function PendingCard({
   // One chosen answer per question (option label or freeform text).
   const [answers, setAnswers] = useState<Array<string | undefined>>([]);
   const { sending, error, sent, send } = useRemoteSend(session);
+  const decision = useDecide(session);
 
   const setAnswer = (i: number, value: string): void =>
     setAnswers((prev) => {
@@ -342,6 +444,45 @@ function PendingCard({
               : "Sends to the active chat in VS Code (remote-operator)."}
           </div>
         </>
+      ) : blocker.awaitingDecision ? (
+        <>
+          <div className="blocker-q">
+            Approve <strong>{approval.label}</strong>
+            {approval.detail && (
+              <pre className="pending-cmd">{approval.detail}</pre>
+            )}
+          </div>
+          {decision.error && (
+            <div className="pending-error">decide failed: {decision.error}</div>
+          )}
+          <div className="approve-row">
+            <button
+              type="button"
+              className="approve-btn deny"
+              onClick={() => void decision.decide(blocker.toolCallId, "deny")}
+              disabled={decision.deciding || decision.decided !== null}
+            >
+              {decision.decided === "deny" ? "Denied ✓" : "Deny"}
+            </button>
+            <button
+              type="button"
+              className="approve-btn allow"
+              onClick={() => void decision.decide(blocker.toolCallId, "allow")}
+              disabled={decision.deciding || decision.decided !== null}
+            >
+              {decision.decided === "allow"
+                ? "Allowed ✓"
+                : decision.deciding
+                  ? "…"
+                  : "Allow"}
+            </button>
+          </div>
+          <div className="blocker-note">
+            {decision.decided
+              ? "Sent — the held tool call will resume in VS Code."
+              : "You're in control — allow or deny this tool call."}
+          </div>
+        </>
       ) : (
         <>
           <div className="blocker-q">
@@ -351,7 +492,7 @@ function PendingCard({
             )}
           </div>
           <div className="blocker-note">
-            Approve in VS Code — remote approval arrives later.
+            Approve in VS Code — take control to approve from here.
           </div>
         </>
       )}

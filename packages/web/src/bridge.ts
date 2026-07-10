@@ -3,6 +3,9 @@ import {
   sessionSubscribeEventSchema,
   sessionsListResponseSchema,
   sessionRespondResponseSchema,
+  sessionControlResponseSchema,
+  sessionDecideResponseSchema,
+  type Decision,
   type PendingBlocker,
   type SessionEvent,
   type SessionSummary,
@@ -124,20 +127,16 @@ export function subscribeSession(
 }
 
 /**
- * Send a `remote-operator` message to a session's active chat (M3b). With a
- * `toolCallId` it answers a specific pending blocker; without one it's a
- * free-form chat prompt. One-shot over the bridge; resolves on the ack, rejects
- * on error or timeout. The extension host turns this into
- * `workbench.action.chat.open`.
+ * One-shot request/ack over the bridge WebSocket: open, send `{id, op, params}`,
+ * resolve when `isOk` accepts the reply, reject on an error envelope / bad reply
+ * / timeout. Shared by every fire-and-ack actuator call so the socket lifecycle
+ * lives in one place.
  */
-export function respondSession(
-  params: {
-    instanceId: string;
-    sessionId: string;
-    toolCallId?: string;
-    text: string;
-  },
-  url: string = bridgeUrl(),
+function oneShotRpc(
+  op: string,
+  params: unknown,
+  isOk: (raw: unknown) => boolean,
+  url: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
@@ -148,14 +147,14 @@ export function respondSession(
     }, 5000);
 
     ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id, op: "session.respond", params }));
+      ws.send(JSON.stringify({ id, op, params }));
     });
 
     ws.addEventListener("message", (ev) => {
       clearTimeout(timer);
       try {
         const raw: unknown = JSON.parse(String(ev.data));
-        if (sessionRespondResponseSchema.safeParse(raw).success) {
+        if (isOk(raw)) {
           resolve();
           return;
         }
@@ -177,4 +176,67 @@ export function respondSession(
       reject(new Error("cannot reach the bridge"));
     });
   });
+}
+
+/**
+ * Send a `remote-operator` message to a session's active chat (M3b). With a
+ * `toolCallId` it answers a specific pending blocker; without one it's a
+ * free-form chat prompt. One-shot over the bridge; resolves on the ack, rejects
+ * on error or timeout. The extension host turns this into
+ * `workbench.action.chat.open`.
+ */
+export function respondSession(
+  params: {
+    instanceId: string;
+    sessionId: string;
+    toolCallId?: string;
+    text: string;
+  },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return oneShotRpc(
+    "session.respond",
+    params,
+    (raw) => sessionRespondResponseSchema.safeParse(raw).success,
+    url,
+  );
+}
+
+/**
+ * Toggle the operator's take-control state for a session. While in control the
+ * blocking hook holds confirmable tool calls for a remote allow/deny; off
+ * restores the pure-notifier (native-approval) path. A `remote-operator` action.
+ */
+export function controlSession(
+  params: { instanceId: string; sessionId: string; control: boolean },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return oneShotRpc(
+    "session.control",
+    params,
+    (raw) => sessionControlResponseSchema.safeParse(raw).success,
+    url,
+  );
+}
+
+/**
+ * Approve or deny a held tool call (the operator's verdict for a blocker that is
+ * `awaitingDecision`). Resolves on the ack; the extension records it as the
+ * hook's on-disk decision file, unblocking the held PreToolUse.
+ */
+export function decideSession(
+  params: {
+    instanceId: string;
+    sessionId: string;
+    toolCallId: string;
+    decision: Decision;
+  },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return oneShotRpc(
+    "session.decide",
+    params,
+    (raw) => sessionDecideResponseSchema.safeParse(raw).success,
+    url,
+  );
 }

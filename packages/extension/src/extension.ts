@@ -5,7 +5,14 @@ import * as vscode from "vscode";
 import { startBridge, type Bridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
 import { findSessionLog, findTranscript } from "./session-observer.js";
-import { buildHookConfig, defaultSpoolDir } from "./hook-spool.js";
+import {
+  buildHookConfig,
+  controlDirFor,
+  defaultSpoolDir,
+  readControlPolicy,
+  writeControlPolicy,
+  writeDecision,
+} from "./hook-spool.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -108,6 +115,31 @@ export async function activate(
           await vscode.commands.executeCommand("workbench.action.chat.open", {
             query: text,
           });
+        },
+        setControl: async ({ sessionId, control }) => {
+          // Take-control policy the blocking hook reads. Snapshot VS Code's
+          // global auto-approve setting (docs/02 §4.15: bypass ⇒ defer) and keep
+          // the operator's grown allow-list across toggles.
+          const controlDir = controlDirFor(spoolDir);
+          const globalAutoApprove =
+            vscode.workspace
+              .getConfiguration()
+              .get<boolean>("chat.tools.global.autoApprove", false) === true;
+          const prev = await readControlPolicy(controlDir, sessionId);
+          writeControlPolicy(controlDir, sessionId, {
+            control,
+            globalAutoApprove,
+            ...(prev.allow ? { allow: prev.allow } : {}),
+          });
+          out.appendLine(
+            `control ${control ? "ON" : "off"} for ${sessionId} ` +
+              `(globalAutoApprove=${globalAutoApprove})`,
+          );
+        },
+        decide: async ({ sessionId, toolCallId, decision }) => {
+          // Record the operator's verdict where the held hook is polling.
+          writeDecision(spoolDir, toolCallId, decision);
+          out.appendLine(`decide ${decision} for ${toolCallId} (${sessionId})`);
         },
       },
       { host: "127.0.0.1", port },

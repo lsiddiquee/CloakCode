@@ -27,6 +27,15 @@ export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export const toolStatusSchema = z.enum(["running", "done", "error"]);
 export type ToolStatus = z.infer<typeof toolStatusSchema>;
 
+/**
+ * A `remote-operator` approval verdict for a pending tool call. Used both on the
+ * `session.decide` RPC and in the hook's on-disk decision file (docs/04) — the
+ * blocking hook only ever honors an explicit `allow`/`deny`; anything else
+ * (including a timeout) falls through to VS Code's native approval.
+ */
+export const decisionSchema = z.enum(["allow", "deny"]);
+export type Decision = z.infer<typeof decisionSchema>;
+
 /** One selectable option of a blocker `confirmation`. */
 export const choiceSchema = z.object({
   id: z.string(),
@@ -111,8 +120,11 @@ export type SessionEvent = z.infer<typeof sessionEventSchema>;
  * its `__vscode-<n>` suffix stripped) so it dedupes against the transcript's
  * `toolCallId` — see docs/02 §4.6 and docs/03 "Live-pending overlay". For a
  * question it carries `confirmations`; for a tool approval it carries the raw
- * `input` (e.g. the command). Delivered as a replace-snapshot, never on the
- * seq'd log, so the observer's `sinceSeq` resumption stays pure.
+ * `input` (e.g. the command). `awaitingDecision` is set when CloakCode holds
+ * the tool call (the operator has taken control of the session) and is blocking
+ * on a remote `allow`/`deny` — the client renders approve/deny affordances only
+ * then. Delivered as a replace-snapshot, never on the seq'd log, so the
+ * observer's `sinceSeq` resumption stays pure.
  */
 export const pendingBlockerSchema = z.object({
   toolCallId: z.string(),
@@ -120,6 +132,7 @@ export const pendingBlockerSchema = z.object({
   createdAt: z.string(),
   confirmations: z.array(confirmationPartSchema).optional(),
   input: z.unknown().optional(),
+  awaitingDecision: z.boolean().optional(),
 });
 export type PendingBlocker = z.infer<typeof pendingBlockerSchema>;
 
@@ -152,6 +165,29 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       // free-form chat message. Either way it's injected into the active chat.
       toolCallId: z.string().optional(),
       text: z.string().min(1),
+    }),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.control"),
+    params: z.object({
+      instanceId: z.string(),
+      sessionId: z.string(),
+      // Toggle whether the remote operator has "taken control" of this session.
+      // While in control the blocking hook holds confirmable tool calls for a
+      // remote decision; off restores the pure-notifier (native-approval) path.
+      control: z.boolean(),
+    }),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.decide"),
+    params: z.object({
+      instanceId: z.string(),
+      sessionId: z.string(),
+      // The pending tool call being approved/denied (the base toolCallId).
+      toolCallId: z.string(),
+      decision: decisionSchema,
     }),
   }),
 ]);
@@ -187,6 +223,36 @@ export const sessionRespondResponseSchema = z.object({
 });
 export type SessionRespondResponse = z.infer<
   typeof sessionRespondResponseSchema
+>;
+
+/**
+ * Ack for `session.control` — the operator has toggled take-control on the
+ * target session. A `remote-operator`-provenance action (docs/04): it only
+ * flips CloakCode's own per-session policy marker and never itself approves a
+ * tool call.
+ */
+export const sessionControlResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.control"),
+});
+export type SessionControlResponse = z.infer<
+  typeof sessionControlResponseSchema
+>;
+
+/**
+ * Ack for `session.decide` — the operator's `allow`/`deny` verdict for a
+ * pending tool call has been recorded (as the hook's on-disk decision file).
+ * A `remote-operator`-provenance action (docs/04); the blocking hook consumes
+ * it, and a missing/late verdict falls through to VS Code's native approval.
+ */
+export const sessionDecideResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.decide"),
+});
+export type SessionDecideResponse = z.infer<
+  typeof sessionDecideResponseSchema
 >;
 
 /**

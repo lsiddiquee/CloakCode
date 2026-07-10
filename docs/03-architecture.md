@@ -69,9 +69,34 @@ reuse the `confirmation` part, approvals show `toolName` + command.
 - **The phone is never a hard dependency.** The same card renders on the desktop localhost
   browser too; if the phone is slow, the local user answers in native VS Code and the overlay
   clears on the next snapshot. Worst case degrades to local-only — never worse than today.
-- _Deferred (not M3):_ a **blocking** `PreToolUse` that returns `allow`/`deny` to resolve
-  _remotely_ is possible (the hook holds synchronously up to its `timeout` — §4.5) but is a
-  later tier; M3 ships read-only live awareness, not remote resolution.
+- **Now built — the blocking-hook handoff (take-control), below.** Remote resolution is an
+  opt-in upgrade to the notifier, not a replacement.
+
+### The blocking-hook handoff (take-control)
+
+Remote **approval** upgrades the notifier from read-only awareness to remote resolution, without
+re-implementing VS Code's approval engine (docs/02 §4.15). Two constraints shape it: the
+`PreToolUse` hook fires for **every** tool call _before_ VS Code's own decision, and the session's
+runtime approval state (`mode`/bypass/`permissions.allow`) isn't cheaply readable from a separate
+process. So:
+
+- **Opt-in per session.** The operator taps **Take control** (`session.control {control}`); the
+  extension writes a per-session policy `~/.cloakcode/control/<sessionId>.json`
+  (`{control, globalAutoApprove, allow[]}`) that the hook reads. Off ⇒ the hook stays the pure
+  notifier — native VS Code approval, unchanged.
+- **Only block if VS Code would have blocked.** In control, the hook's `preToolAction` **defers**
+  (emits `{}`) when VS Code would auto-approve by a **reachable** signal — global auto-approve
+  (`chat.tools.global.autoApprove`, snapshotted into the policy) or the operator-grown **allow-list**
+  (the reachable analog of session `permissions.allow`) — and only **blocks** otherwise. Interactive
+  questions stay on the notify + `respond`-text path. VS Code's read/write-path + tree-sitter shell
+  rules are **not** replicated (YAGNI); those surface unless allow-listed.
+- **Block = hold + poll.** A blocked `PreToolUse` records the pending call (`awaitingDecision`) and
+  **holds synchronously** (Copilot blocks on the hook up to its `timeout`, raised to 120 s for
+  PreToolUse), polling a decision file `<spool>/<baseToolCallId>.decision`. The phone shows
+  Allow/Deny; `session.decide {toolCallId, decision}` writes the verdict; the hook emits
+  `hookSpecificOutput.permissionDecision`. **Timeout ⇒ `{}`** (falls through to native — fail-safe).
+- **Cleanup.** The hook removes the spool record + decision file when the wait resolves (deny /
+  timeout never fire `PostToolUse`), so no card strands.
 
 ### Deployment & concurrency (self-installing hook)
 
@@ -116,9 +141,11 @@ windows fire. A missed delete can't strand a card — the transcript-subtraction
 has already flushed to the transcript (§4.6), so stale files can't accumulate. As a fast path,
 when a session has no spool file the follower skips reading/parsing the transcript entirely.
 
-The hook only spools **interactive** tools (the §4.6 blocker signature — `tool_name` matching
-`ask/question/confirm/input/elicit`). Non-blocker tool calls (`read_file`, `grep`, …) are
-skipped, so they never churn the spool or flicker a card in the overlay.
+The hook spools **interactive** tools by default (the §4.6 blocker signature — `tool_name`
+matching `ask/question/confirm/input/elicit`). Non-blocker tool calls (`read_file`, `grep`, …)
+are skipped, so they never churn the spool or flicker a card in the overlay. **In take-control**
+(above) the block path additionally spools whatever tool it is holding for approval (any tool,
+flagged `awaitingDecision`), for exactly as long as the hook holds it.
 
 **Routing — the global spool is self-describing by `session_id`.** The spool is shared by every
 session in the environment, so each record carries the Copilot `session_id` (which equals the

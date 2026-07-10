@@ -77,7 +77,12 @@ open when the question fires); and the follower **self-heals** stale files via t
   transcript-subtraction/`isRetired` self-heal can retire. Mitigated by mtime session liveness
   dropping dead sessions from the list; a spool TTL/GC is a later option if it bites.
 
-#### M3b — Remote answering (next)
+#### M3b — Remote answering (SHIPPED 2026-07-10)
+
+**Built** — both answer channels now work: **questions** via targeted chat-submit
+(`session.respond {text}` → two-step `vscode.open` + `chat.open`, docs/02 §4.12) and **approvals**
+via the opt-in **take-control blocking hook** (`session.control` + `session.decide`, docs/03
+"blocking-hook handoff", docs/02 §4.15). The design rationale below held up in the build.
 
 The crux is the hook-block mechanism and its **native-prompt suppression** property:
 
@@ -90,16 +95,19 @@ The crux is the hook-block mechanism and its **native-prompt suppression** prope
   wait; if it returns immediately to show the native prompt, the phone can no longer resolve it.
   "First-responder-wins across both surfaces" only holds when **CloakCode's own card is the
   surface on the desktop too** — which conflicts with "keep answering natively at my desk".
-- **Reconciliation (planned): an opt-in "take control" toggle.** Default = the shipped
-  non-intrusive notifier (native local, zero blocking). When the user is leaving, they flip
-  **remote control ON** (per session) from the phone; the bridge writes a control flag the hook
-  reads at runtime, and only then does the hook **block + poll the spool for a decision** and
-  return `allow`/`deny`. Bounded by the hook `timeout` (minutes) with a safe fallback
-  (`deny` or fall through to native) on expiry.
+- **Reconciliation (built): an opt-in "take control" toggle.** Default = the shipped
+  non-intrusive notifier (native local, zero blocking). The operator flips **remote control ON**
+  (per session) from the phone (`session.control`); the extension writes a per-session policy
+  `~/.cloakcode/control/<sessionId>.json` the hook reads at runtime, and only then does the hook
+  **block + poll the spool for a decision** and return `allow`/`deny`. It defers (emits `{}`) when
+  VS Code would auto-approve by a reachable signal (global auto-approve / the operator's allow-list),
+  so it **only blocks if VS Code would have blocked** (docs/02 §4.15). Bounded by the hook `timeout`
+  (raised to 120 s for PreToolUse) with a safe fallback (fall through to native) on expiry.
 - **Scope of M3b — two complementary answer channels (docs/02 §4.7):**
-  - **Approvals → hook `allow`/`deny`.** Deterministic. `session.respond {sessionId,
-toolCallId, decision}` (tagged `remote-operator`); the hook blocks + reads the decision.
-    Text/prompt does **not** approve a native modal.
+  - **Approvals → hook `allow`/`deny`.** Deterministic. `session.decide {sessionId,
+toolCallId, decision}` (tagged `remote-operator`) writes the hook's on-disk decision file; the
+    held hook reads it and emits `hookSpecificOutput.permissionDecision`. Text/prompt does **not**
+    approve a native modal.
   - **Questions → injected text.** A submitted chat message _is_ interpreted as the answer
     (verified), so a question needs a **chat-submit** path, not the hook. This requires the
     extension host to call a chat-input/submit command (Q1) with the answer text — lighter than
