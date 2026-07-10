@@ -82,6 +82,12 @@ export function toConfirmations(
   const freeform = (r: Record<string, unknown>): boolean =>
     r["allowFreeformInput"] !== false && r["allowFreeform"] !== false;
 
+  // Multi-select lets the user pick more than one option ("select all that
+  // apply"); the answer must be delivered as `selectedValues`, and the client
+  // renders a multi-toggle instead of single-choice buttons.
+  const multi = (r: Record<string, unknown>): boolean =>
+    r["multiSelect"] === true || r["multiselect"] === true;
+
   const questions = Array.isArray(a["questions"]) ? a["questions"] : null;
   if (questions) {
     return questions.map((q: unknown, i: number): ConfirmationPart => {
@@ -101,6 +107,7 @@ export function toConfirmations(
         ),
         options: optionsFrom(qq["options"]),
         ...(freeform(qq) ? { allowFreeform: true } : {}),
+        ...(multi(qq) ? { multiSelect: true } : {}),
       };
     });
   }
@@ -114,6 +121,7 @@ export function toConfirmations(
       ),
       options: optionsFrom(a["options"] ?? a["choices"]),
       ...(freeform(a) ? { allowFreeform: true } : {}),
+      ...(multi(a) ? { multiSelect: true } : {}),
     },
   ];
 }

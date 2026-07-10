@@ -56,6 +56,9 @@ export const confirmationPartSchema = z.object({
   prompt: z.string(),
   options: z.array(choiceSchema),
   allowFreeform: z.boolean().optional(),
+  // `vscode_askQuestions` `multiSelect` — the client lets the operator pick more
+  // than one option, and the answer is delivered as `selectedValues`.
+  multiSelect: z.boolean().optional(),
 });
 export type ConfirmationPart = z.infer<typeof confirmationPartSchema>;
 
@@ -150,6 +153,9 @@ export type PendingBlocker = z.infer<typeof pendingBlockerSchema>;
 export const questionAnswerSchema = z.object({
   selected: z.array(z.string()),
   freeText: z.string().nullable().optional(),
+  // When true the question is multi-select — the extension delivers `selected`
+  // as `selectedValues` (not a single `selectedValue`) so VS Code renders it.
+  multiSelect: z.boolean().optional(),
 });
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 

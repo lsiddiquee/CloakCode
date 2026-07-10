@@ -325,18 +325,26 @@ export async function awaitDecision(opts: {
   }
 }
 
-/** The core carousel answer value shape (`IChatQuestionAnswerValue`, multi form). */
+/**
+ * A core carousel answer value (`IChatQuestionAnswerValue`). The shape must
+ * match the question TYPE or VS Code won't RENDER the choice (the tool result is
+ * type-tolerant, but the carousel display is not): `singleSelect` uses
+ * `selectedValue`, `multiSelect` uses `selectedValues`, freeform uses
+ * `freeformValue` (`askQuestionsTool.ts::convertCarouselAnswers`).
+ */
 export interface CarouselAnswerValue {
-  selectedValues: string[];
+  selectedValue?: string;
+  selectedValues?: string[];
   freeformValue?: string;
 }
 
 /**
  * Build the core carousel answer record for `_chat.notifyQuestionCarouselAnswer`
- * from CloakCode's per-question `answers` (docs/02 §4.16). Keyed by the internal
- * question id `${resolveId}:${index}`; values use the multi-select shape
- * (`selectedValues` + optional `freeformValue`), which the tool accepts for both
- * single- and multi-select questions. Pure.
+ * from CloakCode's per-question `answers` (docs/02 §4.16), keyed by the internal
+ * question id `${resolveId}:${index}`. Picks the value shape by intent so VS
+ * Code renders it: a typed freeform value → `freeformValue`; a single chosen
+ * option → `selectedValue` (singular = single-select); multiple →
+ * `selectedValues`. Pure.
  */
 export function buildCarouselAnswers(
   resolveId: string,
@@ -344,10 +352,21 @@ export function buildCarouselAnswers(
 ): Record<string, CarouselAnswerValue> {
   const record: Record<string, CarouselAnswerValue> = {};
   answers.forEach((a, i) => {
-    record[`${resolveId}:${i}`] = {
-      selectedValues: a.selected,
-      ...(a.freeText ? { freeformValue: a.freeText } : {}),
-    };
+    const key = `${resolveId}:${i}`;
+    if (a.multiSelect) {
+      record[key] = {
+        selectedValues: a.selected,
+        ...(a.freeText ? { freeformValue: a.freeText } : {}),
+      };
+    } else if (a.freeText) {
+      record[key] = { freeformValue: a.freeText };
+    } else {
+      const only = a.selected[0];
+      record[key] =
+        only !== undefined
+          ? { selectedValue: only }
+          : { selectedValues: a.selected };
+    }
   });
   return record;
 }

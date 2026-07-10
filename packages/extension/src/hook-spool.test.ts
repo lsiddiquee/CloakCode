@@ -656,17 +656,25 @@ describe("computePendingBlockers awaitingDecision", () => {
 });
 
 describe("buildCarouselAnswers", () => {
-  it("keys answers by resolveId:index with the multi-select shape", () => {
+  it("uses the type-appropriate value shape per question so VS Code renders it", () => {
     const rec = buildCarouselAnswers(RAW_QUESTION, [
       { selected: ["tool-call-demo.txt"], freeText: null },
-      { selected: [], freeText: "freeform from vscode" },
+      { selected: [], freeText: "555" },
+      { selected: ["Unit", "E2E"], freeText: null, multiSelect: true },
     ]);
     expect(rec[`${RAW_QUESTION}:0`]).toEqual({
-      selectedValues: ["tool-call-demo.txt"],
+      selectedValue: "tool-call-demo.txt",
     });
-    expect(rec[`${RAW_QUESTION}:1`]).toEqual({
-      selectedValues: [],
-      freeformValue: "freeform from vscode",
-    });
+    expect(rec[`${RAW_QUESTION}:1`]).toEqual({ freeformValue: "555" });
+    expect(rec[`${RAW_QUESTION}:2`]).toEqual({ selectedValues: ["Unit", "E2E"] });
+  });
+
+  it("uses selectedValues for a multi-select even with a single pick", () => {
+    // The [object Object] bug: a multi-select answered with one option must
+    // still be delivered as selectedValues, not selectedValue.
+    const rec = buildCarouselAnswers(RAW_QUESTION, [
+      { selected: ["Integration"], freeText: null, multiSelect: true },
+    ]);
+    expect(rec[`${RAW_QUESTION}:0`]).toEqual({ selectedValues: ["Integration"] });
   });
 });

@@ -386,6 +386,24 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   runSubagentTool.ts:248), derivable from the hook's `tool_use_id`. (Autopilot / auto-reply
   auto-answer in-tool — confirms mode #3.) _So "owning the loop" is NOT required for questions; that
   earlier claim was wrong._
+- **4.17** _Structured question answering — SHIPPED + live-verified 2026-07-10._ Concrete facts
+  nailed in testing of the `session.answer` → `_chat.notifyQuestionCarouselAnswer` path: (1) the
+  **`resolveId` is the BASE id**, not the hook's suffixed `tool_use_id` — VS Code sets
+  `chatStreamToolCallId = id.split('__vscode')[0]` (`inlineChatIntent.ts`), so the carousel keys on
+  `toolu_…` (no `__vscode-<n>`). CloakCode preserves the raw id and fires the command for **both**
+  the suffixed and stripped-base forms (the non-match no-ops). (2) the **answer VALUE shape must
+  match the question TYPE for the carousel to RENDER**: `singleSelect` → `{selectedValue}`,
+  `multiSelect` → `{selectedValues}`, freeform → `{freeformValue}`. The tool RESULT builder
+  (`convertCarouselAnswers`) is type-tolerant (the model gets the answer regardless), but the
+  DISPLAY is strict — `selectedValues` on a single-select renders blank; `selectedValue` on a
+  multi-select renders **`[object Object]`**. (3) **`multiSelect` must be threaded through** (input
+  → `toConfirmations` → protocol `confirmation`/`answer` → client multi-toggle → `selectedValues`).
+  Live-verified: single-select, multi-select, freeform, and freeform-alongside-options all render +
+  resolve. **No take-control needed for questions.**
+- **4.18** _On-disk state resets on restart, not on a timer_ (2026-07-10). Stale take-control
+  policies and blockers from a window closed mid-question (`PostToolUse` never fired) are cleared on
+  extension `activate()` — deliberately **not** TTL-based, so a long-running session keeps its state
+  for its whole lifetime.
 
 ---
 

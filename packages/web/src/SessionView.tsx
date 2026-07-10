@@ -406,29 +406,51 @@ function PendingCard({
   const isQuestion = confirmations.length > 0;
   const approval = approvalSummary(blocker.toolName, blocker.input);
 
-  // One chosen answer per question (option label or freeform text).
-  const [answers, setAnswers] = useState<Array<string | undefined>>([]);
+  // Per-question answer: chosen option labels (more than one for multi-select)
+  // plus any freeform text.
+  const [answers, setAnswers] = useState<
+    Array<{ selected: string[]; freeText: string }>
+  >([]);
   const { sending, error, sent, answer } = useAnswer(session);
   const decision = useDecide(session);
 
-  const setAnswer = (i: number, value: string): void =>
+  const getAns = (i: number): { selected: string[]; freeText: string } =>
+    answers[i] ?? { selected: [], freeText: "" };
+  const patch = (
+    i: number,
+    p: Partial<{ selected: string[]; freeText: string }>,
+  ): void =>
     setAnswers((prev) => {
       const next = [...prev];
-      next[i] = value;
+      next[i] = { ...getAns(i), ...p };
       return next;
     });
+  // Single-select replaces the choice; multi-select toggles the label in/out.
+  const toggle = (i: number, label: string, multi: boolean): void => {
+    const cur = getAns(i).selected;
+    patch(i, {
+      selected: multi
+        ? cur.includes(label)
+          ? cur.filter((x) => x !== label)
+          : [...cur, label]
+        : [label],
+    });
+  };
 
-  // Map each chosen value to the structured answer: a value matching an option
-  // label is a selection; anything else is freeform (docs/02 §4.16).
   const structuredAnswers: QuestionAnswer[] = confirmations.map((c, qi) => {
-    const v = answers[qi] ?? "";
-    return c.options.some((o) => o.label === v)
-      ? { selected: [v], freeText: null }
-      : { selected: [], freeText: v || null };
+    const a = getAns(qi);
+    return {
+      selected: a.selected,
+      freeText: a.freeText || null,
+      ...(c.multiSelect ? { multiSelect: true } : {}),
+    };
   });
   const canSend =
     isQuestion &&
-    confirmations.every((_, qi) => (answers[qi] ?? "") !== "") &&
+    confirmations.every((_, qi) => {
+      const a = getAns(qi);
+      return a.selected.length > 0 || a.freeText.trim() !== "";
+    }) &&
     !sending &&
     !sent;
 
@@ -447,9 +469,9 @@ function PendingCard({
                   key={o.id}
                   type="button"
                   className={`choice choice-btn ${o.recommended ? "reco" : ""} ${
-                    answers[qi] === o.label ? "chosen" : ""
+                    getAns(qi).selected.includes(o.label) ? "chosen" : ""
                   }`}
-                  onClick={() => setAnswer(qi, o.label)}
+                  onClick={() => toggle(qi, o.label, c.multiSelect ?? false)}
                   disabled={sending}
                 >
                   <div className="choice-label">
@@ -465,7 +487,7 @@ function PendingCard({
                   type="text"
                   placeholder="Type a custom answer…"
                   disabled={sending}
-                  onChange={(e) => setAnswer(qi, e.target.value)}
+                  onChange={(e) => patch(qi, { freeText: e.target.value })}
                 />
               )}
             </div>

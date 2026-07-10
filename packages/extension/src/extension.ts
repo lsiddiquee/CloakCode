@@ -6,6 +6,7 @@ import { startBridge, type Bridge } from "./bridge.js";
 import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
 import { findSessionLog, findTranscript } from "./session-observer.js";
 import {
+  baseToolCallId,
   buildCarouselAnswers,
   buildHookConfig,
   controlDirFor,
@@ -79,6 +80,20 @@ export async function activate(
   // Overridable via env for the dev-server / isolated rig.
   const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();
 
+  // Reset stale on-disk state on (re)start — deliberately NOT time-based (a
+  // long-running session keeps its take-control + pending state for its whole
+  // lifetime). A fresh extension start clears leftovers that would otherwise
+  // mislead: a stale take-control policy (so the hook doesn't keep blocking a
+  // session the operator no longer drives), and pending blockers from a window
+  // that closed mid-question, which PostToolUse never cleaned up. Best-effort;
+  // the hook + bridge recreate the dirs as needed.
+  await fs
+    .rm(controlDirFor(spoolDir), { recursive: true, force: true })
+    .catch(() => undefined);
+  await fs
+    .rm(spoolDir, { recursive: true, force: true })
+    .catch(() => undefined);
+
   // Opt-out for the per-environment hook file. Machine-scoped (User/Remote
   // settings, not per-workspace) because it controls one global file shared by
   // every window. Off = we never write it; the user manages the hook themselves.
@@ -144,18 +159,25 @@ export async function activate(
         },
         answer: async ({ sessionId, toolCallId, answers }) => {
           // Deliver the operator's STRUCTURED answer to the pending question
-          // carousel (docs/02 §4.16). `toolCallId` is the RAW resolveId; this
-          // resolves `vscode_askQuestions` with `{answers}` instead of
-          // cancelling it (what a chat-text answer does).
-          const record = buildCarouselAnswers(toolCallId, answers);
+          // carousel (docs/02 §4.16). `toolCallId` is the carousel `resolveId`,
+          // but VS Code keys it on the BASE id (`chatStreamToolCallId` =
+          // `id.split('__vscode')[0]`, inlineChatIntent.ts) while the hook hands
+          // us the RAW suffixed id — so try BOTH forms; the non-matching fire
+          // no-ops. This resolves `vscode_askQuestions` with `{answers}` instead
+          // of cancelling it (what a chat-text answer does).
+          const base = baseToolCallId(toolCallId);
+          const ids = base === toolCallId ? [toolCallId] : [toolCallId, base];
           out.appendLine(
-            `answer ${toolCallId} (${sessionId}): ${answers.length} question(s)`,
+            `answer (${sessionId}): ${answers.length} question(s); ` +
+              `resolveIds=${ids.join(", ")}`,
           );
-          await vscode.commands.executeCommand(
-            "_chat.notifyQuestionCarouselAnswer",
-            toolCallId,
-            record,
-          );
+          for (const rid of ids) {
+            await vscode.commands.executeCommand(
+              "_chat.notifyQuestionCarouselAnswer",
+              rid,
+              buildCarouselAnswers(rid, answers),
+            );
+          }
         },
       },
       { host: "127.0.0.1", port },
