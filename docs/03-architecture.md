@@ -69,56 +69,40 @@ reuse the `confirmation` part, approvals show `toolName` + command.
 - **The phone is never a hard dependency.** The same card renders on the desktop localhost
   browser too; if the phone is slow, the local user answers in native VS Code and the overlay
   clears on the next snapshot. Worst case degrades to local-only — never worse than today.
-- **Now built — the blocking-hook handoff (take-control), below.** Remote resolution is an
-  opt-in upgrade to the notifier, not a replacement.
+- **Now built — remote approval (surface + debounce), below.** Remote resolution upgrades the
+  notifier; it needs no take-control and never blocks a tool.
 
-### The blocking-hook handoff (take-control)
+### Remote approval (surface + debounce)
 
-Remote **approval** upgrades the notifier from read-only awareness to remote resolution, without
-re-implementing VS Code's approval engine (docs/02 §4.15). Two constraints shape it: the
-`PreToolUse` hook fires for **every** tool call _before_ VS Code's own decision, and while the
-session's approval **mode** is readable (its `permissionLevel` is in the debug-log — docs/02 §4.15),
-VS Code's fine-grained per-tool path/shell auto-approve rules aren't cheaply replicable from a
-separate process. So:
+Remote **approval** upgrades the notifier from read-only awareness to remote resolution without
+re-implementing VS Code’s approval engine (docs/02 §4.20). The `PreToolUse` hook fires for
+**every** tool call _before_ VS Code’s own decision, so it cannot know which calls will actually
+prompt — and it no longer tries to. It **surfaces every call** and defers; whatever resolves the
+call (the local user, VS Code auto-approve, or the remote operator) makes it complete and the
+observer retires the card. There is **no take-control toggle and no permission replication** — the
+earlier design (docs/02 §4.15/§4.16) is superseded.
 
-- **Opt-in per session.** The operator taps **Take control** (`session.control {control}`); the
-  extension writes a per-session policy `~/.cloakcode/control/<sessionId>.json`
-  (`{control, globalAutoApprove, allow[]}`) that the hook reads. Off ⇒ the hook stays the pure
-  notifier — native VS Code approval, unchanged.
-- **Only block if VS Code would have blocked.** In control, the hook's `preToolAction` **defers**
-  (emits `{}`) when VS Code would auto-approve by a **reachable** signal: the global auto-approve
-  setting (`chat.tools.global.autoApprove`, snapshotted into the policy), the **session's own
-  permission level** (`autoApprove` = "Bypass Approvals" / `autopilot`), or the operator-grown
-  **allow-list**. The session level is what actually drives approval but isn't in the hook stdin —
-  the hook reads it **live** from the debug-log `main.jsonl` (deriving it from the stdin's
-  `transcript_path` + `session_id`; docs/02 §4.15). It only **blocks** otherwise. Interactive
-  questions stay on the notify + `respond`-text path. VS Code's read/write-path + tree-sitter shell
-  rules are **not** replicated (YAGNI); those surface unless allow-listed.
-
-**How the three VS Code approval modes map** (the session's `permissionLevel`, read live from the
-debug-log — docs/02 §4.15):
-
-| Mode                 | `permissionLevel`      | Tool calls                                     | Questions (`ask`/`confirm`/…)                       |
-| -------------------- | ---------------------- | ---------------------------------------------- | --------------------------------------------------- |
-| **Default**          | `default` / `assisted` | take-control **blocks** → remote Allow/Deny    | notifier → **structured** answer             |
-| **Bypass Approvals** | `autoApprove`          | auto-run → CloakCode **defers** (never blocks) | native prompt → notifier → **structured** answer            |
-| **Autopilot**        | `autopilot`            | auto-run → **defers**                          | VS Code auto-answers; the notifier card self-clears |
-
-Questions are **always** the notify channel — an interactive `ask`/`confirm`/…
-tool short-circuits to `notify` **before** any block check — and are answered **structurally** via
-`session.answer` → `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16), which resolves the tool
-with `{answers}` (a chat-text answer instead _cancels_ the carousel). So the standard question
-response works in every mode. Take-control is only about tool **approvals** (Default mode). The
-common "bypass + drive the questions myself" flow therefore needs **no** take-control: tools
-auto-run, and questions surface on the always-on notifier for a structured remote answer.
-
-- **Block = hold + poll.** A blocked `PreToolUse` records the pending call (`awaitingDecision`) and
-  **holds synchronously** (Copilot blocks on the hook up to its `timeout`, raised to 120 s for
-  PreToolUse), polling a decision file `<spool>/<baseToolCallId>.decision`. The phone shows
-  Allow/Deny; `session.decide {toolCallId, decision}` writes the verdict; the hook emits
-  `hookSpecificOutput.permissionDecision`. **Timeout ⇒ `{}`** (falls through to native — fail-safe).
-- **Cleanup.** The hook removes the spool record + decision file when the wait resolves (deny /
-  timeout never fire `PostToolUse`), so no card strands.
+- **Surface, never block.** `PreToolUse` records the call (`spoolRecordFor`) and returns `{}` — VS
+  Code’s own approval UI is untouched. An interactive `ask`/`confirm`/… tool becomes a **question**
+  (answered structurally); everything else an **approval** (`awaitingDecision`, rendered Allow/Deny).
+- **Resolve by command.** `session.decide {toolCallId, decision}` fires VS Code’s own
+  `workbench.action.chat.acceptTool` (allow) / `skipTool` (deny), targeted by the session URI
+  `vscode-chat-session://local/<base64url(sessionId)>` (`localChatSessionUri`). VS Code matches the
+  widget by **exact** URI equality, so a wrong/stale id is a safe no-op — it can never resolve a
+  different session (docs/02 §4.20). Questions resolve via `session.answer` →
+  `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16/§4.17).
+- **Debounce surfacing (anti-flicker).** Because the hook fires before VS Code decides, an
+  auto-approved call would briefly show then vanish. The observer **debounces** surfacing by
+  `cloakcode.surfaceDebounceMs` (default **3 s**): a call VS Code auto-approves/answers within the
+  window is retired (its id lands in the transcript, or a later turn supersedes it) before it ever
+  shows. Applies to both questions and approvals. A _slow_ auto-approved tool can’t be told apart
+  from a waiting one on disk (the §4.6 lag), so it shows a transient card until it completes —
+  non-harmful (its buttons no-op); the client carries a standing disclaimer that a call may already
+  be auto-resolved.
+- **Orphan cleanup (causal).** A card whose tool call has **no end** (the turn was cancelled or the
+  window closed before `PostToolUse`) is retired once the transcript shows a **later turn** than the
+  record (`isSuperseded`; docs/02 §4.19) — causal, not a timer, and safe for a live blocker (the
+  transcript lags the in-flight turn). This replaces the old reset-on-restart.
 
 ### Deployment & concurrency (self-installing hook)
 
@@ -163,11 +147,11 @@ windows fire. A missed delete can't strand a card — the transcript-subtraction
 has already flushed to the transcript (§4.6), so stale files can't accumulate. As a fast path,
 when a session has no spool file the follower skips reading/parsing the transcript entirely.
 
-The hook spools **interactive** tools by default (the §4.6 blocker signature — `tool_name`
-matching `ask/question/confirm/input/elicit`). Non-blocker tool calls (`read_file`, `grep`, …)
-are skipped, so they never churn the spool or flicker a card in the overlay. **In take-control**
-(above) the block path additionally spools whatever tool it is holding for approval (any tool,
-flagged `awaitingDecision`), for exactly as long as the hook holds it.
+The hook spools **every** tool call (`spoolRecordFor` — interactive tools as questions, the rest
+as `awaitingDecision` approvals), since it runs before VS Code’s approve/confirm decision and
+can’t know which will prompt. The **debounce** (docs/02 §4.20) means an auto-approved call is
+retired before it ever surfaces, so this doesn’t flicker the overlay despite the extra churn; the
+fast path still skips the transcript parse when a session has no spool file.
 
 **Routing — the global spool is self-describing by `session_id`.** The spool is shared by every
 session in the environment, so each record carries the Copilot `session_id` (which equals the

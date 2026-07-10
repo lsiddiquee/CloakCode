@@ -332,7 +332,7 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   `tool_call` spans add duration + error; `agent_response` adds `reasoning`. Surfacing this as
   session telemetry is a future slice (docs/05).
 - **4.15** _Tool-approval replication for the blocking hook_ (verified from source 2026-07-10,
-  vscode @ 789c53ec). To "only block if VS Code would have blocked" we read the actual decision.
+  vscode @ 789c53ec). **⚠ SUPERSEDED by §4.20 (2026-07-10):** CloakCode no longer replicates VS Code’s approval decision at all — the hook surfaces **every** call and the observer debounces (auto-approved calls self-retire), so the `permissionLevel` / global-auto-approve / allow-list reads **and** the take-control gate were all removed. The analysis below is kept as the record of why. To "only block if VS Code would have blocked" we read the actual decision.
   **Two independent mechanisms** in the agent-host (the path that honors `~/.copilot/hooks/`):
   (a) the **`PreToolUse` hook** fires for **every** tool call, before/independent of approval —
   VS Code even uses it internally for edit-tracking (`copilotAgentSession.ts::_handlePreToolUse`);
@@ -364,7 +364,7 @@ session_id, transcript_path, tool_name, tool_input, tool_use_id, cwd}`), but it 
 permissionDecision:"allow"|"deny"|"ask" } }`; an empty `{}` (no `hookSpecificOutput`) defers.
   Multiple hooks combine **most-restrictive**. _Note: `rg` is not installed in the container — use
   `grep`._
-- **4.16** _Take-control blocking + the question/approval split_ (**live-verified 2026-07-10**). A
+- **4.16** _Take-control blocking + the question/approval split_ (**live-verified 2026-07-10**). **⚠ SUPERSEDED for approvals by §4.20 (2026-07-10):** take-control is removed; approvals now resolve VS Code’s own confirmation via the `workbench.action.chat.acceptTool` / `skipTool` command (targeted by the session URI), so the hook never blocks. The question/approval split + structured answering (§4.17) still hold. A
   real take-control run held `run_in_terminal` calls (`printf …`, `rm -v …`) and resolved them
   remotely via Allow/Deny — the held tool **never** surfaced the native VS Code prompt. **Key
   constraint confirmed:** the hook's `permissionDecision` only gates whether a tool _runs_; it has
@@ -400,10 +400,36 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   → `toConfirmations` → protocol `confirmation`/`answer` → client multi-toggle → `selectedValues`).
   Live-verified: single-select, multi-select, freeform, and freeform-alongside-options all render +
   resolve. **No take-control needed for questions.**
-- **4.18** _On-disk state resets on restart, not on a timer_ (2026-07-10). Stale take-control
+- **4.18** _On-disk state resets on restart, not on a timer_ (2026-07-10). **⚠ SUPERSEDED by §4.19 (2026-07-10):** the blind reset-on-activate was removed — it could drop a still-valid blocker after a window reload; orphans are now cleared **causally** (a later turn supersedes them), no restart or timer. Stale take-control
   policies and blockers from a window closed mid-question (`PostToolUse` never fired) are cleared on
   extension `activate()` — deliberately **not** TTL-based, so a long-running session keeps its state
   for its whole lifetime.
+- **4.19** _Orphaned-blocker cleanup is causal, not timed (2026-07-10)._ A pending card whose tool
+  call has **no end** — the turn was cancelled or the window closed before `PostToolUse` — used
+  to linger. Fix: retire a spool record once the transcript shows a **later turn** than the record
+  (`newestTurnTs` = max `timestamp` over `user.message` + `assistant.turn_start`, vs the record’s
+  `ts`; see `isSuperseded`). **Causal** ("the session moved on"), never a wall-clock TTL, so a live
+  blocker is safe: the transcript lags the in-flight turn (§4.6), so its turn events are older than
+  the record and nothing supersedes it until real new activity happens. Tool events are ignored (a
+  sibling tool finishing in the same turn must not retire a live approval); timestamps are
+  non-monotonic across history so we take the **max** (an old out-of-order event can’t inflate it).
+  Covers both questions and approvals (shared spool reconcile).
+- **4.20** _No take-control, no permission replication — surface + debounce (2026-07-10; replaces
+  the §4.15/§4.16 model)._ Since approvals resolve via `acceptTool`/`skipTool` (a command, not a
+  held hook), the hook stopped deciding anything: it **surfaces every tool call** (`spoolRecordFor`
+  — interactive → question, else → approval) and always defers; VS Code’s own outcome retires the
+  card. To avoid flicker (the hook fires **before** `getAutoApproval`, so an auto-approved call would
+  briefly show), the observer **debounces surfacing** by `cloakcode.surfaceDebounceMs` (default
+  **3000 ms**): a call VS Code auto-approves/answers completes within the window and is retired
+  before it ever shows. Applies to **both** questions and approvals; a question that autopilot auto-answers within the
+  window is simply suppressed (the client disclaimer covers that race). **Known wart:** a _slow_ auto-approved tool can’t be told
+  apart from a waiting one on disk (the §4.6 lag), so it shows a transient card until it completes —
+  non-harmful (its buttons no-op) and self-clears; the client shows a standing disclaimer that a
+  call may already be auto-resolved. **Session targeting** (verified vs vscode `chatUri.ts`):
+  `acceptTool`/`skipTool` take `{sessionResource}` and match by **exact** URI equality
+  (`getWidgetBySessionResource` → `isEqual`), so a wrong/empty id can only **no-op**, never resolve a
+  different session; the URI is `vscode-chat-session://local/<unpadded-base64url(sessionId)>`
+  (`localChatSessionUri`).
 
 ---
 

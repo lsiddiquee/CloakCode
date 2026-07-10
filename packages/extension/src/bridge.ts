@@ -30,6 +30,12 @@ export interface BridgeDeps {
    */
   spoolDir?: string;
   /**
+   * Debounce (ms) before a pending tool call is surfaced, so a fast auto-approve
+   * never flickers a card. Optional; the follower applies its default when unset.
+   * See docs/02 4.20.
+   */
+  surfaceDebounceMs?: number;
+  /**
    * Deliver a `remote-operator` answer into the target window (M3b question
    * channel). Provided ONLY by the extension host (it calls
    * `workbench.action.chat.open`); the pure dev-server leaves it unset, so the
@@ -39,15 +45,6 @@ export interface BridgeDeps {
     sessionId: string;
     toolCallId?: string;
     text: string;
-  }) => Promise<void>;
-  /**
-   * Toggle the operator's take-control state for a session (docs/04). Provided
-   * ONLY by the extension host — it writes the on-disk control policy and reads
-   * VS Code's global auto-approve setting. Unset → `session.control` unsupported.
-   */
-  setControl?: (params: {
-    sessionId: string;
-    control: boolean;
   }) => Promise<void>;
   /**
    * Record the operator's allow/deny verdict for a held tool call (docs/04) by
@@ -256,6 +253,11 @@ async function handleMessage(
                 }),
               );
             },
+            {
+              ...(deps.surfaceDebounceMs !== undefined
+                ? { debounceMs: deps.surfaceDebounceMs }
+                : {}),
+            },
           );
           spoolFollowers.set(request.params.sessionId, spoolFollower);
           await spoolFollower.start();
@@ -287,32 +289,6 @@ async function handleMessage(
             id: request.id,
             ok: true,
             op: "session.respond",
-          }),
-        );
-        break;
-      }
-      case "session.control": {
-        // Flip CloakCode's own per-session policy marker (docs/04). Never itself
-        // approves a tool — it only decides whether the hook engages blocking.
-        if (!deps.setControl) {
-          socket.send(
-            JSON.stringify({
-              id: request.id,
-              ok: false,
-              error: { message: "take-control not supported on this bridge" },
-            }),
-          );
-          break;
-        }
-        await deps.setControl({
-          sessionId: request.params.sessionId,
-          control: request.params.control,
-        });
-        socket.send(
-          JSON.stringify({
-            id: request.id,
-            ok: true,
-            op: "session.control",
           }),
         );
         break;

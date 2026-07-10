@@ -79,46 +79,31 @@ open when the question fires); and the follower **self-heals** stale files via t
 
 #### M3b — Remote answering (SHIPPED 2026-07-10)
 
-**Built** — both answer channels now work: **questions** via targeted chat-submit
-(`session.respond {text}` → two-step `vscode.open` + `chat.open`, docs/02 §4.12) and **approvals**
-via the opt-in **take-control blocking hook** (`session.control` + `session.decide`, docs/03
-"blocking-hook handoff", docs/02 §4.15). The design rationale below held up in the build.
+**Built** — both answer channels now work: **questions** via `session.answer` →
+`_chat.notifyQuestionCarouselAnswer` (structured; docs/02 §4.16/§4.17) and **approvals** via
+`session.decide` → `workbench.action.chat.acceptTool`/`skipTool` (docs/03 “Remote approval”,
+docs/02 §4.20). The design evolved substantially during the build: the take-control blocking hook
+was a stepping stone that is now **superseded**.
 
-The crux is the hook-block mechanism and its **native-prompt suppression** property:
+**The realization that reshaped it:** `acceptTool`/`skipTool` resolve VS Code’s **own** native
+confirmation, targeted by session URI. So CloakCode no longer has to _block_ the tool to answer
+remotely — the hook stays a pure notifier, the native prompt still shows, and the phone command and
+the desktop prompt resolve the **same** pending confirmation (genuine first-responder-wins, not
+mutually exclusive in time as an earlier draft argued). That removed the entire take-control /
+native-suppression / permission-replication apparatus:
 
-- A `PreToolUse` hook runs **synchronously**: while it blocks, Copilot **waits on the hook** —
-  the tool has not run **and the native VS Code approval prompt has not appeared yet**. Only
-  when the hook exits does Copilot act: `allow`/`deny` → bypass native and proceed/block; empty
-  `{}`/`ask` → the native prompt appears **now** for the local user.
-- **Therefore native-local and phone-remote are mutually exclusive _in time_.** If the hook
-  blocks to wait for the phone, the desktop shows only a spinner (no native prompt) during the
-  wait; if it returns immediately to show the native prompt, the phone can no longer resolve it.
-  "First-responder-wins across both surfaces" only holds when **CloakCode's own card is the
-  surface on the desktop too** — which conflicts with "keep answering natively at my desk".
-- **Reconciliation (built): an opt-in "take control" toggle.** Default = the shipped
-  non-intrusive notifier (native local, zero blocking). The operator flips **remote control ON**
-  (per session) from the phone (`session.control`); the extension writes a per-session policy
-  `~/.cloakcode/control/<sessionId>.json` the hook reads at runtime, and only then does the hook
-  **block + poll the spool for a decision** and return `allow`/`deny`. It defers (emits `{}`) when
-  VS Code would auto-approve by a reachable signal (global auto-approve / the operator's allow-list),
-  so it **only blocks if VS Code would have blocked** (docs/02 §4.15). Bounded by the hook `timeout`
-  (raised to 120 s for PreToolUse) with a safe fallback (fall through to native) on expiry.
-- **Scope of M3b — two complementary answer channels (docs/02 §4.7):**
-  - **Approvals → hook `allow`/`deny`.** Deterministic. `session.decide {sessionId,
-toolCallId, decision}` (tagged `remote-operator`) writes the hook's on-disk decision file; the
-    held hook reads it and emits `hookSpecificOutput.permissionDecision`. Text/prompt does **not**
-    approve a native modal.
-  - **Questions → injected text.** A submitted chat message _is_ interpreted as the answer
-    (verified), so a question needs a **chat-submit** path, not the hook. This requires the
-    extension host to call a chat-input/submit command (Q1) with the answer text — lighter than
-    owning the loop. `session.respond {sessionId, toolCallId, text}` routes the answer.
-  - Token streaming still needs **owning the loop** (`@cloakcode/agent` via `vscode.lm`) — a
-    later, user-selectable "live" mode.
-- **Confirmed:** a blocking hook holds synchronously for its full runtime (15s + 90s probed,
-  under `timeout: 300`); over-`timeout` kill behaviour is still unprobed (not a blocker — local
-  is the fallback).
-- Q1 (chat-submit command IDs) is now **on the critical path** for the question channel; Q2/Q5
-  (agent-host SDK / steer) remain superseded for approvals by the hook path.
+- **Superseded — block-and-suppress.** The earlier build blocked the `PreToolUse` hook to suppress
+  the native prompt while the phone decided, which forced an opt-in “take control” toggle and a live
+  read of the session’s `permissionLevel` to “only block if VS Code would have blocked.” Because
+  approvals now resolve VS Code’s own prompt by command, none of that is needed: no blocking, no
+  take-control, no permission replication (docs/02 §4.15/§4.16 → §4.20).
+- **Surface + debounce.** The hook surfaces **every** call and defers; the observer debounces
+  surfacing (`cloakcode.surfaceDebounceMs`, default 3 s) so an auto-approved call is retired before
+  it flickers a card (docs/02 §4.20). Orphaned cards clear causally via a later turn (docs/02 §4.19).
+- **Two answer channels (docs/02 §4.7):** approvals → `session.decide` → `acceptTool`/`skipTool`
+  (deterministic, resolves the native confirmation); questions → `session.answer` →
+  `_chat.notifyQuestionCarouselAnswer` (structured, resolves the carousel). Token streaming still
+  needs **owning the loop** (`@cloakcode/agent` via `vscode.lm`) — a later “live” mode.
 
 ### M4 — Secure tunnel + hardening
 
@@ -142,14 +127,12 @@ the critical path.
   tokens, `ttft`, request duration, and cost (`copilotUsageNanoAiu` / `copilotCredits`) from the
   debug-log `llm_request` spans — a session-total header plus a small per-turn badge. Read-only,
   so it can ship any time.
-- **Per-session allow-list ("Allow for session").** A third option on the take-control approve card
-  — beyond one-off Allow/Deny — that appends the tool to the session's `allow[]` policy so future
-  calls of that tool **defer** instead of re-prompting. The operator-driven analog of VS Code's
-  "Allow in this Session", and the reachable substitute for the read/write-path + shell rules we do
-  not replicate (docs/02 §4.15). The hook already respects `policy.allow`; this is just the write
-  path (extend `session.decide` with `scope: "once" | "session"` + the button). **Deferred from
-  MVP.** Only relevant to Default-mode take-control; without it, take-control re-prompts every
-  non-auto-approved tool. (Not needed for the common "bypass + drive the questions myself" flow.)
+- **Per-session allow-list (“Allow for session”) from the phone.** A third option on the approve
+  card that stops CloakCode re-surfacing a tool for the rest of the session. CloakCode no longer
+  keeps its own allow-list (it does not replicate permissions — docs/02 §4.20); this would instead
+  fire VS Code’s **own** “Allow in this Session” action remotely (command TBD), letting VS Code
+  auto-approve subsequent calls (which the debounce then suppresses). **Deferred from MVP.**
+
 - **Remote session controls.** Let the phone read _and_ change the session's input state, which
   the client store exposes under `inputState` (`selectedModel` / `mode` / `modelConfiguration`):
   - **Agent selection** — e.g. `github.copilot.editsAgent`, ask, or custom agents.
@@ -168,3 +151,20 @@ the critical path.
 - Native VS Code chat-UI mirroring via proposed `chatSessionsProvider` (sideload-only).
 - Multi-remote "command centre" for non-Copilot tools (the extensibility groundwork exists
   in the bridge, but no second controller is built yet).
+
+## Known issues (to fix)
+
+- **Web client does not auto-reconnect (2026-07-10).** `subscribeSession` (web `bridge.ts`) opens
+  the WebSocket with an `error` handler but **no reconnect/backoff**, and the header only offers a
+  **manual** "reconnect" button (`App.tsx`). So when the bridge restarts (extension reload / F5 dev
+  host, or the machine waking), the phone stays disconnected until the user taps reconnect or
+  reloads the PWA. This is **expected** with the current code, not a regression. Fix: auto-reconnect
+  the subscribe socket with capped exponential backoff and re-subscribe from the last `seq`, driven
+  off the socket `close`/`error`. Queued for the next session.
+- **Disconnected state is not reflected in the UI (2026-07-10).** The header's connection dot is
+  derived as `connected = state.kind === "ready"` (`App.tsx`) — it tracks whether the last
+  `sessions.list` fetch succeeded, not the live socket, and nothing re-checks it, so after a
+  mid-session drop it can keep showing **connected** (green) while the bridge is gone. In a session
+  view a dropped subscribe socket surfaces only a transient "stream: connection lost" hint and the
+  cards keep their last (stale) state. Fix alongside auto-reconnect: derive one connection state
+  from the socket `open`/`close`/`error` (+ a heartbeat/ping) and show a clear disconnected banner.

@@ -3,7 +3,6 @@ import {
   sessionSubscribeEventSchema,
   sessionsListResponseSchema,
   sessionRespondResponseSchema,
-  sessionControlResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
   type Decision,
@@ -205,26 +204,10 @@ export function respondSession(
 }
 
 /**
- * Toggle the operator's take-control state for a session. While in control the
- * blocking hook holds confirmable tool calls for a remote allow/deny; off
- * restores the pure-notifier (native-approval) path. A `remote-operator` action.
- */
-export function controlSession(
-  params: { instanceId: string; sessionId: string; control: boolean },
-  url: string = bridgeUrl(),
-): Promise<void> {
-  return oneShotRpc(
-    "session.control",
-    params,
-    (raw) => sessionControlResponseSchema.safeParse(raw).success,
-    url,
-  );
-}
-
-/**
- * Approve or deny a held tool call (the operator's verdict for a blocker that is
- * `awaitingDecision`). Resolves on the ack; the extension records it as the
- * hook's on-disk decision file, unblocking the held PreToolUse.
+ * Approve or deny a pending tool call (the operator's verdict for a blocker that
+ * is `awaitingDecision`). Resolves on the ack; the extension host dispatches it
+ * to VS Code's native confirmation via the `acceptTool`/`skipTool` command,
+ * targeted by the session URI. A `remote-operator` action.
  */
 export function decideSession(
   params: {

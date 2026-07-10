@@ -10,7 +10,6 @@ import {
   rpcRequestSchema,
   rpcErrorSchema,
   sessionsListResponseSchema,
-  sessionControlResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
   type SessionSummary,
@@ -125,18 +124,6 @@ describe("rpcRequestSchema", () => {
         },
       }).success,
     ).toBe(false);
-  });
-
-  it("parses a session.control request", () => {
-    const parsed = rpcRequestSchema.parse({
-      id: "5",
-      op: "session.control",
-      params: { instanceId: "inst", sessionId: "sessA", control: true },
-    });
-    expect(parsed.op).toBe("session.control");
-    if (parsed.op === "session.control") {
-      expect(parsed.params.control).toBe(true);
-    }
   });
 
   it("parses a session.decide request", () => {
@@ -428,11 +415,6 @@ describe("response schemas", () => {
   it("parses an error response", () => {
     const err = { id: "1", ok: false as const, error: { message: "boom" } };
     expect(rpcErrorSchema.parse(err)).toEqual(err);
-  });
-
-  it("parses a session.control ack", () => {
-    const res = { id: "5", ok: true as const, op: "session.control" as const };
-    expect(sessionControlResponseSchema.parse(res)).toEqual(res);
   });
 
   it("parses a session.decide ack", () => {

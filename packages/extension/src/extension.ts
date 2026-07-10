@@ -9,11 +9,8 @@ import {
   baseToolCallId,
   buildCarouselAnswers,
   buildHookConfig,
-  controlDirFor,
   defaultSpoolDir,
-  readControlPolicy,
-  writeControlPolicy,
-  writeDecision,
+  localChatSessionUri,
 } from "./hook-spool.js";
 
 /**
@@ -80,20 +77,6 @@ export async function activate(
   // Overridable via env for the dev-server / isolated rig.
   const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();
 
-  // Reset stale on-disk state on (re)start — deliberately NOT time-based (a
-  // long-running session keeps its take-control + pending state for its whole
-  // lifetime). A fresh extension start clears leftovers that would otherwise
-  // mislead: a stale take-control policy (so the hook doesn't keep blocking a
-  // session the operator no longer drives), and pending blockers from a window
-  // that closed mid-question, which PostToolUse never cleaned up. Best-effort;
-  // the hook + bridge recreate the dirs as needed.
-  await fs
-    .rm(controlDirFor(spoolDir), { recursive: true, force: true })
-    .catch(() => undefined);
-  await fs
-    .rm(spoolDir, { recursive: true, force: true })
-    .catch(() => undefined);
-
   // Opt-out for the per-environment hook file. Machine-scoped (User/Remote
   // settings, not per-workspace) because it controls one global file shared by
   // every window. Off = we never write it; the user manages the hook themselves.
@@ -106,6 +89,10 @@ export async function activate(
     out.appendLine("hook install disabled (cloakcode.installHook = false)");
   }
 
+  const surfaceDebounceMs = vscode.workspace
+    .getConfiguration("cloakcode")
+    .get<number>("surfaceDebounceMs");
+
   try {
     bridge = await startBridge(
       {
@@ -113,6 +100,7 @@ export async function activate(
         findSessionLog: (sessionId) => findSessionLog(root, sessionId),
         findTranscript: (sessionId) => findTranscript(root, sessionId),
         spoolDir,
+        ...(surfaceDebounceMs !== undefined ? { surfaceDebounceMs } : {}),
         respond: async ({ sessionId, text }) => {
           // M3b targeted-send PROBE. Instead of only the active chat, focus the
           // SPECIFIC local session by its resource URI, then submit. Verified in
@@ -121,41 +109,31 @@ export async function activate(
           // (toolCalling.tsx), and that scheme is a registered editor
           // (chat.shared.contribution.ts) — so opening it should load THAT session
           // and `chat.open` should target it. See docs/02.
-          const uri = vscode.Uri.parse(
-            `vscode-chat-session://local/${Buffer.from(sessionId).toString(
-              "base64url",
-            )}`,
-          );
+          const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
           out.appendLine(`respond: open ${uri.toString()} then chat.open`);
           await vscode.commands.executeCommand("vscode.open", uri);
           await vscode.commands.executeCommand("workbench.action.chat.open", {
             query: text,
           });
         },
-        setControl: async ({ sessionId, control }) => {
-          // Take-control policy the blocking hook reads. Snapshot VS Code's
-          // global auto-approve setting (docs/02 §4.15: bypass ⇒ defer) and keep
-          // the operator's grown allow-list across toggles.
-          const controlDir = controlDirFor(spoolDir);
-          const globalAutoApprove =
-            vscode.workspace
-              .getConfiguration()
-              .get<boolean>("chat.tools.global.autoApprove", false) === true;
-          const prev = await readControlPolicy(controlDir, sessionId);
-          writeControlPolicy(controlDir, sessionId, {
-            control,
-            globalAutoApprove,
-            ...(prev.allow ? { allow: prev.allow } : {}),
-          });
-          out.appendLine(
-            `control ${control ? "ON" : "off"} for ${sessionId} ` +
-              `(globalAutoApprove=${globalAutoApprove})`,
-          );
-        },
         decide: async ({ sessionId, toolCallId, decision }) => {
-          // Record the operator's verdict where the held hook is polling.
-          writeDecision(spoolDir, toolCallId, decision);
-          out.appendLine(`decide ${decision} for ${toolCallId} (${sessionId})`);
+          // Resolve VS Code's OWN native tool confirmation via command, targeted
+          // by the session URI (EXACT-match, so a wrong id is a safe no-op; docs/
+          // 02 4.16). No per-tool id: acceptTool/skipTool act on that session's
+          // first waiting confirmation; `toolCallId` is logged for traceability.
+          if (!sessionId) {
+            out.appendLine("decide: missing sessionId, ignoring");
+            return;
+          }
+          const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
+          const cmd =
+            decision === "allow"
+              ? "workbench.action.chat.acceptTool"
+              : "workbench.action.chat.skipTool";
+          out.appendLine(
+            `decide ${decision} for ${toolCallId} (${sessionId}) -> ${cmd}`,
+          );
+          await vscode.commands.executeCommand(cmd, { sessionResource: uri });
         },
         answer: async ({ sessionId, toolCallId, answers }) => {
           // Deliver the operator's STRUCTURED answer to the pending question

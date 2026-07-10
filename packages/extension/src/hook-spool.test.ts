@@ -10,25 +10,14 @@ import {
   transcriptToolCallIds,
   computePendingBlockers,
   isRetired,
-  pendingRecord,
+  isSuperseded,
+  newestTurnTs,
+  spoolRecordFor,
   eventToolCallId,
   buildHookConfig,
   defaultSpoolDir,
-  BLOCK_HOOK_TIMEOUT_SECONDS,
   SpoolFollower,
-  preToolAction,
-  controlPolicyPath,
-  readControlPolicy,
-  writeControlPolicy,
-  defaultControlDir,
-  controlDirFor,
-  readDecision,
-  writeDecision,
-  awaitDecision,
-  blockingRecord,
-  parsePermissionLevel,
-  debugLogFromTranscript,
-  readLatestPermissionLevel,
+  localChatSessionUri,
   buildCarouselAnswers,
   type SpoolRecord,
 } from "./hook-spool.js";
@@ -89,6 +78,18 @@ describe("baseToolCallId", () => {
   });
 });
 
+describe("localChatSessionUri", () => {
+  it("is vscode-chat-session scheme + local authority + unpadded base64url", () => {
+    expect(localChatSessionUri("abc")).toBe("vscode-chat-session://local/YWJj");
+  });
+
+  it("uses UNPADDED url-safe base64 (matches LocalChatSessionUri.forSession)", () => {
+    const uri = localChatSessionUri("hi");
+    expect(uri).toBe("vscode-chat-session://local/aGk");
+    expect(uri).not.toContain("=");
+  });
+});
+
 describe("spoolRecordSchema", () => {
   it("parses a spool record", () => {
     expect(
@@ -131,6 +132,84 @@ describe("isRetired", () => {
     expect(isRetired(record, new Set([BASE_QUESTION]))).toBe(true);
     expect(isRetired(record, new Set())).toBe(false);
     expect(isRetired(record, new Set([BASE_RUN]))).toBe(false);
+  });
+});
+
+describe("newestTurnTs", () => {
+  it("returns the max timestamp over user.message + assistant.turn_start (robust to out-of-order)", () => {
+    const content = [
+      JSON.stringify({
+        type: "assistant.turn_start",
+        timestamp: "2026-07-09T11:30:00.000Z",
+      }),
+      JSON.stringify({
+        type: "user.message",
+        timestamp: "2026-07-09T12:00:00.000Z",
+        data: { content: "hi" },
+      }),
+      // an out-of-order OLDER event must not lower the max
+      JSON.stringify({
+        type: "assistant.turn_start",
+        timestamp: "2026-07-09T09:00:00.000Z",
+      }),
+      // a sibling tool completing is NOT a new turn -> ignored
+      JSON.stringify({
+        type: "tool.execution_complete",
+        timestamp: "2026-07-09T13:00:00.000Z",
+        data: { toolCallId: BASE_RUN },
+      }),
+    ].join("\n");
+    expect(newestTurnTs(content)).toBe("2026-07-09T12:00:00.000Z");
+  });
+
+  it("returns undefined when there are no turn-boundary events", () => {
+    expect(newestTurnTs("")).toBeUndefined();
+    expect(
+      newestTurnTs(
+        JSON.stringify({
+          type: "tool.execution_start",
+          timestamp: "2026-07-09T12:00:00.000Z",
+          data: { toolCallId: BASE_RUN },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("isSuperseded", () => {
+  // rec()'s default ts is 2026-07-09T11:30:25.455Z.
+  const record = rec(RAW_RUN, "run_in_terminal", { command: "ls" });
+  it("is true when a later turn started after the blocker was recorded", () => {
+    expect(isSuperseded(record, "2026-07-09T11:30:26.000Z")).toBe(true);
+  });
+  it("is false for a live blocker (newest turn is older; the transcript lags the in-flight turn)", () => {
+    expect(isSuperseded(record, "2026-07-09T11:30:25.000Z")).toBe(false);
+  });
+  it("is false when there is no turn activity at all", () => {
+    expect(isSuperseded(record, undefined)).toBe(false);
+  });
+});
+
+describe("computePendingBlockers supersede", () => {
+  it("drops a record the session has advanced past (later turn), keeps a live one", () => {
+    const live = rec(RAW_QUESTION, "vscode_askQuestions", questionInput); // ts 11:30:25.455Z
+    const orphan = rec(RAW_RUN, "run_in_terminal", { command: "ls" }); // ts 11:30:25.455Z
+    // A later turn than the orphan/live ts -> both are superseded.
+    const later = computePendingBlockers(
+      [live, orphan],
+      "sessA",
+      new Set(),
+      "2026-07-09T11:31:00.000Z",
+    );
+    expect(later).toHaveLength(0);
+    // An EARLIER turn ts (transcript lags) -> nothing superseded.
+    const earlier = computePendingBlockers(
+      [live, orphan],
+      "sessA",
+      new Set(),
+      "2026-07-09T11:30:00.000Z",
+    );
+    expect(earlier).toHaveLength(2);
   });
 });
 
@@ -206,35 +285,45 @@ describe("readSpoolDir", () => {
   });
 });
 
-describe("pendingRecord / eventToolCallId", () => {
-  const stdin = {
-    session_id: "471f445d",
-    tool_use_id: RAW_QUESTION,
-    tool_name: "vscode_askQuestions",
-    tool_input: { questions: [] },
-  };
-
-  it("builds a pending record with the BASE toolCallId + input", () => {
-    expect(pendingRecord(stdin, "2026-07-09T12:00:00.000Z")).toMatchObject({
+describe("spoolRecordFor / eventToolCallId", () => {
+  it("builds an interactive tool as a QUESTION (no awaitingDecision)", () => {
+    const r = spoolRecordFor(
+      {
+        session_id: "471f445d",
+        tool_use_id: RAW_QUESTION,
+        tool_name: "vscode_askQuestions",
+        tool_input: { questions: [] },
+      },
+      "2026-07-09T12:00:00.000Z",
+    );
+    expect(r).toMatchObject({
       sessionId: "471f445d",
       toolCallId: BASE_QUESTION,
       toolName: "vscode_askQuestions",
       input: { questions: [] },
+      resolveId: RAW_QUESTION,
     });
+    expect(r?.awaitingDecision).toBeUndefined();
+  });
+
+  it("builds a non-interactive tool as an APPROVAL (awaitingDecision)", () => {
+    const r = spoolRecordFor(
+      {
+        session_id: "s",
+        tool_use_id: RAW_RUN,
+        tool_name: "run_in_terminal",
+        tool_input: { command: "ls" },
+      },
+      "2026-07-09T12:00:00.000Z",
+    );
+    expect(r?.toolCallId).toBe(BASE_RUN);
+    expect(r?.awaitingDecision).toBe(true);
+    expect(r?.resolveId).toBe(RAW_RUN);
   });
 
   it("returns undefined when routing keys are missing", () => {
     expect(
-      pendingRecord({ tool_name: "vscode_askQuestions" }, "t"),
-    ).toBeUndefined();
-  });
-
-  it("ignores non-interactive tools (only blockers are spooled)", () => {
-    expect(
-      pendingRecord(
-        { session_id: "s", tool_use_id: RAW_RUN, tool_name: "run_in_terminal" },
-        "t",
-      ),
+      spoolRecordFor({ tool_name: "vscode_askQuestions" }, "t"),
     ).toBeUndefined();
   });
 
@@ -275,15 +364,13 @@ describe("buildHookConfig", () => {
     expect(cfg.hooks["PreToolUse"]?.[0]?.env).toBeUndefined();
   });
 
-  it("gives PreToolUse the blocking timeout (a held call needs time for a verdict)", () => {
+  it("gives both hook events a short timeout (the hook never blocks)", () => {
     const cfg = buildHookConfig({
       runtime: "/usr/local/bin/node",
       hookBin: "/ext/dist/hook.cjs",
       spoolDir: defaultSpoolDir(),
     }) as { hooks: Record<string, Array<{ timeout?: number }>> };
-    expect(cfg.hooks["PreToolUse"]?.[0]?.timeout).toBe(
-      BLOCK_HOOK_TIMEOUT_SECONDS,
-    );
+    expect(cfg.hooks["PreToolUse"]?.[0]?.timeout).toBe(30);
     expect(cfg.hooks["PostToolUse"]?.[0]?.timeout).toBe(30);
   });
 });
@@ -418,222 +505,81 @@ describe("SpoolFollower", () => {
       await fs.rm(base, { recursive: true, force: true });
     }
   });
-});
 
-describe("preToolAction", () => {
-  it("routes interactive question tools to notify", () => {
-    expect(preToolAction({ control: true }, "vscode_askQuestions")).toBe(
-      "notify",
-    );
-  });
-
-  it("defers non-interactive tools when not in control", () => {
-    expect(preToolAction({ control: false }, "run_in_terminal")).toBe("defer");
-  });
-
-  it("defers everything under global auto-approve (matches VS Code bypass)", () => {
-    expect(
-      preToolAction(
-        { control: true, globalAutoApprove: true },
+  it("debounce: hides a fresh record until it matures, then surfaces it", async () => {
+    const { base, spoolDir, transcriptFile } = await setup();
+    let clock = Date.parse("2026-07-09T12:00:00.000Z");
+    await writeRecord(
+      spoolDir,
+      rec(
+        RAW_RUN,
         "run_in_terminal",
+        { command: "ls" },
+        "sessA",
+        new Date(clock).toISOString(),
       ),
-    ).toBe("defer");
-  });
-
-  it("defers a tool on the session allow-list (an exception)", () => {
-    expect(
-      preToolAction({ control: true, allow: ["read_file"] }, "read_file"),
-    ).toBe("defer");
-  });
-
-  it("blocks a confirmable tool when in control", () => {
-    expect(preToolAction({ control: true }, "run_in_terminal")).toBe("block");
-  });
-
-  it("defers when the session's own level is Bypass Approvals (autoApprove)", () => {
-    expect(
-      preToolAction({ control: true }, "run_in_terminal", "autoApprove"),
-    ).toBe("defer");
-  });
-
-  it("defers when the session is on autopilot", () => {
-    expect(
-      preToolAction({ control: true }, "run_in_terminal", "autopilot"),
-    ).toBe("defer");
-  });
-
-  it("still blocks when the session level is default", () => {
-    expect(preToolAction({ control: true }, "run_in_terminal", "default")).toBe(
-      "block",
     );
-  });
-
-  it("keeps question tools on the standard response even in bypass + control", () => {
-    // A question (ask/confirm/…) must NEVER become an allow/deny — it stays a
-    // `notify` answered with the standard text/options, in every mode. Guards
-    // the "bypass + drive the questions myself" flow.
-    expect(
-      preToolAction({ control: true }, "vscode_askQuestions", "autoApprove"),
-    ).toBe("notify");
-  });
-});
-
-describe("session permission level (from the debug-log)", () => {
-  it("parses the LAST permissionLevel, tolerant of JSON-in-JSON escaping", () => {
-    const text =
-      'a "permissionLevel":"default" b \\"permissionLevel\\":\\"autoApprove\\"';
-    expect(parsePermissionLevel(text)).toBe("autoApprove");
-  });
-
-  it("returns undefined when no level is present", () => {
-    expect(parsePermissionLevel("nothing to see")).toBeUndefined();
-  });
-
-  it("maps a transcript path to its sibling debug-log main.jsonl", () => {
-    expect(
-      debugLogFromTranscript(
-        path.join("/r", "GitHub.copilot-chat", "transcripts", "abc.jsonl"),
-        "abc",
-      ),
-    ).toBe(
-      path.join("/r", "GitHub.copilot-chat", "debug-logs", "abc", "main.jsonl"),
+    await fs.writeFile(transcriptFile, "");
+    const sizes: number[] = [];
+    const follower = new SpoolFollower(
+      spoolDir,
+      transcriptFile,
+      "sessA",
+      (b) => sizes.push(b.length),
+      { pollIntervalMs: 0, debounceMs: 1000, now: () => clock },
     );
-  });
-
-  it("reads the latest level from the tail of a (large-ish) debug-log", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-lvl-"));
     try {
-      const f = path.join(dir, "main.jsonl");
-      const filler = `{"pad":"${"x".repeat(2000)}"}\n`.repeat(50);
+      await follower.start();
+      expect(sizes.at(-1)).toBe(0);
+      clock += 1000;
+      await follower.refresh();
+      expect(sizes.at(-1)).toBe(1);
+    } finally {
+      follower.stop();
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("debounce: a fast auto-approved call is retired before it ever surfaces", async () => {
+    const { base, spoolDir, transcriptFile } = await setup();
+    let clock = Date.parse("2026-07-09T12:00:00.000Z");
+    await writeRecord(
+      spoolDir,
+      rec(
+        RAW_RUN,
+        "run_in_terminal",
+        { command: "ls" },
+        "sessA",
+        new Date(clock).toISOString(),
+      ),
+    );
+    await fs.writeFile(transcriptFile, "");
+    const sizes: number[] = [];
+    const follower = new SpoolFollower(
+      spoolDir,
+      transcriptFile,
+      "sessA",
+      (b) => sizes.push(b.length),
+      { pollIntervalMs: 0, debounceMs: 1000, now: () => clock },
+    );
+    try {
+      await follower.start();
+      expect(sizes.at(-1)).toBe(0);
       await fs.writeFile(
-        f,
-        `{"permissionLevel":"default"}\n${filler}{"a":{"permissionLevel":"autoApprove"}}\n`,
+        transcriptFile,
+        JSON.stringify({
+          type: "tool.execution_start",
+          data: { toolCallId: BASE_RUN },
+        }),
       );
-      expect(await readLatestPermissionLevel(f)).toBe("autoApprove");
+      clock += 5000;
+      await follower.refresh();
+      expect(sizes.at(-1)).toBe(0);
+      expect(await fs.readdir(spoolDir)).toHaveLength(0);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      follower.stop();
+      await fs.rm(base, { recursive: true, force: true });
     }
-  });
-
-  it("returns undefined for a missing debug-log (opt-out / absent)", async () => {
-    expect(
-      await readLatestPermissionLevel(
-        path.join(os.tmpdir(), `cc-none-${Date.now()}.jsonl`),
-      ),
-    ).toBeUndefined();
-  });
-});
-
-describe("control policy round-trip", () => {
-  it("writes then reads a policy", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-ctl-"));
-    try {
-      writeControlPolicy(dir, "sessA", { control: true, allow: ["read_file"] });
-      expect(await readControlPolicy(dir, "sessA")).toEqual({
-        control: true,
-        allow: ["read_file"],
-      });
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns NO_CONTROL when the policy is absent", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-ctl-"));
-    try {
-      expect(await readControlPolicy(dir, "ghost")).toEqual({ control: false });
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns NO_CONTROL on junk (never throws into the hook)", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-ctl-"));
-    try {
-      await fs.writeFile(controlPolicyPath(dir, "sessA"), "not json");
-      expect(await readControlPolicy(dir, "sessA")).toEqual({ control: false });
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("controlDirFor is a sibling of the spool dir", () => {
-    expect(controlDirFor(path.join("/x", ".cloakcode", "spool"))).toBe(
-      path.join("/x", ".cloakcode", "control"),
-    );
-    expect(defaultControlDir()).toBe(controlDirFor(defaultSpoolDir()));
-  });
-});
-
-describe("decision file round-trip", () => {
-  it("writes a base-id decision that reads back from the raw id", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-dec-"));
-    try {
-      writeDecision(dir, BASE_RUN, "allow");
-      expect(await readDecision(dir, RAW_RUN)).toBe("allow");
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns undefined when no decision has been written", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-dec-"));
-    try {
-      expect(await readDecision(dir, BASE_RUN)).toBeUndefined();
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("awaitDecision", () => {
-  it("resolves as soon as a decision appears", async () => {
-    let calls = 0;
-    const d = await awaitDecision({
-      read: async () => (++calls >= 3 ? "allow" : undefined),
-      timeoutMs: 10_000,
-      intervalMs: 1,
-      sleep: async () => {},
-      now: () => 0,
-    });
-    expect(d).toBe("allow");
-    expect(calls).toBe(3);
-  });
-
-  it("returns undefined once the timeout elapses (falls through to native)", async () => {
-    let n = 0;
-    const d = await awaitDecision({
-      read: async () => undefined,
-      timeoutMs: 100,
-      intervalMs: 10,
-      sleep: async () => {},
-      now: () => (n++ === 0 ? 0 : 1000),
-    });
-    expect(d).toBeUndefined();
-  });
-});
-
-describe("blockingRecord", () => {
-  it("records any tool (not just interactive) and flags awaitingDecision", () => {
-    const r = blockingRecord(
-      {
-        session_id: "sessA",
-        tool_use_id: RAW_RUN,
-        tool_name: "run_in_terminal",
-        tool_input: { command: "ls" },
-      },
-      "2026-07-09T00:00:00Z",
-    );
-    expect(r?.toolCallId).toBe(BASE_RUN);
-    expect(r?.awaitingDecision).toBe(true);
-    expect(r?.toolName).toBe("run_in_terminal");
-    expect(r?.resolveId).toBe(RAW_RUN);
-  });
-
-  it("returns undefined without the routing keys", () => {
-    expect(
-      blockingRecord({ tool_name: "run_in_terminal" }, "t"),
-    ).toBeUndefined();
   });
 });
 
@@ -666,7 +612,9 @@ describe("buildCarouselAnswers", () => {
       selectedValue: "tool-call-demo.txt",
     });
     expect(rec[`${RAW_QUESTION}:1`]).toEqual({ freeformValue: "555" });
-    expect(rec[`${RAW_QUESTION}:2`]).toEqual({ selectedValues: ["Unit", "E2E"] });
+    expect(rec[`${RAW_QUESTION}:2`]).toEqual({
+      selectedValues: ["Unit", "E2E"],
+    });
   });
 
   it("uses selectedValues for a multi-select even with a single pick", () => {
@@ -675,6 +623,8 @@ describe("buildCarouselAnswers", () => {
     const rec = buildCarouselAnswers(RAW_QUESTION, [
       { selected: ["Integration"], freeText: null, multiSelect: true },
     ]);
-    expect(rec[`${RAW_QUESTION}:0`]).toEqual({ selectedValues: ["Integration"] });
+    expect(rec[`${RAW_QUESTION}:0`]).toEqual({
+      selectedValues: ["Integration"],
+    });
   });
 });

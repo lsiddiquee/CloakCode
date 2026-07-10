@@ -22,6 +22,13 @@
           "default": true,
           "scope": "machine",
           "markdownDescription": "Automatically install the CloakCode Copilot notifier hook (`~/.copilot/hooks/cloakcode.json`) on activation. The hook is a non-intrusive notifier (it never approves or denies tool calls); it only powers the live-pending overlay. This is a **single per-environment file shared by every VS Code window**, so the setting is machine-scoped — set it in User or Remote settings, not per-workspace (a per-workspace toggle would be meaningless: the global file already fires for every window). Turn it off to manage the hook yourself; disabling does not delete an already-installed file."
+        },
+        "cloakcode.surfaceDebounceMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 0,
+          "scope": "machine",
+          "markdownDescription": "Milliseconds to wait before surfacing a pending tool call to the CloakCode client. VS Code often auto-approves or auto-answers a call within this window; debouncing lets those resolve first so they never flicker a card on the phone. Raise it if fast auto-approved calls still flash a card; set it to `0` to surface immediately."
         }
       }
     }

@@ -192,18 +192,6 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     id: z.string(),
-    op: z.literal("session.control"),
-    params: z.object({
-      instanceId: z.string(),
-      sessionId: z.string(),
-      // Toggle whether the remote operator has "taken control" of this session.
-      // While in control the blocking hook holds confirmable tool calls for a
-      // remote decision; off restores the pure-notifier (native-approval) path.
-      control: z.boolean(),
-    }),
-  }),
-  z.object({
-    id: z.string(),
     op: z.literal("session.decide"),
     params: z.object({
       instanceId: z.string(),
@@ -263,25 +251,10 @@ export type SessionRespondResponse = z.infer<
 >;
 
 /**
- * Ack for `session.control` — the operator has toggled take-control on the
- * target session. A `remote-operator`-provenance action (docs/04): it only
- * flips CloakCode's own per-session policy marker and never itself approves a
- * tool call.
- */
-export const sessionControlResponseSchema = z.object({
-  id: z.string(),
-  ok: z.literal(true),
-  op: z.literal("session.control"),
-});
-export type SessionControlResponse = z.infer<
-  typeof sessionControlResponseSchema
->;
-
-/**
- * Ack for `session.decide` — the operator's `allow`/`deny` verdict for a
- * pending tool call has been recorded (as the hook's on-disk decision file).
- * A `remote-operator`-provenance action (docs/04); the blocking hook consumes
- * it, and a missing/late verdict falls through to VS Code's native approval.
+ * Ack for `session.decide` - the operator's `allow`/`deny` verdict for a
+ * pending tool call has been dispatched to VS Code's native confirmation via
+ * the `acceptTool`/`skipTool` command, targeted by the session URI (docs/02
+ * 4.16). A `remote-operator`-provenance action (docs/04).
  */
 export const sessionDecideResponseSchema = z.object({
   id: z.string(),

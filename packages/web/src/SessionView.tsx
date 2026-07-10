@@ -9,7 +9,6 @@ import type {
 } from "@cloakcode/protocol";
 import {
   answerSession,
-  controlSession,
   decideSession,
   respondSession,
   subscribeSession,
@@ -65,8 +64,6 @@ export function SessionView({
     pending: [],
     error: null,
   });
-
-  const control = useControl(session);
 
   useEffect(() => {
     const unsubscribe = subscribeSession(
@@ -131,28 +128,6 @@ export function SessionView({
             : statusLabel(session.status, session.idleSeconds)}
         </span>
       </header>
-
-      <div className={`control-bar ${control.control ? "on" : ""}`}>
-        <button
-          type="button"
-          className="control-toggle"
-          onClick={() => void control.toggle()}
-          disabled={control.pending}
-        >
-          {control.pending
-            ? "…"
-            : control.control
-              ? "\u25c9 In control"
-              : "\u25cb Take control"}
-        </button>
-        <span className="control-hint">
-          {control.error
-            ? control.error
-            : control.control
-              ? "Holding confirmable tool calls for your approval"
-              : "VS Code drives approvals (native)"}
-        </span>
-      </div>
 
       <main
         className="content transcript"
@@ -287,43 +262,9 @@ function useRemoteSend(session: SessionSummary): {
 }
 
 /**
- * Take-control toggle state for one session. Flips on ack; `pending` guards the
- * button and `error` surfaces a failed toggle. The blocking hook reads the
- * resulting on-disk policy (see the extension's `setControl`).
- */
-function useControl(session: SessionSummary): {
-  control: boolean;
-  pending: boolean;
-  error: string | null;
-  toggle: () => Promise<void>;
-} {
-  const [control, setControl] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const toggle = async (): Promise<void> => {
-    const next = !control;
-    setPending(true);
-    setError(null);
-    try {
-      await controlSession({
-        instanceId: session.instanceId,
-        sessionId: session.sessionId,
-        control: next,
-      });
-      setControl(next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPending(false);
-    }
-  };
-  return { control, pending, error, toggle };
-}
-
-/**
- * Approve/deny state for one held tool call. Records the verdict once (buttons
- * lock after) via `decideSession`, which the extension writes as the hook's
- * on-disk decision file to unblock the held PreToolUse.
+ * Approve/deny state for one pending tool call. Records the verdict once (buttons
+ * lock after) via `decideSession`; the extension host dispatches it to VS Code's
+ * native confirmation via the acceptTool/skipTool command.
  */
 function useDecide(session: SessionSummary): {
   deciding: boolean;
@@ -508,8 +449,8 @@ function PendingCard({
           </button>
           <div className="blocker-note">
             {sent
-              ? "Answer delivered — the question resolves in VS Code."
-              : "Answers the question structurally in VS Code (remote-operator)."}
+              ? "Answer delivered. If VS Code already auto-answered, this had no effect."
+              : "Heads up: VS Code may auto-answer this itself; if it already did, your answer does nothing."}
           </div>
         </>
       ) : blocker.awaitingDecision ? (
@@ -547,8 +488,8 @@ function PendingCard({
           </div>
           <div className="blocker-note">
             {decision.decided
-              ? "Sent — the held tool call will resume in VS Code."
-              : "You're in control — allow or deny this tool call."}
+              ? "Sent to VS Code. If it was already auto-approved, this had no effect."
+              : "Heads up: VS Code may auto-approve this itself; if it already did, your tap does nothing."}
           </div>
         </>
       ) : (

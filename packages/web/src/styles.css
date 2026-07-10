@@ -626,49 +626,7 @@ body {
   cursor: default;
 }
 
-/* Take-control bar: toggles whether the blocking hook holds confirmable tool
-   calls for a remote allow/deny, or defers to VS Code's native approval. */
-.control-bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.control-bar.on {
-  background: color-mix(in srgb, var(--amber) 12%, var(--surface));
-  border-bottom-color: color-mix(in srgb, var(--amber) 40%, var(--border));
-}
-.control-toggle {
-  flex: 0 0 auto;
-  padding: 7px 14px;
-  font: inherit;
-  font-weight: 650;
-  color: inherit;
-  background: var(--elevated);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  cursor: pointer;
-}
-.control-bar.on .control-toggle {
-  color: #fff;
-  background: var(--amber);
-  border-color: var(--amber);
-}
-.control-toggle:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.control-hint {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-/* Approve/deny a held tool call from the pending overlay. */
+/* Approve/deny a pending tool call from the pending overlay. */
 .approve-row {
   display: flex;
   gap: 10px;
