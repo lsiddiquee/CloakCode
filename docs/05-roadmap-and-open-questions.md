@@ -168,3 +168,25 @@ the critical path.
   view a dropped subscribe socket surfaces only a transient "stream: connection lost" hint and the
   cards keep their last (stale) state. Fix alongside auto-reconnect: derive one connection state
   from the socket `open`/`close`/`error` (+ a heartbeat/ping) and show a clear disconnected banner.
+- **Session status over-reports "blocked" (server-side, 2026-07-11).** `classifyStatus`
+  (`scanner.ts`) treats **any** open interactive `tool.execution_start` as blocked, but orphaned
+  starts (cancelled / abandoned / lagging turns — §4.6 never flushes their `complete`) **accumulate**
+  on disk, so a long-lived session reads "blocked" while live and "idle" once stale, and **never
+  flips to "active" after a question is answered**. Confirmed on a real transcript (11 unmatched
+  starts, incl. 3+ `vscode_askQuestions` from the prior day). A client refresh can't fix it — it's
+  the scan. Fix (mirrors the spool's `isSuperseded`): (a) an open interactive start counts only if
+  **no later turn** (`user.message` / `assistant.turn_start`) supersedes it; (b) drive live "blocked"
+  from the **spool** (real-time) rather than the lagging transcript; (c) make the list + header
+  status **live** (poll or push). Related to the two stale-snapshot issues above.
+- **Transcript jump-to-bottom fails on initial load (2026-07-11).** The session view doesn't scroll
+  to the latest message when a session first opens (it works after). The ResizeObserver
+  stick-to-bottom misses the initial markdown/table reflow; force a scroll-to-bottom once the first
+  parts have rendered.
+- **Session identity is under-surfaced (2026-07-11).** The list row shows only the workspace — and it
+  is the 8-char **hash** prefix (because `readWorkspaceName` falls back to `hashDir.slice(0,8)` when
+  `workspace.json` is unreadable) — and nothing shows the actual **session id**. Surface both the
+  workspace id and the session id, clearly **labeled**, in the list rows and the session header.
+- **List grouping + instance label (2026-07-11).** The list groups by `instanceId` (the `EXT-DEV`
+  header = `CLOAKCODE_INSTANCE_ID` from `.vscode/launch.json`, else `os.hostname()`). Group/sub-group
+  by **workspace** within the instance to keep it clean, and label the instance header so a bare tag
+  like `ext-dev` reads clearly.
