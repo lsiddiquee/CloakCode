@@ -16,6 +16,7 @@
 | Q4  | Are UI-layer **tool-approval confirmations** observable **and answerable**?                                     | The most common agent blocker.                                                                                                                                        | **RESOLVED (2026-07-09).** Copilot Chat **hooks** fire `PreToolUse` for _every_ tool (incl. `run_in_terminal`, `vscode_askQuestions`) with `{ session_id, transcript_path, tool_name, tool_input, tool_use_id }`; returning `allow`/`deny` approves/blocks it. Observe via the transcript (zero-config); **answer via an optional hook** routed by `session_id` (= the observer's sessionId). See M3.                                                                                          |
 | Q5  | Do **queued/steered** messages carry any structural marker?                                                     | Cleaner provenance for the actuator.                                                                                                                                  | Inspect a session where steer/queue is used with known text.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Q6  | How do **many concurrent instances** (dev containers, WSL distros, host) get discovered without port collision? | The extension runs in every window; `127.0.0.1` is not shared across environments, so a fixed port false-collides (WSL↔host) and can't cross namespaces (containers). | **Two-tier** (see [03 — Multi-instance topology](03-architecture.md#multi-instance-topology--discovery)): one leader observer **per environment** (lock file in `globalStorage`, since one `~/.vscode-server` User dir = all repos in that env), each leader **registers outbound** to a rendezvous relay that serves the union to the phone. Needs `instanceId` in the protocol (M1) + ephemeral bridge port.                                                                                 |
+| Q7  | Within one environment, which **window owns** a given session (for actuation routing)?                       | Actuation is window-local but scanning is env-global; the workspace hash scopes cross-_workspace_ but two windows on the **same** folder share it, and there's no API for the active session id.        | **Workspace hash: RESOLVED** — `basename(dirname(context.storageUri))` = `md5(folderUri)` (see `.local/research/workspace-identity-and-watch-dedup.md`). **Same-folder ownership: open** — probe a **hook-stamped owner beacon** (the PreToolUse hook runs in the owning Copilot process; needs window identity passed to the user-global hook); route actuation via a per-window ownership registry. |
 
 ## Milestones
 
@@ -226,3 +227,22 @@ the critical path.
   change; (c) **recommendation:** build (b) **together with the "over-reports blocked"
   live-status fix** so **one** watcher drives both "new session appears" and "status flips
   (blocked/active)" — DRY, and both list + header go live at once.
+- **Multi-instance identity + watch de-dup + workspace-scoping (research 2026-07-11 — see
+  `.local/research/workspace-identity-and-watch-dedup.md`).** From the instance-label question
+  and the cross-window bug. (1) The `instance` label adds **no value today** — every row carries
+  the one scanning bridge's `instanceId` (a constant); it only discriminates under the M4 relay,
+  and even then it is a **per-row** attribute shown only when it varies — so drop it from the UI,
+  keep it in the data. (2) The extension **can** derive its own **`workspaceHash`** with **no new
+  API**: `context.storageUri` is `.../User/workspaceStorage/<hash>/<extId>`, and that `<hash>`
+  (= `md5(folderUri)`, VS Code `workspaces.ts`) is the **same** hash as Copilot's
+  `.../transcripts`, so `basename(dirname(context.storageUri))` scopes the scan to this window's
+  workspace and removes cross-_workspace_ foreign rows (the common mis-target). Residual: two
+  windows on the **same** folder share the hash, and there is **no API for the active session
+  id** (`chatSessionsProvider` is _proposed_ and only **provides** a session type) — ambiguous;
+  the hook-stamped-owner beacon is the next probe (Q7). (3) **Watch de-dup:** observation is
+  location-independent but **actuation is window-local**, so **one leader per environment owns
+  ALL observation watches** (docs/03 election) — dedupes the list + hook watchers and caps them
+  at one set per environment — while a small **ownership registry** (window → its
+  `workspaceHash`(es) + liveness) routes **actuation** to the owner (preferred over a per-watch
+  lease protocol). (4) **Monitors:** 1 list-watch + 1 hook/spool-watch + **K lazy transcript
+  tails** (only sessions open in a client, not all N). Fold settled parts into docs/03 when chosen.
