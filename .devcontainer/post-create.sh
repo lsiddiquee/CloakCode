@@ -85,4 +85,23 @@ else
   echo "==> pre-commit: framework/config/git repo missing — skipping hook install"
 fi
 
+# 8. devtunnel CLI (remote-access tunnel for the phone client) — guarded + cached
+# The Microsoft installer drops a ~59MB binary in ~/bin, which is NOT persisted
+# across rebuilds, so cache it in the named volume and symlink it onto PATH each
+# build (fast, offline-friendly rebuilds). Optional: a failure never fails the build.
+echo "==> devtunnel: ensuring the CLI is installed (cached)"
+DEVTUNNEL_CACHE="${CACHE_DIR}/bin/devtunnel"
+if [ ! -x "${DEVTUNNEL_CACHE}" ]; then
+  mkdir -p "${CACHE_DIR}/bin"
+  curl -sL https://aka.ms/DevTunnelCliInstall | bash >/dev/null 2>&1 || true
+  for cand in "${HOME}/bin/devtunnel" "${HOME}/.local/bin/devtunnel"; do
+    [ -x "${cand}" ] && cp "${cand}" "${DEVTUNNEL_CACHE}" && break
+  done
+fi
+if [ -x "${DEVTUNNEL_CACHE}" ]; then
+  sudo ln -sf "${DEVTUNNEL_CACHE}" /usr/local/bin/devtunnel || true
+else
+  echo "==> devtunnel: install skipped/failed (optional — remote tunnel only)"
+fi
+
 echo "==> CloakCode post-create: complete."
