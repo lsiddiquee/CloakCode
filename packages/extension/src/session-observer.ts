@@ -237,6 +237,32 @@ function parseAttr(v: unknown): unknown {
 }
 
 /**
+ * Best-effort recovery of assistant text when `agent_response.response` is a
+ * TRUNCATED/invalid JSON string. VS Code caps that debug-log attr at ~5 KB and
+ * appends a `[truncated]` marker, so it no longer parses to the message array
+ * (docs/02) and `parseAttr` returns the raw string. Rather than dump the raw
+ * `[{"role":…,"parts":[{"type":"text","content":"…"}]}]` blob into the
+ * transcript, pull the `text` part bodies out directly; `tool_call` parts are
+ * skipped (their args render from the separate `tool_call` spans).
+ */
+function salvageAssistantText(rawResponse: string): string {
+  const out: string[] = [];
+  const re = /"type":"text","content":"((?:[^"\\]|\\.)*)/g;
+  for (let m = re.exec(rawResponse); m; m = re.exec(rawResponse)) {
+    const body = m[1];
+    if (body === undefined) continue;
+    let text = body;
+    try {
+      text = JSON.parse(`"${body}"`) as string;
+    } catch {
+      // truncated mid-escape — keep the raw captured body
+    }
+    if (text.trim()) out.push(text);
+  }
+  return out.join("\n\n").trim();
+}
+
+/**
  * Pull the assistant's markdown out of an `agent_response` span. Its `response`
  * is `[{ role, parts: [{type:'text', content} | {type:'tool_call', …}] }]`
  * (the LM message shape). We keep the `text` parts — tool calls are rendered
@@ -244,7 +270,7 @@ function parseAttr(v: unknown): unknown {
  */
 function assistantText(response: unknown): string {
   const arr = parseAttr(response);
-  if (typeof arr === "string") return arr.trim();
+  if (typeof arr === "string") return salvageAssistantText(arr);
   if (!Array.isArray(arr)) return "";
   const out: string[] = [];
   for (const msg of arr) {

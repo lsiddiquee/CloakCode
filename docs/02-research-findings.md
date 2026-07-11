@@ -438,6 +438,19 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   (`getWidgetBySessionResource` → `isEqual`), so a wrong/empty id can only **no-op**, never resolve a
   different session; the URI is `vscode-chat-session://local/<unpadded-base64url(sessionId)>`
   (`localChatSessionUri`).
+- **4.21** _Debug-log `agent_response.response` is truncated at ~5 KB (2026-07-11)._ VS Code writes
+  the assistant turn's `response` (the LM message array `[{role,parts:[{type:'text',content}…]}]`)
+  into the debug-log as a **capped** attr: at ~5000 chars it is cut mid-string and a literal
+  `[truncated]` marker is appended, so it **no longer parses as JSON**. (Confirmed on this session's
+  188 MB `main.jsonl`: 15 of 311 `agent_response` spans fail to parse, all len ≈ 5010, tail
+  `…[truncated]`.) The **real** text is not truncated — it lives in the transcript's
+  `assistant.message.content` and the live chat; only the debug-log's telemetry copy is capped.
+  CloakCode's observer prefers the debug-log (it stays complete for editor-hosted sessions), so
+  `assistantText` used to fall through and render the raw `[{"role":…}]` blob for those turns. Fix:
+  on parse failure, **salvage** the `"type":"text","content":"…"` bodies (tolerant of truncation)
+  instead of dumping raw JSON (`salvageAssistantText`, `session-observer.ts`). _Residual:_ salvaged
+  long turns are still capped at ~5 KB in the CloakCode view; full text would need cross-referencing
+  the transcript (deferred — the debug-log is preferred for completeness on editor-hosted sessions).
 
 ---
 

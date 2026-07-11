@@ -386,6 +386,39 @@ describe("parseDebugLogEvents", () => {
     expect(appended.part.options).toHaveLength(2);
     expect(events[1]).toMatchObject({ type: "resolve", id: appended.part.id });
   });
+
+  it("salvages assistant text when `response` is truncated/unparseable", () => {
+    // VS Code caps the debug-log `response` attr at ~5 KB and appends a
+    // `[truncated]` marker, so it no longer parses to the message array. The
+    // parser must salvage the `text` parts, not dump the raw `[{"role":…}]`
+    // blob into the transcript (bug: 2026-07-11).
+    const args = JSON.stringify({ content: "FILEDATA", filePath: "/x" });
+    const truncated =
+      '[{"role":"assistant","parts":[' +
+      '{"type":"text","content":"First part."},' +
+      `{"type":"tool_call","id":"x","name":"create_file","arguments":${JSON.stringify(
+        args,
+      )}},` +
+      '{"type":"text","content":"Second part that got cut of[truncated]';
+    const content = otel([
+      {
+        type: "agent_response",
+        name: "agent_response",
+        attrs: { response: truncated },
+      },
+    ]);
+    const events = parseDebugLogEvents(content);
+    const md = events.find(
+      (e) => e.type === "append" && e.part.kind === "markdown",
+    );
+    if (md?.type !== "append" || md.part.kind !== "markdown") {
+      throw new Error("expected a markdown append");
+    }
+    expect(md.part.text).not.toContain('"role":"assistant"');
+    expect(md.part.text).toContain("First part.");
+    expect(md.part.text).toContain("Second part that got cut of");
+    expect(md.part.text).not.toContain("FILEDATA");
+  });
 });
 
 describe("findSessionLog", () => {
