@@ -178,15 +178,51 @@ the critical path.
   **no later turn** (`user.message` / `assistant.turn_start`) supersedes it; (b) drive live "blocked"
   from the **spool** (real-time) rather than the lagging transcript; (c) make the list + header
   status **live** (poll or push). Related to the two stale-snapshot issues above.
-- **Transcript jump-to-bottom fails on initial load (2026-07-11).** The session view doesn't scroll
-  to the latest message when a session first opens (it works after). The ResizeObserver
-  stick-to-bottom misses the initial markdown/table reflow; force a scroll-to-bottom once the first
-  parts have rendered.
-- **Session identity is under-surfaced (2026-07-11).** The list row shows only the workspace — and it
-  is the 8-char **hash** prefix (because `readWorkspaceName` falls back to `hashDir.slice(0,8)` when
-  `workspace.json` is unreadable) — and nothing shows the actual **session id**. Surface both the
-  workspace id and the session id, clearly **labeled**, in the list rows and the session header.
-- **List grouping + instance label (2026-07-11).** The list groups by `instanceId` (the `EXT-DEV`
-  header = `CLOAKCODE_INSTANCE_ID` from `.vscode/launch.json`, else `os.hostname()`). Group/sub-group
-  by **workspace** within the instance to keep it clean, and label the instance header so a bare tag
-  like `ext-dev` reads clearly.
+- **RESOLVED (2026-07-11).** Three session-list UX items are fixed in `packages/web`
+  (`App.tsx`, `SessionView.tsx`): _transcript jump-to-bottom on initial load_;
+  _under-surfaced session identity_ (workspace + session id are now labeled in the list rows
+  and the session header); and _list grouping + instance label_ (the list now groups by
+  **workspace** and labels the instance).
+- **Cross-window actuation opens a NEW session by mistake (2026-07-11, deferred — not a
+  blocker).** Sending an answer/decision (`session.respond` / `.decide` / `.answer`) to a
+  session the bridge's window does **not** own creates a **brand-new chat** in the bridge's
+  window instead of driving the intended one. **Root cause:** `scanSessions` lists **every**
+  on-disk transcript across all `workspaceStorage/<hash>` and stamps them **all** with the one
+  bridge `instanceId`, so it offers sessions the actuator can't reach — the actuator runs
+  `vscode.open`/`chat.open` / `acceptTool`/`skipTool` only in the **single window** where the
+  bridge process runs, and there is **no on-disk signal** binding a session to its owning
+  window (nor any API for a window's own active session id — docs/02 §4.12). A "foreign"
+  `sessionId` therefore has no editor/session to open and falls back to a new chat.
+  **Repro (both observed/expected):** (1) the session is **visible but no bridge runs in its
+  window** — e.g. the extension runs only in the F5 Extension Dev Host, yet the other window's
+  sessions are still listed (shared workspaceStorage) and mis-fire into the Dev Host window;
+  (2) **VS Code on the host with several workspaces** — the bridge window's workspace is the
+  code dir, but **other workspaces' sessions are also visible** (separate `<hash>` dirs) and
+  equally un-actuatable. The F5 case shares the **same** workspace hash as the build window, so
+  the two are indistinguishable on disk even with workspace-scoping. **Provenance angle:** a
+  remote-operator message becoming a real local turn in an **unexpected** window is exactly the
+  mis-provenance the non-negotiables warn about. **Options for the picker-up (do not
+  re-research):** (a) **scope the list to the bridge window's own `workspaceFolders` hash(es)**
+  — kills cross-_workspace_ foreign rows (repro 2) but **not** same-folder-different-window
+  (repro 1, identical hash); (b) **stamp ownership from the hook** (it runs in the owning
+  Copilot process) into the spool — but the hook is user-global and doesn't know the window's
+  bridge `instanceId`, so this needs a way to pass window identity to the hook (**unsolved**);
+  (c) **guard the actuator** — warn/deny when ownership can't be proven, plus a UI disclaimer
+  that actuation only affects the bridge's window; (d) end-state: **one bridge per window**
+  (unified-gateway topology, M4) with the list scoped to that window's sessions. MVP is
+  observer-first and the actuator is opt-in, so this is **not a blocker**.
+- **Session list is not live (2026-07-11, deferred — not a blocker).** A newly-created session
+  appears only after a **manual refresh**. **Root cause:** `sessions.list` is one-shot
+  request/response (an I0 snapshot) with **no `sessions.subscribe` push and no server-side list
+  watcher** — whereas `session.subscribe` **already pushes** per-session via
+  `SessionFollower`/`SpoolFollower` **fs.watch**, so the transport is fine; only the list lacks
+  a watcher. **Do NOT reach for client polling** — it would regress from the existing push
+  model. **Options (direction decided, no re-research):** (a) _cheap interim_ — promote the
+  header connection pill (already `onClick={load}`, `title="Refresh"` in `App.tsx`) to an
+  explicit **Refresh** button; (b) _proper fix_ — a `sessions.subscribe` push RPC mirroring
+  `session.subscribe`, backed by a `ListFollower` that watches the workspaceStorage **root +
+  each transcripts dir** (re-arming as new `<hash>` dirs appear; Node's recursive `fs.watch` is
+  **unreliable on Linux**, so watch per-dir), debounced re-scan, pushing fresh snapshots on
+  change; (c) **recommendation:** build (b) **together with the "over-reports blocked"
+  live-status fix** so **one** watcher drives both "new session appears" and "status flips
+  (blocked/active)" — DRY, and both list + header go live at once.
