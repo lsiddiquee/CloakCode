@@ -46,6 +46,19 @@ function request(port: number, payload: unknown): Promise<unknown> {
   });
 }
 
+/** Send a RAW (already-serialized) frame so we can feed non-JSON / garbage. */
+function rawRequest(port: number, raw: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    ws.on("open", () => ws.send(raw));
+    ws.on("message", (data) => {
+      resolve(JSON.parse(data.toString()));
+      ws.close();
+    });
+    ws.on("error", reject);
+  });
+}
+
 describe("startBridge", () => {
   it("binds an ephemeral localhost port and answers sessions.list", async () => {
     const bridge = await startBridge(deps(), { port: 0 });
@@ -71,6 +84,68 @@ describe("startBridge", () => {
         ok: false,
         error: { message: expect.any(String) },
       });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("rejects non-JSON garbage (input is parsed, never trusted raw)", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await rawRequest(bridge.port, "}{ not json at all");
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("rejects a valid op with invalid params (zod validates PARAMS, not just op)", async () => {
+    // Guards against a refactor silently dropping `rpcRequestSchema.parse`:
+    // session.respond REQUIRES params.text, so omitting it must be rejected AND
+    // must never reach the actuator.
+    let respondCalled = false;
+    const bridge = await startBridge(
+      deps({ respond: async () => void (respondCalled = true) }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: { instanceId: "i", sessionId: "s" },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+      expect(respondCalled).toBe(false);
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("passes untrusted answer text through VERBATIM (data, never interpreted/sanitized)", async () => {
+    // A well-formed frame carrying shell metacharacters + emoji is valid DATA:
+    // accepted and delivered to the actuator byte-for-byte (no expansion, no
+    // stripping). The bridge must only ever treat the payload as an opaque string.
+    let got: string | undefined;
+    const bridge = await startBridge(
+      deps({ respond: async (p) => void (got = p.text) }),
+      { port: 0 },
+    );
+    try {
+      const payload =
+        'it\'s "$cool" `whoami` $(id); rm -rf / && echo \uD83D\uDE80';
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: { instanceId: "i", sessionId: "s", text: payload },
+      });
+      expect(res).toMatchObject({ id: "9", ok: true, op: "session.respond" });
+      expect(got).toBe(payload);
     } finally {
       await bridge.close();
     }

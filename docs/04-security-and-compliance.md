@@ -63,6 +63,28 @@ Design implications for an actuator that can stage/inject prompts:
 - Remote client ↔ bridge: WireGuard / SSH reverse-forward / mTLS to your infra, with
   token/mTLS auth so only your controller can drive it.
 
+## Bridge ingress validation (what a non-CloakCode client can send)
+
+The bridge is a WebSocket server that **any** client on the loopback — or, once tunnelled, anything
+that reaches the tunnel URL — can connect to, so every frame is treated as untrusted.
+
+- **Enforced today (proper format).** Each frame is `JSON.parse`d then validated with
+  `rpcRequestSchema.parse` in `handleMessage` (`bridge.ts`): anything that is not exactly a known
+  `op` with correctly-typed `params` is rejected with `{ ok:false, error:"invalid request" }` and
+  never reaches an actuator. This is **regression-tested** (`bridge.test.ts`: non-JSON, unknown op,
+  and a valid op with invalid params are all rejected; a well-formed answer full of shell
+  metacharacters + emoji is passed through **verbatim as opaque data**), so a refactor cannot
+  silently drop the check.
+- **Required PRE-MVP (content cleaning + auth — NOT yet built).**
+  1. **Content limits / sanitization.** Structural validation checks _type_, not _content_:
+     `text` / answers are `z.string()` with no upper bound, no control-character handling, and there
+     is no max frame size or per-connection rate limit. Add length caps, a frame-size cap,
+     control-char normalization, and rate limiting before the bridge is reachable beyond localhost.
+  2. **Client authentication.** The bridge currently trusts any client that can reach it (no
+     PIN / token / mTLS). Gate the WebSocket upgrade with an operator secret (the TaskSync
+     PIN + lockout + device-approval pattern) so a non-CloakCode client — including anything that
+     discovers the tunnel URL — cannot drive it. See docs/05 M4.
+
 ## Threat-model quick list
 
 | Threat                      | Mitigation                                                                                 |
