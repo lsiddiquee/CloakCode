@@ -9,16 +9,24 @@ type LoadState =
   | { kind: "error"; message: string }
   | { kind: "ready"; sessions: SessionSummary[] };
 
-function groupByInstance(
+function groupByWorkspace(
   sessions: SessionSummary[],
-): Array<{ instanceId: string; rows: SessionSummary[] }> {
-  const map = new Map<string, SessionSummary[]>();
+): Array<{ instanceId: string; workspace: string; rows: SessionSummary[] }> {
+  const map = new Map<
+    string,
+    { instanceId: string; workspace: string; rows: SessionSummary[] }
+  >();
   for (const s of sessions) {
-    const list = map.get(s.instanceId) ?? [];
-    list.push(s);
-    map.set(s.instanceId, list);
+    const key = `${s.instanceId}|${s.workspace}`;
+    const g = map.get(key) ?? {
+      instanceId: s.instanceId,
+      workspace: s.workspace,
+      rows: [],
+    };
+    g.rows.push(s);
+    map.set(key, g);
   }
-  return [...map.entries()].map(([instanceId, rows]) => ({ instanceId, rows }));
+  return [...map.values()];
 }
 
 export function App(): JSX.Element {
@@ -95,9 +103,11 @@ export function App(): JSX.Element {
         )}
 
         {state.kind === "ready" &&
-          groupByInstance(state.sessions).map((group) => (
-            <section key={group.instanceId}>
-              <div className="group-label">{group.instanceId}</div>
+          groupByWorkspace(state.sessions).map((group) => (
+            <section key={`${group.instanceId}|${group.workspace}`}>
+              <div className="group-label">
+                workspace {group.workspace} · instance {group.instanceId}
+              </div>
               {group.rows.map((s) => (
                 <div
                   key={`${s.instanceId}:${s.sessionId}`}
@@ -108,7 +118,9 @@ export function App(): JSX.Element {
                   <div className="body">
                     <div className="name">{s.title}</div>
                     <div className="meta">
-                      <span>{s.workspace}</span>
+                      <span title={`session ${s.sessionId}`}>
+                        session {s.sessionId.slice(0, 8)}
+                      </span>
                       <span>·</span>
                       <span>{s.turns} turns</span>
                       <span>·</span>

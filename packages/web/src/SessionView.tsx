@@ -82,11 +82,22 @@ export function SessionView({
   const scrollRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const lastTopRef = useRef(0);
 
   const handleScroll = (): void => {
     const el = scrollRef.current;
     if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const top = el.scrollTop;
+    // Release stick ONLY when the user scrolls UP. Content growing below (which
+    // increases distance-to-bottom during progressive markdown/table reflow)
+    // must not unstick, or the view strands mid-transcript on load. Re-stick when
+    // the user returns near the bottom.
+    if (top < lastTopRef.current - 4) {
+      stickRef.current = false;
+    } else if (el.scrollHeight - top - el.clientHeight < 80) {
+      stickRef.current = true;
+    }
+    lastTopRef.current = top;
   };
 
   useEffect(() => {
@@ -94,8 +105,11 @@ export function SessionView({
     const inner = innerRef.current;
     if (!el || !inner) return;
     const toBottom = (): void => {
-      if (stickRef.current) el.scrollTop = el.scrollHeight;
+      if (!stickRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      lastTopRef.current = el.scrollTop;
     };
+    toBottom();
     const ro = new ResizeObserver(toBottom);
     ro.observe(inner);
     return () => ro.disconnect();
@@ -116,7 +130,11 @@ export function SessionView({
         <div className="title">
           {session.title}
           <div className="sub">
-            {session.workspace} · {session.instanceId}
+            workspace {session.workspace} · session{" "}
+            <span title={session.sessionId}>
+              {session.sessionId.slice(0, 8)}
+            </span>{" "}
+            · {session.instanceId}
           </div>
         </div>
         <span className="conn">
