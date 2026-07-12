@@ -246,3 +246,13 @@ the critical path.
   `workspaceHash`(es) + liveness) routes **actuation** to the owner (preferred over a per-watch
   lease protocol). (4) **Monitors:** 1 list-watch + 1 hook/spool-watch + **K lazy transcript
   tails** (only sessions open in a client, not all N). Fold settled parts into docs/03 when chosen.
+- **`workspaceStorage` hash instability in containers (2026-07-12 — documented, NOT fixing in MVP).**
+  VS Code derives `workspaceStorage/<hash>` from the workspace URI, and in Dev Containers the hash can
+  **change** across rebuilds / `devcontainer.json` edits / "at random" (upstream
+  **microsoft/vscode#285059**, closed _not planned_; cf. 23min/agent-lens#26). On **persistent**
+  storage the old sessions are then stranded under the **previous** hash dir and vanish from Copilot's
+  UI (mitigation: scan sibling hash dirs by folder-name, tag "recovered"); on **ephemeral** storage
+  (our overlay) a rebuild instead **deletes** them. **Accept for MVP, don't mitigate.** Implication for
+  the future workspace-scoped scan (#32/Q7): scope to the **folder across all its hash dirs**, not a
+  single hash, or relocated sessions get hidden. Detail in
+  `.local/research/workspace-identity-and-watch-dedup.md`.

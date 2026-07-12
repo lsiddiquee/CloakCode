@@ -451,6 +451,19 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   instead of dumping raw JSON (`salvageAssistantText`, `session-observer.ts`). _Residual:_ salvaged
   long turns are still capped at ~5 KB in the CloakCode view; full text would need cross-referencing
   the transcript (deferred — the debug-log is preferred for completeness on editor-hosted sessions).
+- **4.22** _Ephemeral `workspaceStorage` + transcript rehydration; the debug-log does not rehydrate
+  (2026-07-12)._ Here `workspaceStorage` is on the **ephemeral overlay** FS (no volume), so a
+  **container rebuild wipes** transcripts + debug-logs + every session dir. On restore, copilot-chat's
+  `SessionTranscriptService.startSession(id, ctx, history)` finds **no** `<id>.jsonl` and **replays**
+  the conversation `history` into a fresh transcript (`user.message → turn_start → assistant.message →
+  turn_end` per round; dir = `context.storageUri/transcripts`). `history` is reconstructed by VS Code
+  **core** from the ChatModel, persisted **client-side** (`state.vscdb` / `chatSessions/<id>.json`,
+  §2.2) — **not** the empty `session-store.db`. Replayed entries are stamped at **reconstruction
+  time** (core drops original per-turn times — ours were one ~5-min burst), so a **rehydrated
+  transcript's timestamps are not real turn times** (use mtime / max for liveness). The **debug-log
+  has no replay path** (live OTel only) → it starts fresh post-rebuild. Transcripts are also **GC'd to
+  the last 20** (`cleanupOldTranscripts`). _Correction:_ the debug-log does **not** "reset on reload" —
+  it grew to 188 MB across many reloads; only the **rebuild** (overlay wipe) cleared it.
 
 ---
 
