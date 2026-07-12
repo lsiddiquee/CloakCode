@@ -255,20 +255,54 @@ export async function activate(
         scanned.push({ hash, transcripts, owned: hashes.has(hash) });
       }
     }
+    const modeName =
+      context.extensionMode === vscode.ExtensionMode.Development
+        ? "Development"
+        : context.extensionMode === vscode.ExtensionMode.Test
+          ? "Test"
+          : "Production";
     return {
       instanceId,
       pid: process.pid,
-      bridgePort: bridge?.port ?? null,
-      configuredPort: port,
+      extensionMode: modeName,
+      extensionVersion:
+        (context.extension.packageJSON as { version?: string }).version ??
+        "unknown",
+      node: process.version,
+      platform: `${process.platform}/${process.arch}`,
+      appName: vscode.env.appName,
+      appHost: vscode.env.appHost,
+      uiKind: vscode.env.uiKind === vscode.UIKind.Web ? "Web" : "Desktop",
+      remoteName: vscode.env.remoteName ?? null,
+      uriScheme: vscode.env.uriScheme,
+      language: vscode.env.language,
+      machineId: vscode.env.machineId,
+      extensionUri: context.extensionUri.toString(),
       storageUri: context.storageUri?.fsPath ?? null,
-      workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((f) =>
-        f.uri.toString(),
-      ),
+      globalStorageUri: context.globalStorageUri.fsPath,
+      logUri: context.logUri.fsPath,
+      workspaceFile: vscode.workspace.workspaceFile?.toString() ?? null,
+      workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((f) => ({
+        name: f.name,
+        uri: f.uri.toString(),
+      })),
       ownedHashes: [...hashes],
       ownedSource: source,
       root,
-      spoolDir,
       scanned,
+      bridgePort: bridge?.port ?? null,
+      configuredPort: port,
+      spoolDir,
+      hookConfigPath: path.join(
+        os.homedir(),
+        ".copilot",
+        "hooks",
+        "cloakcode.json",
+      ),
+      cloakcodeEnv: Object.entries(process.env)
+        .filter(([k]) => k.startsWith("CLOAKCODE_"))
+        .map(([key, value]) => ({ key, value: value ?? "" }))
+        .sort((a, b) => a.key.localeCompare(b.key)),
     };
   };
 
