@@ -174,14 +174,20 @@ the critical path.
   host, or the machine waking), the phone stays disconnected until the user taps reconnect or
   reloads the PWA. This is **expected** with the current code, not a regression. Fix: auto-reconnect
   the subscribe socket with capped exponential backoff and re-subscribe from the last `seq`, driven
-  off the socket `close`/`error`. Queued for the next session.
+  off the socket `close`/`error`. Queued for the next session. **Done 2026-07-12:** `subscribeSession` auto-reconnects with
+  capped exponential backoff + jitter, re-subscribing from the last seq it saw (only missed
+  events replay) and reporting a `ConnState` the UI renders.
 - **Disconnected state is not reflected in the UI (2026-07-10).** The header's connection dot is
   derived as `connected = state.kind === "ready"` (`App.tsx`) — it tracks whether the last
   `sessions.list` fetch succeeded, not the live socket, and nothing re-checks it, so after a
   mid-session drop it can keep showing **connected** (green) while the bridge is gone. In a session
   view a dropped subscribe socket surfaces only a transient "stream: connection lost" hint and the
   cards keep their last (stale) state. Fix alongside auto-reconnect: derive one connection state
-  from the socket `open`/`close`/`error` (+ a heartbeat/ping) and show a clear disconnected banner.
+  from the socket `open`/`close`/`error` (+ a heartbeat/ping) and show a clear disconnected banner. **Done 2026-07-12 (session view):** `SessionView`
+  derives its connection state from `subscribeSession`'s `onStatus` and shows a Connecting /
+  Reconnecting / Disconnected banner. The list header dot (`App.tsx`) still tracks the last
+  `sessions.list` fetch, not a live socket — folded into the future `sessions.subscribe`
+  live-list work.
 - **Session status over-reports "blocked" (server-side, 2026-07-11).** `classifyStatus`
   (`scanner.ts`) treats **any** open interactive `tool.execution_start` as blocked, but orphaned
   starts (cancelled / abandoned / lagging turns — §4.6 never flushes their `complete`) **accumulate**

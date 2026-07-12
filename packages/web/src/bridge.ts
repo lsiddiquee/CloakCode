@@ -75,56 +75,98 @@ export function fetchSessions(
   });
 }
 
+/** Live connection lifecycle of a session subscription. */
+export type ConnState = "connecting" | "open" | "reconnecting" | "closed";
+
 /**
  * Subscribe to a session's live event stream. Calls `onEvent` for each
- * validated seq'd `SessionEvent` (history channel) and `onPending` for each
- * live-pending snapshot (replace-semantics overlay). Returns an unsubscribe
- * function that closes the socket. Resumable via `sinceSeq`.
+ * validated seq'd `SessionEvent` (history channel), `onPending` for each
+ * live-pending snapshot (replace-semantics overlay), `onError` for server-side
+ * RPC errors, and `onStatus` for the connection lifecycle. **Auto-reconnects**
+ * with capped exponential backoff on drop, resuming from the last seq it saw so
+ * only missed events replay. Returns an unsubscribe function that stops
+ * reconnecting and closes the socket.
  */
 export function subscribeSession(
   params: { instanceId: string; sessionId: string; sinceSeq?: number },
   onEvent: (event: SessionEvent) => void,
   onPending: (blockers: PendingBlocker[]) => void = () => {},
   onError: (message: string) => void = () => {},
+  onStatus: (status: ConnState) => void = () => {},
   url: string = bridgeUrl(),
 ): () => void {
-  const ws = new WebSocket(url);
-  const id = Math.random().toString(36).slice(2);
+  let ws: WebSocket | null = null;
+  let lastSeq = params.sinceSeq ?? 0;
+  let attempt = 0;
+  let stopped = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-  ws.addEventListener("open", () => {
-    ws.send(
-      JSON.stringify({
-        id,
-        op: "session.subscribe",
-        params: {
-          instanceId: params.instanceId,
-          sessionId: params.sessionId,
-          sinceSeq: params.sinceSeq ?? 0,
-        },
-      }),
-    );
-  });
+  const connect = (): void => {
+    if (stopped) return;
+    onStatus(attempt === 0 ? "connecting" : "reconnecting");
+    const socket = new WebSocket(url);
+    ws = socket;
+    const id = Math.random().toString(36).slice(2);
 
-  ws.addEventListener("message", (ev) => {
-    let raw: unknown;
-    try {
-      raw = JSON.parse(String(ev.data));
-    } catch {
-      return;
-    }
-    const frame = sessionSubscribeEventSchema.safeParse(raw);
-    if (frame.success) {
-      if (frame.data.kind === "event") onEvent(frame.data.event);
-      else onPending(frame.data.blockers);
-      return;
-    }
-    const err = rpcErrorSchema.safeParse(raw);
-    if (err.success) onError(err.data.error.message);
-  });
+    socket.addEventListener("open", () => {
+      attempt = 0;
+      onStatus("open");
+      socket.send(
+        JSON.stringify({
+          id,
+          op: "session.subscribe",
+          params: {
+            instanceId: params.instanceId,
+            sessionId: params.sessionId,
+            sinceSeq: lastSeq,
+          },
+        }),
+      );
+    });
 
-  ws.addEventListener("error", () => onError("connection lost"));
+    socket.addEventListener("message", (ev) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(String(ev.data));
+      } catch {
+        return;
+      }
+      const frame = sessionSubscribeEventSchema.safeParse(raw);
+      if (frame.success) {
+        if (frame.data.kind === "event") {
+          const event = frame.data.event;
+          // Track the resume point so a reconnect replays only what we missed.
+          if (event.seq >= lastSeq) lastSeq = event.seq + 1;
+          onEvent(event);
+        } else {
+          onPending(frame.data.blockers);
+        }
+        return;
+      }
+      const err = rpcErrorSchema.safeParse(raw);
+      if (err.success) onError(err.data.error.message);
+    });
 
-  return () => ws.close();
+    // A socket error is always followed by `close`, which drives the reconnect.
+    socket.addEventListener("close", () => {
+      if (stopped) {
+        onStatus("closed");
+        return;
+      }
+      onStatus("reconnecting");
+      const delay = Math.min(30_000, 500 * 2 ** attempt) + Math.random() * 250;
+      attempt += 1;
+      reconnectTimer = setTimeout(connect, delay);
+    });
+  };
+
+  connect();
+
+  return () => {
+    stopped = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    ws?.close();
+  };
 }
 
 /**

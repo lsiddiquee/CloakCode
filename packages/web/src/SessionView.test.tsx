@@ -1,16 +1,32 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { SessionView } from "./SessionView";
 
+// Controls the connection status the stubbed bridge reports (see the mock).
+const h = vi.hoisted(() => ({ status: "open" as string }));
+
 // Stub the bridge so mounting SessionView never opens a real WebSocket and the
 // action functions are inert no-ops (we only assert what renders).
 vi.mock("./bridge", () => ({
-  subscribeSession: () => () => {},
+  subscribeSession: (
+    _params: unknown,
+    _onEvent: unknown,
+    _onPending: unknown,
+    _onError: unknown,
+    onStatus: (s: string) => void = () => {},
+  ) => {
+    onStatus(h.status);
+    return () => {};
+  },
   respondSession: async () => {},
   decideSession: async () => {},
   answerSession: async () => {},
 }));
+
+beforeEach(() => {
+  h.status = "open";
+});
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -43,5 +59,18 @@ describe("SessionView read-only gating", () => {
     );
     expect(screen.queryByText(/no CloakCode extension is running/i)).toBeNull();
     expect(screen.getByRole("textbox")).toBeTruthy();
+  });
+});
+
+describe("SessionView connection state", () => {
+  it("shows a reconnecting banner when the socket drops", () => {
+    h.status = "reconnecting";
+    render(<SessionView session={session()} onBack={() => {}} />);
+    expect(screen.getByText(/Reconnecting/i)).toBeTruthy();
+  });
+
+  it("shows no connection banner when open", () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    expect(screen.queryByText(/Reconnecting|Disconnected/i)).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import {
   decideSession,
   respondSession,
   subscribeSession,
+  type ConnState,
 } from "./bridge";
 import { approvalSummary, statusLabel, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
@@ -64,6 +65,7 @@ export function SessionView({
     pending: [],
     error: null,
   });
+  const [conn, setConn] = useState<ConnState>("connecting");
 
   useEffect(() => {
     const unsubscribe = subscribeSession(
@@ -71,6 +73,7 @@ export function SessionView({
       (event) => dispatch(event),
       (blockers) => dispatch({ type: "pending", blockers }),
       (message) => dispatch({ type: "error", message }),
+      setConn,
     );
     return unsubscribe;
   }, [session.instanceId, session.sessionId]);
@@ -149,6 +152,16 @@ export function SessionView({
             : statusLabel(session.status, session.idleSeconds)}
         </span>
       </header>
+
+      {conn !== "open" && (
+        <div className={`conn-banner ${conn}`}>
+          {conn === "closed"
+            ? "Disconnected"
+            : conn === "reconnecting"
+              ? "Reconnecting…"
+              : "Connecting…"}
+        </div>
+      )}
 
       <main
         className="content transcript"
