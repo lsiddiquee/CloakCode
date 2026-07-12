@@ -52,6 +52,42 @@ function reducer(state: ViewState, action: ViewAction): ViewState {
   };
 }
 
+interface SavedScroll {
+  top: number;
+  atBottom: boolean;
+}
+
+/**
+ * Persist the transcript scroll position per session. It survives a PWA reload
+ * (e.g. a phone lock/unlock that rebuilds the DOM) via `sessionStorage`, so the
+ * reader isn't yanked to the bottom when the transcript re-streams. Best-effort:
+ * blocked/absent storage just means the position won't persist.
+ */
+function readScroll(sessionId: string): SavedScroll | null {
+  try {
+    const raw = sessionStorage.getItem(`cc-scroll:${sessionId}`);
+    const v: unknown = raw ? JSON.parse(raw) : null;
+    if (
+      v &&
+      typeof v === "object" &&
+      typeof (v as SavedScroll).top === "number" &&
+      typeof (v as SavedScroll).atBottom === "boolean"
+    )
+      return v as SavedScroll;
+  } catch {
+    // no/blocked sessionStorage
+  }
+  return null;
+}
+
+function writeScroll(sessionId: string, value: SavedScroll): void {
+  try {
+    sessionStorage.setItem(`cc-scroll:${sessionId}`, JSON.stringify(value));
+  } catch {
+    // no/blocked sessionStorage
+  }
+}
+
 export function SessionView({
   session,
   onBack,
@@ -86,6 +122,7 @@ export function SessionView({
   const innerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const lastTopRef = useRef(0);
+  const restoredRef = useRef(false);
 
   const handleScroll = (): void => {
     const el = scrollRef.current;
@@ -101,13 +138,28 @@ export function SessionView({
       stickRef.current = true;
     }
     lastTopRef.current = top;
+    writeScroll(session.sessionId, { top, atBottom: stickRef.current });
   };
 
   useEffect(() => {
     const el = scrollRef.current;
     const inner = innerRef.current;
     if (!el || !inner) return;
+    restoredRef.current = false;
+    const saved = readScroll(session.sessionId);
     const toBottom = (): void => {
+      // First content measurement after (re)mount: if a reload wiped the DOM but
+      // the user had scrolled up mid-read, restore that position instead of
+      // yanking to the bottom; afterwards normal stick-to-bottom applies.
+      if (!restoredRef.current) {
+        restoredRef.current = true;
+        if (saved && !saved.atBottom) {
+          stickRef.current = false;
+          el.scrollTop = Math.min(saved.top, el.scrollHeight);
+          lastTopRef.current = el.scrollTop;
+          return;
+        }
+      }
       if (!stickRef.current) return;
       el.scrollTop = el.scrollHeight;
       lastTopRef.current = el.scrollTop;
@@ -116,7 +168,7 @@ export function SessionView({
     const ro = new ResizeObserver(toBottom);
     ro.observe(inner);
     return () => ro.disconnect();
-  }, []);
+  }, [session.sessionId]);
 
   const activity = sessionActivity(
     state.pending,
