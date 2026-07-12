@@ -9,7 +9,64 @@ import {
   findSessionLog,
   parseSessionEvents,
   parseDebugLogEvents,
+  stitchEvents,
 } from "./session-observer.js";
+
+describe("stitchEvents", () => {
+  const u = (id: string, text: string): SessionEvent => ({
+    type: "append",
+    seq: 0,
+    part: { kind: "userMessage", id, text },
+  });
+  const m = (id: string): SessionEvent => ({
+    type: "append",
+    seq: 0,
+    part: { kind: "markdown", id, text: "a" },
+  });
+
+  it("returns the debug-log unchanged when it opens at the transcript's start", () => {
+    const tx = [u("user-0", "q0"), m("msg-0"), u("user-1", "q1"), m("msg-1")];
+    const dl = [u("user-0", "q0"), m("msg-0"), u("user-1", "q1"), m("msg-1")];
+    expect(stitchEvents(tx, dl)).toBe(dl);
+  });
+
+  it("prepends the transcript's older turns before where the debug-log opens", () => {
+    // transcript has 3 turns; the debug-log opens on the last one (q2).
+    const tx = [
+      u("user-0", "q0"),
+      m("msg-0"),
+      u("user-1", "q1"),
+      m("msg-1"),
+      u("user-2", "q2"),
+      m("msg-2"),
+    ];
+    const dl = [u("user-0", "q2"), m("msg-0")]; // opens on q2, re-keyed from 0
+    const out = stitchEvents(tx, dl);
+    expect(out).toHaveLength(6); // 2 older transcript turns + the debug-log turn
+    expect(out.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5]); // contiguous
+    const ids = out.flatMap((e) => (e.type === "append" ? [e.part.id] : []));
+    expect(ids).toEqual([
+      "tx-user-0",
+      "tx-msg-0",
+      "tx-user-1",
+      "tx-msg-1",
+      "dl-user-0",
+      "dl-msg-0",
+    ]);
+    expect(new Set(ids).size).toBe(ids.length); // no id collisions
+  });
+
+  it("uses the debug-log alone when its opening turn isn't in the transcript", () => {
+    const tx = [u("user-0", "q0"), m("msg-0")];
+    const dl = [u("user-0", "q-new"), m("msg-0")]; // newer than the transcript
+    expect(stitchEvents(tx, dl)).toBe(dl);
+  });
+
+  it("falls back to the transcript when the debug-log has no turns", () => {
+    const tx = [u("user-0", "q0"), m("msg-0")];
+    expect(stitchEvents(tx, [])).toBe(tx);
+  });
+});
 
 const jsonl = (lines: object[]): string =>
   lines.map((l) => JSON.stringify(l)).join("\n");
@@ -437,14 +494,19 @@ describe("findSessionLog", () => {
     await fs.mkdir(path.join(base, "debug-logs", "sessZ"), { recursive: true });
     await fs.writeFile(
       path.join(base, "debug-logs", "sessZ", "main.jsonl"),
-      "",
+      jsonl([{ type: "user_message", attrs: { content: "from debug-log" } }]),
     );
 
     const log = await findSessionLog(root, "sessZ");
     expect(log?.file).toBe(
       path.join(base, "debug-logs", "sessZ", "main.jsonl"),
     );
-    expect(log?.parse).toBe(parseDebugLogEvents);
+    // The parser reads the debug-log (the leading source), not just the transcript.
+    const parsed = log ? log.parse(await fs.readFile(log.file, "utf8")) : [];
+    const userTexts = parsed.flatMap((e) =>
+      e.type === "append" && e.part.kind === "userMessage" ? [e.part.text] : [],
+    );
+    expect(userTexts).toContain("from debug-log");
   });
 
   it("falls back to the transcript when no debug-log exists", async () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { formatDiagnostics, type DiagnosticsSnapshot } from "./diagnostics.js";
 
-function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot {
+function snapshot(
+  over: Partial<DiagnosticsSnapshot> = {},
+): DiagnosticsSnapshot {
   return {
     instanceId: "ext-dev",
     pid: 71766,

@@ -99,8 +99,7 @@ export function formatDiagnostics(s: DiagnosticsSnapshot): string {
   L.push(
     row(
       "storageUri",
-      s.storageUri ??
-        "undefined (empty window / Extension Development Host)",
+      s.storageUri ?? "undefined (empty window / Extension Development Host)",
     ),
   );
   L.push(row("globalStorageUri", s.globalStorageUri));

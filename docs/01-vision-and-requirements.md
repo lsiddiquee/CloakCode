@@ -32,22 +32,22 @@ the design is preserved:
 
 ## Concrete requirements
 
-| # | Requirement | Notes |
-|---|---|---|
-| R1 | Never sync/push code to GitHub | Compliance-critical; architectural, not policy-based. |
-| R2 | Access Copilot models locally | Via stable `vscode.lm`. |
-| R3 | List available sessions remotely | Session picker for the phone. **Proven.** |
-| R4 | View a session's full transcript remotely | Live mirror. **Proven (read).** |
-| R5 | Rich rendering (expandable sections, tool cards, multiple-choice) | Own normalized `SessionPart` schema. |
-| R6 | Detect when a session is blocked/awaiting input | **Proven** via unmatched interactive tool call. |
-| R7 | Answer the blocker remotely (incl. multiple-choice) | The remaining build work (actuator). |
-| R8 | Phone-first client | React PWA + Web Push for blocker alerts. |
-| R9 | Resilient on mobile networks | Resumable event log (`lastSeq`). |
-| R10 | Minimal context egress + redaction | Send only selection/signatures, scrubbed for secrets. |
-| R11 | Observability: structured logs, health metrics, audit trail | **Redacted by construction** (never logs code/prompts/secrets); `traceId`-correlated across extension/leader/hook/bridge/web; provenance-stamped. Foundation is **pre-MVP**; currently missing — see docs/03 "Observability". |
+| #   | Requirement                                                       | Notes                                                                                                                                                                                                                         |
+| --- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | Never sync/push code to GitHub                                    | Compliance-critical; architectural, not policy-based.                                                                                                                                                                         |
+| R2  | Access Copilot models locally                                     | Via stable `vscode.lm`.                                                                                                                                                                                                       |
+| R3  | List available sessions remotely                                  | Session picker for the phone. **Proven.**                                                                                                                                                                                     |
+| R4  | View a session's full transcript remotely                         | Live mirror. **Proven (read).**                                                                                                                                                                                               |
+| R5  | Rich rendering (expandable sections, tool cards, multiple-choice) | Own normalized `SessionPart` schema.                                                                                                                                                                                          |
+| R6  | Detect when a session is blocked/awaiting input                   | **Proven** via unmatched interactive tool call.                                                                                                                                                                               |
+| R7  | Answer the blocker remotely (incl. multiple-choice)               | The remaining build work (actuator).                                                                                                                                                                                          |
+| R8  | Phone-first client                                                | React PWA + Web Push for blocker alerts.                                                                                                                                                                                      |
+| R9  | Resilient on mobile networks                                      | Resumable event log (`lastSeq`).                                                                                                                                                                                              |
+| R10 | Minimal context egress + redaction                                | Send only selection/signatures, scrubbed for secrets.                                                                                                                                                                         |
+| R11 | Observability: structured logs, health metrics, audit trail       | **Redacted by construction** (never logs code/prompts/secrets); `traceId`-correlated across extension/leader/hook/bridge/web; provenance-stamped. Foundation is **pre-MVP**; currently missing — see docs/03 "Observability". |
 
 ## Non-goals (for now)
 
 - Publishing to the public Marketplace using **proposed** VS Code APIs (they can't be published).
 - Mirroring a session inside VS Code's own chat UI with native widgets (a later, sideloaded-only layer).
-- Replacing Copilot; CloakCode *drives* it.
+- Replacing Copilot; CloakCode _drives_ it.

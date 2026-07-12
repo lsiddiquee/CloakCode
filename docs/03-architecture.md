@@ -489,11 +489,11 @@ whole product, so it is designed in from the first log line, not bolted on.
 
 ### Three planes
 
-| Plane                                | Answers                                          | Sink                                                                              |
-| ------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------- |
-| **Logs** (ordered structured events) | "what happened, in order"                        | OutputChannel (live) + rotating JSONL file; web → `console` + optional ship-back  |
-| **Metrics** (counters/gauges)        | "healthy? how much?"                             | in-memory, exposed via the diagnostics RPC; pushed to your infra at M4            |
-| **Audit** (append-only)              | "who actuated / what egressed, and why allowed"  | durable, persistent, provenance-stamped                                          |
+| Plane                                | Answers                                         | Sink                                                                             |
+| ------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Logs** (ordered structured events) | "what happened, in order"                       | OutputChannel (live) + rotating JSONL file; web → `console` + optional ship-back |
+| **Metrics** (counters/gauges)        | "healthy? how much?"                            | in-memory, exposed via the diagnostics RPC; pushed to your infra at M4           |
+| **Audit** (append-only)              | "who actuated / what egressed, and why allowed" | durable, persistent, provenance-stamped                                          |
 
 ### Structured logging (replaces `out.appendLine`)
 

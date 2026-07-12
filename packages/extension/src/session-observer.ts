@@ -377,6 +377,59 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
   return events;
 }
 
+/** The first user-message text in an event list — the turn the log opens on. */
+function firstUserText(events: SessionEvent[]): string | undefined {
+  for (const e of events) {
+    if (e.type === "append" && e.part.kind === "userMessage") return e.part.text;
+  }
+  return undefined;
+}
+
+/**
+ * Namespace part/target ids and renumber seq for a merged stream. Both parsers
+ * restart their ids (`user-0`, `msg-0`, ...), so without a per-source tag the
+ * client (which de-dupes parts by id) would drop the debug-log's turns.
+ */
+function retag(
+  events: SessionEvent[],
+  tag: string,
+  base: number,
+): SessionEvent[] {
+  return events.map((e, i): SessionEvent => {
+    const seq = base + i;
+    if (e.type === "append")
+      return { ...e, seq, part: { ...e.part, id: `${tag}${e.part.id}` } };
+    return { ...e, seq, id: `${tag}${e.id}` }; // resolve | updateStatus
+  });
+}
+
+/**
+ * When both a transcript and a debug-log exist, the debug-log LEADS (its recent
+ * turns are authoritative) but may be missing early history after a recycle /
+ * restart (docs/02 §4.22; docs/05 source strategy). Find where the debug-log
+ * opens in the transcript — its first user message — and append everything before
+ * it as history; the debug-log leads from there. Falls back to the debug-log
+ * alone when it already starts at the transcript's beginning or its opening turn
+ * isn't in the transcript yet, and to the transcript when the debug-log has no
+ * turns to lead with.
+ */
+export function stitchEvents(
+  transcript: SessionEvent[],
+  debugLog: SessionEvent[],
+): SessionEvent[] {
+  const anchor = firstUserText(debugLog);
+  if (anchor === undefined) return transcript;
+  const boundary = transcript.findIndex(
+    (e) =>
+      e.type === "append" &&
+      e.part.kind === "userMessage" &&
+      e.part.text === anchor,
+  );
+  if (boundary <= 0) return debugLog;
+  const prefix = retag(transcript.slice(0, boundary), "tx-", 0);
+  return [...prefix, ...retag(debugLog, "dl-", prefix.length)];
+}
+
 /** A resolved session log: the file to tail and the parser for its format. */
 export interface SessionLog {
   file: string;
@@ -403,19 +456,34 @@ export async function findSessionLog(
   for (const hashDir of hashDirs) {
     const base = path.join(root, hashDir, "GitHub.copilot-chat");
     const debugLog = path.join(base, "debug-logs", sessionId, "main.jsonl");
+    const transcript = path.join(base, "transcripts", `${sessionId}.jsonl`);
+
     try {
       await fs.access(debugLog);
-      return { file: debugLog, parse: parseDebugLogEvents };
     } catch {
-      // no debug-log for this session in this env; try the transcript
+      // No debug-log here; fall back to the transcript (zero-config) if present.
+      try {
+        await fs.access(transcript);
+        return { file: transcript, parse: parseSessionEvents };
+      } catch {
+        continue; // keep looking across envs
+      }
     }
-    const transcript = path.join(base, "transcripts", `${sessionId}.jsonl`);
+
+    // Debug-log LEADS (latest turns). Read the transcript once for older history
+    // and stitch it in ahead of the debug-log when the debug-log is missing it
+    // after a recycle/restart (docs/05 source strategy). The debug-log's opening
+    // turn is fixed, so the stitched tail stays a stable, resume-safe sequence.
+    let history: SessionEvent[] = [];
     try {
-      await fs.access(transcript);
-      return { file: transcript, parse: parseSessionEvents };
+      history = parseSessionEvents(await fs.readFile(transcript, "utf8"));
     } catch {
-      // keep looking across envs
+      // no transcript alongside -> debug-log leads alone
     }
+    return {
+      file: debugLog,
+      parse: (content) => stitchEvents(history, parseDebugLogEvents(content)),
+    };
   }
   return undefined;
 }
