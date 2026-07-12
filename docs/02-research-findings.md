@@ -464,6 +464,15 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   has no replay path** (live OTel only) → it starts fresh post-rebuild. Transcripts are also **GC'd to
   the last 20** (`cleanupOldTranscripts`). _Correction:_ the debug-log does **not** "reset on reload" —
   it grew to 188 MB across many reloads; only the **rebuild** (overlay wipe) cleared it.
+- **4.23** _Transcript is always one assistant reply behind; the debug-log has the latest
+  (2026-07-12, live-verified)._ Buffered transcript entries flush only at the **next** turn boundary
+  (§4.6), so a finished turn's `assistant.message` reaches disk only when the **following** turn
+  starts — the **newest** reply is **never** on disk while it is the latest. Verified on session
+  `4814afa5`: turn 1's reply appeared only once turn 2 began; turn 2's reply is absent. The
+  **debug-log** writes `agent_response` per turn, so it **has the latest** (2 `user_message` → 2
+  `agent_response`). Consequence for live viewing / remote-drive: the **transcript alone can never
+  show the current answer** — the **debug-log is required** for the latest turn (its caveats stand:
+  ~5 KB truncation §4.21 [salvaged], history loss on rebuild §4.22).
 
 ---
 

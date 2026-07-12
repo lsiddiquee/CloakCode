@@ -256,3 +256,15 @@ the critical path.
   the future workspace-scoped scan (#32/Q7): scope to the **folder across all its hash dirs**, not a
   single hash, or relocated sessions get hidden. Detail in
   `.local/research/workspace-identity-and-watch-dedup.md`.
+- **Source strategy — debug-log primary + stitch the transcript for history (decided 2026-07-12).**
+  Neither source is complete alone: the **debug-log has the latest answer** (per-turn `agent_response`)
+  but truncates ~5 KB (§4.21, salvaged) and **loses history on rebuild** (§4.22); the **transcript** is
+  untruncated and rehydrates history on rebuild but is **always one turn behind** (§4.23, never the
+  latest). **Decision:** debug-log **primary** (carries the live/latest turn); **detect** when it is
+  incomplete (its earliest turn is later than the transcript's — i.e. post-rebuild) and **stitch**
+  transcript's older turns + debug-log's recent turns (boundary = the debug-log's `session_start`).
+  "Best we can do." Build **after** the stack is running end-to-end, not before.
+- **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
+  mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
+  view can lag or omit the newest content (transcript flush lag §4.23; debug-log truncation §4.21) and
+  is a best-effort mirror, not a guaranteed-complete copy of Copilot's own session.
