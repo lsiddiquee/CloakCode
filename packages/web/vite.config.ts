@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // HMR defaults OFF for stable mobile/LAN testing — the HMR websocket through
@@ -13,6 +13,11 @@ const hmrEnabled = process.env["CLOAKCODE_HMR"] === "on";
 // nothing hardcodes `localhost` (which on a phone would mean the phone itself).
 export default defineConfig({
   plugins: [react()],
+  test: {
+    // Component tests (SessionView) need a DOM; the pure tests run fine under it too.
+    environment: "jsdom",
+    setupFiles: ["./src/test-setup.ts"],
+  },
   server: {
     // Bind ALL interfaces. Inside a Dev Container, VS Code forwards the port via
     // IPv4 127.0.0.1, but Vite's default `localhost` binds IPv6 ::1 ONLY, so the

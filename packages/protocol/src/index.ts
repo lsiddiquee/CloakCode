@@ -11,15 +11,25 @@ export type SessionStatus = z.infer<typeof sessionStatusSchema>;
  * One row in the remote session picker. Addressed by `(instanceId, sessionId)`
  * so multiple environments (dev containers / WSL / host) never collide — see
  * docs/03 "Multi-instance topology".
+ *
+ * `owned` = a live CloakCode extension serves this session's workspace, so it is
+ * actuatable (respond/decide/answer). Sessions in a workspace with no running
+ * extension are still listed (observe-only) with `owned=false`, and the client
+ * renders them read-only/locked. Actuation routing + a receiving-side
+ * workspace/session guard belong to the future gateway/leader, not today's proxy.
  */
 export const sessionSummarySchema = z.object({
   instanceId: z.string(),
   sessionId: z.string(),
+  /** Human label for the workspace (folder name, or a short hash fallback). */
   workspace: z.string(),
+  /** Stable `workspaceStorage/<hash>` key — the client groups + routes on this. */
+  workspaceHash: z.string(),
   title: z.string(),
   turns: z.number().int().nonnegative(),
   status: sessionStatusSchema,
   idleSeconds: z.number().int().nonnegative(),
+  owned: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 

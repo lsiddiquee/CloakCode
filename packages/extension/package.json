@@ -14,6 +14,13 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "cloakcode.showDiagnostics",
+        "title": "Show Diagnostics",
+        "category": "CloakCode"
+      }
+    ],
     "configuration": {
       "title": "CloakCode",
       "properties": {

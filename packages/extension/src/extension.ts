@@ -3,8 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { startBridge, type Bridge } from "./bridge.js";
-import { defaultWorkspaceStorageRoot, scanSessions } from "./scanner.js";
+import {
+  defaultWorkspaceStorageRoot,
+  scanSessions,
+  storageHashFromUri,
+} from "./scanner.js";
 import { findSessionLog, findTranscript } from "./session-observer.js";
+import {
+  formatDiagnostics,
+  type DiagnosticsSnapshot,
+  type ScannedHash,
+} from "./diagnostics.js";
 import {
   baseToolCallId,
   buildCarouselAnswers,
@@ -62,6 +71,50 @@ async function installHook(
   }
 }
 
+/**
+ * The workspaceStorage `<hash>` dirs THIS window owns — the sessions this
+ * instance can actuate; `scanSessions` marks the rest observe-only. Resolved
+ * fresh per scan from two signals:
+ *   1. `context.storageUri` (= `.../workspaceStorage/<hash>/<extId>`) — the
+ *      canonical hash for this window's workspace. NB the extension id itself
+ *      contains a slash (`cloakcode.@cloakcode/extension`), so the hash is the
+ *      first segment under the root, not `basename(dirname())` — see
+ *      `storageHashFromUri`.
+ *   2. `CLOAKCODE_OWNED_HASHES` (comma-separated) — a deterministic override for
+ *      the dev harness and tests.
+ * An empty result makes the scanner list every session read-only (secure default).
+ */
+function resolveOwnedHashes(
+  context: vscode.ExtensionContext,
+  root: string,
+): { hashes: Set<string>; source: string; names: Map<string, string> } {
+  const hashes = new Set<string>();
+  const names = new Map<string, string>();
+  const sources: string[] = [];
+
+  const uri = context.storageUri;
+  const hash = uri ? storageHashFromUri(root, uri.fsPath) : undefined;
+  if (hash) {
+    hashes.add(hash);
+    sources.push("context.storageUri");
+    // Label the owned workspace with its real folder name (single-root windows).
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const only = folders.length === 1 ? folders[0] : undefined;
+    if (only) names.set(hash, only.name);
+  }
+
+  const override = process.env["CLOAKCODE_OWNED_HASHES"]?.trim();
+  if (override) {
+    for (const h of override.split(",")) {
+      const t = h.trim();
+      if (t) hashes.add(t);
+    }
+    sources.push("CLOAKCODE_OWNED_HASHES");
+  }
+
+  return { hashes, source: sources.join("+") || "none", names };
+}
+
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
@@ -96,7 +149,15 @@ export async function activate(
   try {
     bridge = await startBridge(
       {
-        listSessions: () => scanSessions({ instanceId, root }),
+        listSessions: () => {
+          const { hashes, names } = resolveOwnedHashes(context, root);
+          return scanSessions({
+            instanceId,
+            root,
+            ownedWorkspaceHashes: hashes,
+            workspaceNames: names,
+          });
+        },
         findSessionLog: (sessionId) => findSessionLog(root, sessionId),
         findTranscript: (sessionId) => findTranscript(root, sessionId),
         spoolDir,
@@ -170,6 +231,69 @@ export async function activate(
       }`,
     );
   }
+
+  const gatherDiagnostics = async (): Promise<DiagnosticsSnapshot> => {
+    const { hashes, source } = resolveOwnedHashes(context, root);
+    const scanned: ScannedHash[] = [];
+    let hashDirs: string[] = [];
+    try {
+      hashDirs = await fs.readdir(root);
+    } catch {
+      // no workspaceStorage root yet
+    }
+    for (const hash of [...hashDirs].sort()) {
+      let transcripts = 0;
+      try {
+        const files = await fs.readdir(
+          path.join(root, hash, "GitHub.copilot-chat", "transcripts"),
+        );
+        transcripts = files.filter((f) => f.endsWith(".jsonl")).length;
+      } catch {
+        // no transcripts under this hash
+      }
+      if (transcripts > 0 || hashes.has(hash)) {
+        scanned.push({ hash, transcripts, owned: hashes.has(hash) });
+      }
+    }
+    return {
+      instanceId,
+      pid: process.pid,
+      bridgePort: bridge?.port ?? null,
+      configuredPort: port,
+      storageUri: context.storageUri?.fsPath ?? null,
+      workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((f) =>
+        f.uri.toString(),
+      ),
+      ownedHashes: [...hashes],
+      ownedSource: source,
+      root,
+      spoolDir,
+      scanned,
+    };
+  };
+
+  // Log a diagnostics snapshot on activation and expose it as a command — the
+  // fastest way to see why a session is (not) owned (e.g. a missing storageUri).
+  // With CLOAKCODE_DIAG_FILE set (the dev launch), also dump it to that file so
+  // the snapshot can be inspected without opening the output channel.
+  const diag = await gatherDiagnostics();
+  out.appendLine(formatDiagnostics(diag));
+  const diagFile = process.env["CLOAKCODE_DIAG_FILE"];
+  if (diagFile) {
+    try {
+      await fs.mkdir(path.dirname(diagFile), { recursive: true });
+      await fs.writeFile(diagFile, formatDiagnostics(diag) + "\n");
+    } catch {
+      // best effort — a diagnostics dump must never break activation
+    }
+  }
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.showDiagnostics", async () => {
+      out.appendLine("");
+      out.appendLine(formatDiagnostics(await gatherDiagnostics()));
+      out.show(true);
+    }),
+  );
 
   context.subscriptions.push({
     dispose: () => {

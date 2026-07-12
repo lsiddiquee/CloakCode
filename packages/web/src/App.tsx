@@ -9,18 +9,29 @@ type LoadState =
   | { kind: "error"; message: string }
   | { kind: "ready"; sessions: SessionSummary[] };
 
-function groupByWorkspace(
-  sessions: SessionSummary[],
-): Array<{ instanceId: string; workspace: string; rows: SessionSummary[] }> {
+function groupByWorkspace(sessions: SessionSummary[]): Array<{
+  instanceId: string;
+  workspace: string;
+  workspaceHash: string;
+  rows: SessionSummary[];
+}> {
   const map = new Map<
     string,
-    { instanceId: string; workspace: string; rows: SessionSummary[] }
+    {
+      instanceId: string;
+      workspace: string;
+      workspaceHash: string;
+      rows: SessionSummary[];
+    }
   >();
   for (const s of sessions) {
-    const key = `${s.instanceId}|${s.workspace}`;
+    // Group by the stable hash, not the display name (two folders can share a
+    // basename); the label comes from the first row.
+    const key = `${s.instanceId}|${s.workspaceHash}`;
     const g = map.get(key) ?? {
       instanceId: s.instanceId,
       workspace: s.workspace,
+      workspaceHash: s.workspaceHash,
       rows: [],
     };
     g.rows.push(s);
@@ -103,37 +114,49 @@ export function App(): JSX.Element {
         )}
 
         {state.kind === "ready" &&
-          groupByWorkspace(state.sessions).map((group) => (
-            <section key={`${group.instanceId}|${group.workspace}`}>
-              <div className="group-label">
-                workspace {group.workspace} · instance {group.instanceId}
-              </div>
-              {group.rows.map((s) => (
-                <div
-                  key={`${s.instanceId}:${s.sessionId}`}
-                  className={`row ${s.status === "blocked" ? "blocked" : ""}`}
-                  onClick={() => setSelected(s)}
-                >
-                  <span className={`dot ${dotClass(s.status)}`} />
-                  <div className="body">
-                    <div className="name">{s.title}</div>
-                    <div className="meta">
-                      <span title={`session ${s.sessionId}`}>
-                        session {s.sessionId.slice(0, 8)}
-                      </span>
-                      <span>·</span>
-                      <span>{s.turns} turns</span>
-                      <span>·</span>
-                      <span>{statusLabel(s.status, s.idleSeconds)}</span>
-                    </div>
-                  </div>
-                  {s.status === "blocked" && (
-                    <span className="needs">Needs input</span>
-                  )}
+          groupByWorkspace(state.sessions).map((group) => {
+            const owned = group.rows.every((s) => s.owned);
+            return (
+              <section key={`${group.instanceId}|${group.workspaceHash}`}>
+                <div className="group-label">
+                  workspace {group.workspace}
+                  {owned
+                    ? ` · instance ${group.instanceId}`
+                    : " · read-only (no extension here)"}
                 </div>
-              ))}
-            </section>
-          ))}
+                {group.rows.map((s) => (
+                  <div
+                    key={`${s.instanceId}:${s.sessionId}`}
+                    className={`row ${s.status === "blocked" ? "blocked" : ""}${
+                      s.owned ? "" : " locked"
+                    }`}
+                    onClick={() => setSelected(s)}
+                  >
+                    <span className={`dot ${dotClass(s.status)}`} />
+                    <div className="body">
+                      <div className="name">{s.title}</div>
+                      <div className="meta">
+                        <span title={`session ${s.sessionId}`}>
+                          session {s.sessionId.slice(0, 8)}
+                        </span>
+                        <span>·</span>
+                        <span>{s.turns} turns</span>
+                        <span>·</span>
+                        <span>{statusLabel(s.status, s.idleSeconds)}</span>
+                      </div>
+                    </div>
+                    {s.owned ? (
+                      s.status === "blocked" && (
+                        <span className="needs">Needs input</span>
+                      )
+                    ) : (
+                      <span className="needs locked">read-only</span>
+                    )}
+                  </div>
+                ))}
+              </section>
+            );
+          })}
       </main>
     </div>
   );

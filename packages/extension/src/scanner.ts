@@ -35,6 +35,22 @@ export function defaultWorkspaceStorageRoot(): string {
   );
 }
 
+/**
+ * The workspaceStorage `<hash>` from a `context.storageUri` fsPath. storageUri is
+ * `<root>/<hash>/<extId>`, and the extension id can itself contain a slash (ours
+ * is `cloakcode.@cloakcode/extension`), so `basename(dirname())` extracts the
+ * WRONG segment — take the first path segment under `root` instead. Returns
+ * undefined when the path is not under `root`.
+ */
+export function storageHashFromUri(
+  root: string,
+  storageFsPath: string,
+): string | undefined {
+  const rel = path.relative(root, storageFsPath);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+  return rel.split(path.sep)[0] || undefined;
+}
+
 export interface ScanOptions {
   /** Stable identity of this environment; see docs/03 multi-instance topology. */
   instanceId: string;
@@ -43,6 +59,19 @@ export interface ScanOptions {
   /** Injectable clock (ms since epoch) for deterministic tests. */
   now?: () => number;
   liveWindowSeconds?: number;
+  /**
+   * WorkspaceStorage `<hash>` dirs a live extension in THIS window owns (from
+   * `context.storageUri`). A session is `owned` (actuatable) iff its hash is in
+   * this set; others are listed observe-only (`owned=false`). Unset (dev-server /
+   * tests) => everything is `owned` (no window to scope against).
+   */
+  ownedWorkspaceHashes?: ReadonlySet<string>;
+  /**
+   * Map of `workspaceStorage/<hash>` -> a human workspace label the extension
+   * knows (e.g. the owned window's folder name). Falls back to `workspace.json`
+   * / a hash prefix when absent.
+   */
+  workspaceNames?: ReadonlyMap<string, string>;
 }
 
 interface ParsedTranscript {
@@ -261,6 +290,11 @@ export async function scanSessions(
     } catch {
       continue;
     }
+    // Prefer an extension-supplied label (owned window's folder name); else one
+    // workspace.json read per hash dir (not per session file).
+    const workspace =
+      opts.workspaceNames?.get(hashDir) ??
+      (await readWorkspaceName(root, hashDir));
     for (const file of files) {
       if (!file.endsWith(".jsonl")) continue;
       const full = path.join(transcriptsDir, file);
@@ -283,7 +317,8 @@ export async function scanSessions(
         summary: {
           instanceId: opts.instanceId,
           sessionId,
-          workspace: await readWorkspaceName(root, hashDir),
+          workspace,
+          workspaceHash: hashDir,
           title: generatedTitle || title || "(no user message)",
           turns,
           status: classifyStatus(
@@ -292,6 +327,9 @@ export async function scanSessions(
             liveWindow,
           ),
           idleSeconds,
+          owned: opts.ownedWorkspaceHashes
+            ? opts.ownedWorkspaceHashes.has(hashDir)
+            : true,
         },
       });
     }

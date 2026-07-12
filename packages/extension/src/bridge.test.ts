@@ -12,10 +12,12 @@ const sample: SessionSummary[] = [
     instanceId: "inst-test",
     sessionId: "sessA",
     workspace: "myrepo",
+    workspaceHash: "hash-abc",
     title: "Refactor auth middleware",
     turns: 12,
     status: "blocked",
     idleSeconds: 3,
+    owned: true,
   },
 ];
 

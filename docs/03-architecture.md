@@ -390,6 +390,43 @@ and `session.subscribe` keys on `(instanceId, sessionId)`; (2) the bridge port i
 configurable with an **ephemeral fallback** (`port: 0`), a fixed port being only an optional
 same-host convenience.
 
+### Actuation routing & the receiving-side guard (owned vs read-only)
+
+Observation is whole-environment (the leader enumerates **every** repo's
+`transcripts/*.jsonl`), but **actuation is workspace-scoped**: a session is only safely
+driveable from the window/environment that actually hosts it. Opening a foreign session
+_by URI_ from another window takes VS Code's **load/restore** path (a skeletal copy) rather
+than the live **acquire** path, and mis-targets — in testing a remote answer round-tripped
+into a brand-new session under the wrong `workspaceHash`
+(see [docs/02 §4.10](02-research-findings.md) and the cross-window mis-target correction).
+
+So the address triple `(instanceId, workspaceHash, sessionId)` carries an ownership bit:
+
+- **`owned` (shipped, M1).** `sessions.list` stamps every row with `owned: boolean`, true
+  iff a live extension serves that session's workspace (computed from the activating
+  window's `context.storageUri` hash). The list still shows **all** sessions in the
+  environment; the client renders foreign ones **locked / read-only** — navigable to view
+  the transcript, but with the composer and every blocker action (send / answer / approve)
+  removed, and owned groups labeled with their instance name. **Today this is UI-side
+  gating only** — the bridge is a pure proxy with no routing logic, which is fine while a
+  single environment is embedded.
+
+- **Router + receiving-side guard (deferred — required before the bridge is more than a
+  proxy).** Once the bridge becomes the self-elected **gateway** or the M4 **relay / leader**
+  serving multiple environments, UI gating is not enough. Two enforcement points must exist:
+  1. **Route, don't broadcast.** The gateway dispatches each action (`respond` / `decide` /
+     `answer`) to the one extension that owns `(instanceId, workspaceHash)` — never to the
+     focused window or by fan-out.
+  2. **Guard at the receiver (defense in depth).** The receiving extension MUST verify the
+     action's `(workspaceHash, sessionId)` matches a session it actually hosts and
+     **ignore / reject** it otherwise. It must **never** acquire-or-load a foreign session by
+     URI to satisfy a misrouted action — that is precisely the mis-target above. The
+     `remote-operator` provenance tag is checked at the same gate.
+
+  The UI `owned` flag is correctness for the honest path; the router plus the receiver guard
+  are the **security boundary** once actions can arrive for a workspace this window does not
+  own.
+
 ### Endpoint modes (pluggable behind one protocol)
 
 "Where the phone-facing endpoint lives" is a swappable choice; an instance only ever
@@ -427,6 +464,134 @@ an optional status-bar affordance) rebuilds the observer + server in place; a
 takes over; **Reload Window** is the nuclear fallback. Restarts are seamless because the phone
 reconnects and **replays from `lastSeq`** — a restart looks like a brief blip, not a lost
 session.
+
+## Observability, logging & traceability
+
+> **Status: a pre-MVP gap.** Today the only instrumentation is ad-hoc
+> `out.appendLine()` to the "CloakCode" OutputChannel plus the one-shot
+> `CloakCode: Show Diagnostics` dump. There is **no** structured logging, no metrics, no
+> cross-process correlation, and no durable audit trail. For a tool that **bridges
+> local↔remote and actuates an agent on the user's behalf**, that is a real gap — field
+> issues aren't debuggable, health isn't monitorable, and (the compliance one) "**who** drove
+> Copilot from the phone, and **what** left the machine" isn't reviewable. This section is the
+> design to close it; the **foundation is a pre-MVP requirement** (R11).
+
+### The CloakCode twist: observability under a no-log-secrets rule
+
+Normal apps log freely. CloakCode's #1 non-negotiable is **never log secrets, tokens, or raw
+code/prompts** (docs/04). So every record is **redacted by construction**: we log **identity,
+shape, and outcome** — `sessionId`, `workspaceHash`, `toolName`, token _counts_, byte _sizes_,
+durations, booleans, hashes — **never content**. A body that must be referenced becomes a
+salted hash + length, not the bytes. This is enforced at the logging boundary (a typed API
+that does not accept free-form blobs + a redaction pass reusing the egress gate's
+secret/entropy scan + a test and a lint rule). Observability that leaked code would defeat the
+whole product, so it is designed in from the first log line, not bolted on.
+
+### Three planes
+
+| Plane                                | Answers                                          | Sink                                                                              |
+| ------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| **Logs** (ordered structured events) | "what happened, in order"                        | OutputChannel (live) + rotating JSONL file; web → `console` + optional ship-back  |
+| **Metrics** (counters/gauges)        | "healthy? how much?"                             | in-memory, exposed via the diagnostics RPC; pushed to your infra at M4            |
+| **Audit** (append-only)              | "who actuated / what egressed, and why allowed"  | durable, persistent, provenance-stamped                                          |
+
+### Structured logging (replaces `out.appendLine`)
+
+- A tiny **`Logger` port in `@cloakcode/protocol`** (pure — no `vscode`):
+  `log(level, event, fields)` with a stable `event` name and a **typed, redaction-checked**
+  `fields` record; levels `trace | debug | info | warn | error`.
+- **Sinks injected per package** so the boundary holds (only `extension` imports `vscode`):
+  `extension` → OutputChannel + a rotating JSONL file; `agent` → host-injected; `web` →
+  `console` + an optional redacted ship-back over the bridge.
+- Every record stamps `ts, level, event, component`
+  (`extension | leader | hook | bridge | web | agent`), `instanceId`, and the correlation ids
+  below.
+
+### Correlation & tracing (across processes)
+
+A remote action is a **distributed** flow — `web → bridge → leader/router → owning extension →
+actuator → VS Code → response` — plus the **separate hook process**:
+
+- The client mints a **`traceId`** per user action (send / answer / approve); every hop logs
+  `{ traceId, spanId, parentSpanId }`, so one action is one trace end-to-end.
+- The trace carries the **provenance tag** (`genuine-local-user` / `remote-operator` /
+  `cloakcode-staged`) so the audit answers "human at the keyboard, or the phone?"
+- The **hook** is out-of-process (only `env` + the spool reach it), so propagate `traceId`
+  **through the spool file** it already writes — a blocker the hook surfaces and the answer
+  that resolves it then share one trace.
+
+### Who logs what
+
+- **Extension (per window).** Activation + resolved config; observer scan cycles (session and
+  blocker **counts** + durations, not content); hook-install result; bridge lifecycle
+  (bind / port / close); **ownership resolution** (owned hashes + how resolved — exactly what
+  the diagnostics dump already shows); **every actuation attempt + the guard decision**
+  (allowed / denied + why); errors (stack, never payload).
+- **Leader (per environment).** Election win / loss / **handoff**; relay registration; **watch
+  de-dup** (which observation watches it owns); **routing decisions** (which
+  `(instanceId, workspaceHash)` an action was dispatched to, or why it was rejected); liveness
+  heartbeats. The leader is the one place that sees the whole environment, so its log is the
+  backbone for "why did my phone action land there."
+- **Hook (separate process).** Spool write / delete keyed by `session_id` + `toolName` —
+  **never** `tool_input` content (it sees the tool arguments; it must log shape only); plus its
+  own errors.
+- **Bridge.** Connection open / close; each RPC as `{ op, traceId, latencyMs, ok }` (not the
+  payload); ingress-validation failures (zod); auth results + rate-limit hits (M4).
+- **Web client.** Socket state + reconnects; action sends (`traceId`); render errors; and an
+  optional **redacted log ship-back** so a phone-side bug is debuggable from the host.
+
+### Audit trail (the compliance backbone)
+
+Broadens docs/04's prompts-only "audit log" to **every remote action and every egress**.
+Append-only, **persistent**, each record: `ts, traceId, provenance, actor` (operator identity
+once auth lands, M4), `target (instanceId, workspaceHash, sessionId), action, outcome`
+(`allowed` / `denied-by-guard` / `failed`), and a `redaction summary` (bytes/tokens scanned +
+stripped, hashed body — never the body). Optionally **tamper-evident** via a hash chain. This
+is what makes "who drove Copilot remotely, and what left the machine" reviewable — the reason
+an enterprise would trust the bridge at all. It also pairs with the receiving-side actuation
+guard (see "Actuation routing & the receiving-side guard"): a `denied-by-guard` outcome is an
+audit event, not a silent drop.
+
+### Health & diagnostics
+
+- Promote the current **`CloakCode: Show Diagnostics`** into a live **diagnostics/health RPC**
+  the phone (and your infra) can pull: leader status, bridge up + port, watchers armed, hook
+  installed, owned hashes, egress budget used, last-error summaries, key counters.
+- A **status-bar item** (green / amber / red) for at-a-glance local health; the phone mirrors
+  it as a header pill (ties into the existing connection dot).
+
+### Storage, rotation, retention
+
+- **Ephemeral-storage caveat (docs/02 §4.22):** `~/.vscode-server` is an **overlay** — a
+  container rebuild wipes it. Live logs may sit there (rotated, size-capped JSONL), but the
+  **audit log must live on a persistent path or ship out** (M4), or "who did what" is lost on
+  every rebuild.
+- File logs rotate with retention caps; metrics stay in-memory + snapshotted; audit is durable
+  and retained per policy.
+
+### Phasing (YAGNI — not all at once)
+
+1. **Foundation (pre-MVP, R11):** the `Logger` port + redaction pass + component tags +
+   `traceId` correlation, and the **audit log for remote actions** (`respond` / `decide` /
+   `answer`) — the compliance minimum. Replace `out.appendLine` with it.
+2. **M4 (with the tunnel):** ship logs / metrics / audit to your infra; auth-stamped actor
+   identity; tamper-evident audit; the health RPC to the phone.
+3. **Later:** a metrics dashboard; client-log ship-back; OpenTelemetry export — noting the neat
+   parallel that the Copilot **debug-log we already parse _is_ OTel spans** (docs/02), so
+   emitting our own the same way is natural.
+
+### Open questions
+
+- Where does the **durable audit log** live under ephemeral overlay storage — a persistent
+  volume, or ship-on-write to your infra (buffer + replay if the tunnel is down)?
+- Mechanical **no-secrets-in-logs** enforcement — the redaction wrapper + a lint rule banning
+  raw interpolation into log fields + an entropy test over the sinks. Sufficient?
+- **Trace propagation into the out-of-process hook** — the spool file is the clean channel; is
+  anything lower-latency needed?
+- **Home-grown structured logger vs. OpenTelemetry** — start minimal (YAGNI); when does OTel
+  earn its weight?
+- **Volume / perf** from fs-watchers — debounce / sample the hot paths so logging never
+  amplifies the watcher storm.
 
 ## Tech stack
 

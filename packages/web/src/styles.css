@@ -199,6 +199,23 @@ body {
   padding: 2px 7px;
   align-self: center;
 }
+.row.locked {
+  opacity: 0.72;
+}
+.needs.locked {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.readonly-banner {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
 
 .hint {
   color: var(--muted);

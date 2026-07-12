@@ -7,6 +7,7 @@ import {
   debugLogTitle,
   parseTranscript,
   scanSessions,
+  storageHashFromUri,
 } from "./scanner.js";
 
 describe("parseTranscript", () => {
@@ -67,6 +68,30 @@ describe("parseTranscript", () => {
       turns: 0,
       openInteractiveTools: [],
     });
+  });
+});
+
+describe("storageHashFromUri", () => {
+  const root = "/home/u/.vscode-server/data/User/workspaceStorage";
+
+  it("takes the hash even when the extension id contains a slash", () => {
+    // Our real storageUri: <root>/<hash>/cloakcode.@cloakcode/extension.
+    expect(
+      storageHashFromUri(
+        root,
+        `${root}/07c6b4c5abc/cloakcode.@cloakcode/extension`,
+      ),
+    ).toBe("07c6b4c5abc");
+  });
+
+  it("handles a normal single-segment extension id", () => {
+    expect(storageHashFromUri(root, `${root}/deadbeef/publisher.name`)).toBe(
+      "deadbeef",
+    );
+  });
+
+  it("returns undefined when the path is not under the root", () => {
+    expect(storageHashFromUri(root, "/somewhere/else/x")).toBeUndefined();
   });
 });
 
@@ -157,6 +182,7 @@ describe("scanSessions", () => {
       instanceId: "inst-test",
       sessionId: "sessA",
       workspace: "myrepo",
+      workspaceHash: "hashA",
       title: "Refactor auth middleware",
       turns: 1,
       status: "blocked",
@@ -164,8 +190,42 @@ describe("scanSessions", () => {
     expect(second).toMatchObject({
       sessionId: "sessB",
       workspace: "other",
+      workspaceHash: "hashB",
       status: "idle",
     });
+  });
+
+  it("uses an extension-supplied workspace name over workspace.json", async () => {
+    const sessions = await scanSessions({
+      instanceId: "inst-test",
+      root,
+      now: () => NOW,
+      workspaceNames: new Map([["hashA", "My Cool Repo"]]),
+    });
+    const a = sessions.find((s) => s.sessionId === "sessA");
+    expect(a?.workspace).toBe("My Cool Repo");
+    expect(a?.workspaceHash).toBe("hashA");
+    const b = sessions.find((s) => s.sessionId === "sessB");
+    expect(b?.workspace).toBe("other"); // hashB keeps the workspace.json name
+  });
+
+  it("marks only sessions in ownedWorkspaceHashes as owned; else all owned", async () => {
+    const scoped = await scanSessions({
+      instanceId: "inst-test",
+      root,
+      now: () => NOW,
+      ownedWorkspaceHashes: new Set(["hashA"]),
+    });
+    const owned = Object.fromEntries(scoped.map((s) => [s.sessionId, s.owned]));
+    expect(owned["sessA"]).toBe(true); // hashA is this window's workspace
+    expect(owned["sessB"]).toBe(false); // hashB is a foreign workspace
+
+    const unscoped = await scanSessions({
+      instanceId: "inst-test",
+      root,
+      now: () => NOW,
+    });
+    expect(unscoped.every((s) => s.owned)).toBe(true); // no scope => all owned
   });
 
   it("returns [] when the root does not exist", async () => {

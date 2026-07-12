@@ -120,6 +120,9 @@ export function SessionView({
     state.parts.some(
       (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
     );
+  // Foreign workspace (no live extension here) => observe-only. Actuation is
+  // gated in the UI; a receiving-side guard lands with the gateway (docs/03).
+  const readOnly = !session.owned;
 
   return (
     <div className="app">
@@ -167,14 +170,21 @@ export function SessionView({
         </div>
       </main>
 
-      {state.pending.length > 0 && (
+      {!readOnly && state.pending.length > 0 && (
         <footer className="pending-overlay">
           {state.pending.map((b) => (
             <PendingCard key={b.toolCallId} blocker={b} session={session} />
           ))}
         </footer>
       )}
-      <ChatComposer session={session} />
+      {readOnly ? (
+        <p className="readonly-banner">
+          Read-only — no CloakCode extension is running in this workspace, so
+          you can view the transcript but not send, answer, or approve.
+        </p>
+      ) : (
+        <ChatComposer session={session} />
+      )}
     </div>
   );
 }

@@ -19,10 +19,12 @@ const validSummary: SessionSummary = {
   instanceId: "inst-abc",
   sessionId: "56514ca7-1111",
   workspace: "myrepo",
+  workspaceHash: "abc123def456",
   title: "Refactor auth middleware",
   turns: 12,
   status: "blocked",
   idleSeconds: 3,
+  owned: true,
 };
 
 describe("sessionStatusSchema", () => {

@@ -44,6 +44,7 @@ the design is preserved:
 | R8 | Phone-first client | React PWA + Web Push for blocker alerts. |
 | R9 | Resilient on mobile networks | Resumable event log (`lastSeq`). |
 | R10 | Minimal context egress + redaction | Send only selection/signatures, scrubbed for secrets. |
+| R11 | Observability: structured logs, health metrics, audit trail | **Redacted by construction** (never logs code/prompts/secrets); `traceId`-correlated across extension/leader/hook/bridge/web; provenance-stamped. Foundation is **pre-MVP**; currently missing — see docs/03 "Observability". |
 
 ## Non-goals (for now)
 
