@@ -91,6 +91,17 @@ export function parseTranscript(content: string): ParsedTranscript {
   let turns = 0;
   const openTools = new Map<string, string>(); // toolCallId -> toolName
 
+  // A new turn (a user message, or the assistant starting to speak) abandons any
+  // still-open interactive tool from an EARLIER turn: §4.6 batches tool events at
+  // completion, so an orphaned `execution_start` (its `complete` never flushed)
+  // would otherwise pile up and read as "blocked" forever (docs/05 #27). Only an
+  // interactive start with no later turn after it is a live blocker.
+  const supersedeOpenInteractive = (): void => {
+    for (const [id, name] of openTools) {
+      if (isInteractive(name)) openTools.delete(id);
+    }
+  };
+
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -113,6 +124,11 @@ export function parseTranscript(content: string): ParsedTranscript {
             .trim()
             .slice(0, 60);
         }
+        supersedeOpenInteractive();
+        break;
+      }
+      case "assistant.turn_start": {
+        supersedeOpenInteractive();
         break;
       }
       case "tool.execution_start": {

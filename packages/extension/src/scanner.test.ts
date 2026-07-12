@@ -39,6 +39,33 @@ describe("parseTranscript", () => {
     ]);
   });
 
+  it("does not flag an interactive start superseded by a later turn", () => {
+    const content = [
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      JSON.stringify({
+        type: "tool.execution_start",
+        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
+      }),
+      // A later turn abandons the orphaned start (its complete never flushed).
+      JSON.stringify({ type: "user.message", data: { content: "next task" } }),
+    ].join("\n");
+    expect(parseTranscript(content).openInteractiveTools).toEqual([]);
+  });
+
+  it("still flags an interactive start in the latest turn", () => {
+    const content = [
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      JSON.stringify({ type: "assistant.turn_start", data: {} }),
+      JSON.stringify({
+        type: "tool.execution_start",
+        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
+      }),
+    ].join("\n");
+    expect(parseTranscript(content).openInteractiveTools).toEqual([
+      "vscode_askQuestions",
+    ]);
+  });
+
   it("does not flag a matched (completed) interactive tool call", () => {
     const content = [
       JSON.stringify({

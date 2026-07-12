@@ -198,6 +198,10 @@ the critical path.
   **no later turn** (`user.message` / `assistant.turn_start`) supersedes it; (b) drive live "blocked"
   from the **spool** (real-time) rather than the lagging transcript; (c) make the list + header
   status **live** (poll or push). Related to the two stale-snapshot issues above.
+  **Done 2026-07-12 (a):** `parseTranscript` now supersedes an open interactive start when a
+  later turn (`user.message` / `assistant.turn_start`) follows it, so accumulated orphaned
+  starts no longer read as "blocked". (b) drive live "blocked" from the spool and (c) a live
+  list/header status remain.
 - **RESOLVED (2026-07-11).** Three session-list UX items are fixed in `packages/web`
   (`App.tsx`, `SessionView.tsx`): _transcript jump-to-bottom on initial load_;
   _under-surfaced session identity_ (workspace + session id are now labeled in the list rows
