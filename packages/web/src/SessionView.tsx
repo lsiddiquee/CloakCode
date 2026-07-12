@@ -14,7 +14,7 @@ import {
   subscribeSession,
   type ConnState,
 } from "./bridge";
-import { approvalSummary, statusLabel, toolSummary } from "./format";
+import { approvalSummary, sessionActivity, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
 
 interface ViewState {
@@ -118,11 +118,13 @@ export function SessionView({
     return () => ro.disconnect();
   }, []);
 
-  const awaiting =
-    state.pending.length > 0 ||
-    state.parts.some(
-      (p) => p.kind === "confirmation" && !state.resolved.has(p.id),
-    );
+  const activity = sessionActivity(
+    state.pending,
+    state.parts,
+    state.resolved,
+    session.status,
+    session.idleSeconds,
+  );
   // Foreign workspace (no live extension here) => observe-only. Actuation is
   // gated in the UI; a receiving-side guard lands with the gateway (docs/03).
   const readOnly = !session.owned;
@@ -145,11 +147,9 @@ export function SessionView({
         </div>
         <span className="conn">
           <span
-            className={`dot ${awaiting ? "amber" : dotClass(session.status)}`}
+            className={`dot ${activity.awaiting ? "amber" : dotClass(session.status)}`}
           />
-          {awaiting
-            ? "awaiting input"
-            : statusLabel(session.status, session.idleSeconds)}
+          {activity.label}
         </span>
       </header>
 

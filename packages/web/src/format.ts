@@ -1,4 +1,8 @@
-import type { SessionStatus } from "@cloakcode/protocol";
+import type {
+  PendingBlocker,
+  SessionPart,
+  SessionStatus,
+} from "@cloakcode/protocol";
 
 /** Compact human age from an idle-seconds value: `0s`, `6m`, `2h`, `3d`. */
 export function humanAge(seconds: number): string {
@@ -21,6 +25,48 @@ export function statusLabel(
     case "idle":
       return `idle ${humanAge(idleSeconds)}`;
   }
+}
+
+export interface Activity {
+  /** Short human phrase for what the session is doing right now. */
+  label: string;
+  /** True when it's waiting on the operator (drives the amber indicator). */
+  awaiting: boolean;
+}
+
+/**
+ * A live "what's happening" phrase for the session header, richer than the
+ * lagging scan status: a tool approval ("blocked on approval") vs a question
+ * ("awaiting response") vs a tool executing now ("tool calling"), falling back
+ * to the scan status word. A `PendingBlocker` carries `confirmations` for a
+ * question and raw `input` for a tool approval.
+ */
+export function sessionActivity(
+  pending: PendingBlocker[],
+  parts: SessionPart[],
+  resolved: ReadonlySet<string>,
+  status: SessionStatus,
+  idleSeconds: number,
+): Activity {
+  const isApproval = (b: PendingBlocker): boolean =>
+    !(b.confirmations?.length ?? 0) && b.input !== undefined;
+  const isQuestion = (b: PendingBlocker): boolean =>
+    (b.confirmations?.length ?? 0) > 0;
+
+  if (pending.some(isApproval))
+    return { label: "blocked on approval", awaiting: true };
+  if (
+    pending.some(isQuestion) ||
+    parts.some((p) => p.kind === "confirmation" && !resolved.has(p.id))
+  )
+    return { label: "awaiting response", awaiting: true };
+  if (parts.some((p) => p.kind === "toolCall" && p.status === "running"))
+    return { label: "tool calling", awaiting: false };
+
+  return {
+    label: statusLabel(status, idleSeconds),
+    awaiting: status === "blocked",
+  };
 }
 
 export interface ToolSummary {

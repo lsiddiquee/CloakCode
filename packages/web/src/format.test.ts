@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { PendingBlocker, SessionPart } from "@cloakcode/protocol";
 import {
   approvalSummary,
   buildAnswerText,
   humanAge,
+  sessionActivity,
   statusLabel,
   toolSummary,
 } from "./format";
@@ -26,6 +28,60 @@ describe("statusLabel", () => {
     expect(statusLabel("active", 0)).toBe("active");
     expect(statusLabel("blocked", 180)).toBe("blocked 3m");
     expect(statusLabel("idle", 7200)).toBe("idle 2h");
+  });
+});
+
+describe("sessionActivity", () => {
+  const none = new Set<string>();
+  const noParts: SessionPart[] = [];
+  const approval: PendingBlocker = {
+    toolCallId: "t1",
+    toolName: "run_in_terminal",
+    createdAt: "2026-07-12T00:00:00Z",
+    input: { command: "ls" },
+  };
+  const question: PendingBlocker = {
+    toolCallId: "t2",
+    toolName: "vscode_askQuestions",
+    createdAt: "2026-07-12T00:00:00Z",
+    confirmations: [{ kind: "confirmation", id: "c0", prompt: "Pick", options: [] }],
+  };
+
+  it("labels a tool approval as blocked on approval", () => {
+    expect(sessionActivity([approval], noParts, none, "active", 0)).toEqual({
+      label: "blocked on approval",
+      awaiting: true,
+    });
+  });
+
+  it("labels a question as awaiting response", () => {
+    expect(sessionActivity([question], noParts, none, "blocked", 0)).toEqual({
+      label: "awaiting response",
+      awaiting: true,
+    });
+  });
+
+  it("labels an unresolved transcript confirmation as awaiting response", () => {
+    const parts: SessionPart[] = [
+      { kind: "confirmation", id: "c1", prompt: "?", options: [] },
+    ];
+    expect(sessionActivity([], parts, none, "blocked", 0).label).toBe(
+      "awaiting response",
+    );
+  });
+
+  it("labels a running tool as tool calling", () => {
+    const parts: SessionPart[] = [
+      { kind: "toolCall", id: "x", name: "read_file", input: {}, status: "running" },
+    ];
+    expect(sessionActivity([], parts, none, "active", 0)).toEqual({
+      label: "tool calling",
+      awaiting: false,
+    });
+  });
+
+  it("falls back to the scan status label", () => {
+    expect(sessionActivity([], noParts, none, "idle", 7200).label).toBe("idle 2h");
   });
 });
 
