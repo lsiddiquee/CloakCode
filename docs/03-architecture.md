@@ -227,8 +227,12 @@ null-byte / percent-decode) lives in the pure `resolveStaticPath` (`static-files
 unit-tested without a filesystem. Reaching the phone is a separate concern (`asExternalUri` + QR
 in cloud remotes; your Dev Tunnel locally) — the gateway itself only binds loopback.
 The `CloakCode: Show Phone Link` command resolves that external URL (via
-`asExternalUri`) and shows a scannable **QR** — a tiny zero-dep encoder → inline SVG
-in a webview, so there's no rasterization and ~0 runtime weight beyond the encoder.
+`asExternalUri`, or the `cloakcode.publicUrl` setting when set) and shows a scannable
+**QR** — a tiny zero-dep encoder → inline SVG in a webview, so there's no rasterization
+and ~0 runtime weight beyond the encoder. In a **local dev container** `asExternalUri`
+returns a desktop-loopback URL (VS Code forwards to the desktop, not a public tunnel);
+forward the port **Public** (Ports view) or run a tunnel and set `cloakcode.publicUrl`,
+and the command warns when the resolved URL is still loopback.
 
 ## The core abstraction: `SessionPart`
 

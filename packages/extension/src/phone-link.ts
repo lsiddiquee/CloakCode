@@ -13,6 +13,27 @@ export function qrSvg(text: string): string {
   return qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
 }
 
+/**
+ * True when `url`'s host is loopback (`127.0.0.1` / `localhost` / `::1`) — i.e.
+ * reachable only from this machine, not a phone. `asExternalUri` returns such a
+ * URL in local dev containers, which is exactly when the operator needs a real
+ * public forward / tunnel instead.
+ */
+export function isLoopback(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    host === "127.0.0.1" ||
+    host === "localhost" ||
+    host === "::1" ||
+    host === "[::1]"
+  );
+}
+
 function escapeHtml(s: string): string {
   const map: Record<string, string> = {
     "&": "&amp;",

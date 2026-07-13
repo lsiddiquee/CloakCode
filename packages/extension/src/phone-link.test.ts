@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phoneLinkHtml, qrSvg } from "./phone-link.js";
+import { isLoopback, phoneLinkHtml, qrSvg } from "./phone-link.js";
 
 describe("qrSvg", () => {
   it("returns inline SVG markup for the text", () => {
@@ -26,5 +26,24 @@ describe("phoneLinkHtml", () => {
     const html = phoneLinkHtml('https://x/">-<script>alert(1)</script>');
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("isLoopback", () => {
+  it("flags loopback hosts (not phone-reachable)", () => {
+    expect(isLoopback("http://127.0.0.1:7801")).toBe(true);
+    expect(isLoopback("http://localhost:7801/")).toBe(true);
+    expect(isLoopback("http://[::1]:7801")).toBe(true);
+  });
+
+  it("passes public tunnel hosts", () => {
+    expect(isLoopback("https://new-field-z3z34x8-7801.euw.devtunnels.ms")).toBe(
+      false,
+    );
+    expect(isLoopback("https://x-7801.app.github.dev")).toBe(false);
+  });
+
+  it("returns false for a malformed url", () => {
+    expect(isLoopback("not a url")).toBe(false);
   });
 });

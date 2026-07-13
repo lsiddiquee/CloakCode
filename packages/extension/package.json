@@ -41,6 +41,12 @@
           "minimum": 0,
           "scope": "machine",
           "markdownDescription": "Milliseconds to wait before surfacing a pending tool call to the CloakCode client. VS Code often auto-approves or auto-answers a call within this window; debouncing lets those resolve first so they never flicker a card on the phone. Raise it if fast auto-approved calls still flash a card; set it to `0` to surface immediately."
+        },
+        "cloakcode.publicUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Public URL of your tunnel to the CloakCode gateway, shown by **CloakCode: Show Phone Link** and its QR — e.g. a VS Code **Public** forwarded port or a Dev Tunnel `https://<id>-<port>.<region>.devtunnels.ms`. Leave empty to use VS Code's automatic forwarding (`asExternalUri`): that is phone-reachable in Codespaces/remotes, but returns a **desktop-loopback** URL in local dev containers — set this then."
         }
       }
     }

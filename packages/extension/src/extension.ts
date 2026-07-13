@@ -21,7 +21,7 @@ import {
   defaultSpoolDir,
   localChatSessionUri,
 } from "./hook-spool.js";
-import { phoneLinkHtml } from "./phone-link.js";
+import { phoneLinkHtml, isLoopback } from "./phone-link.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -352,14 +352,29 @@ export async function activate(
         );
         return;
       }
-      // `asExternalUri` forwards the loopback gateway to a reachable URL (a
-      // *.devtunnels.ms / *.app.github.dev host in remotes); locally it returns
-      // loopback and you expose the port with your own tunnel. Re-resolved on
-      // each invocation, so the link shown is always current.
-      const external = await vscode.env.asExternalUri(
-        vscode.Uri.parse(`http://127.0.0.1:${bridge.port}`),
-      );
-      const url = external.toString();
+      // Prefer an explicit public URL (your tunnel / a VS Code PUBLIC forwarded
+      // port): `asExternalUri` returns a desktop-loopback forward in local dev
+      // containers (only Codespaces/remotes get a phone-reachable URL from it).
+      // Re-resolved each invocation, so the link shown is always current.
+      const configured =
+        vscode.workspace
+          .getConfiguration("cloakcode")
+          .get<string>("publicUrl")
+          ?.trim() || process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
+      const url =
+        configured ??
+        (
+          await vscode.env.asExternalUri(
+            vscode.Uri.parse(`http://127.0.0.1:${bridge.port}`),
+          )
+        ).toString();
+      if (isLoopback(url)) {
+        void vscode.window.showWarningMessage(
+          `CloakCode phone link is loopback (${url}) — a phone can't reach it. ` +
+            `Forward port ${bridge.port} as a PUBLIC port (VS Code Ports view) or ` +
+            `run a tunnel, then set "cloakcode.publicUrl" to that URL.`,
+        );
+      }
       const panel = vscode.window.createWebviewPanel(
         "cloakcodePhoneLink",
         "CloakCode — Phone Link",
