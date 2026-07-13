@@ -1,3 +1,5 @@
+import * as http from "node:http";
+import { readFile } from "node:fs/promises";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   rpcRequestSchema,
@@ -7,6 +9,7 @@ import {
 } from "@cloakcode/protocol";
 import { SessionFollower, type SessionLog } from "./session-observer.js";
 import { SpoolFollower } from "./hook-spool.js";
+import { contentTypeFor, resolveStaticPath } from "./static-files.js";
 
 /**
  * The localhost bridge. Binds `127.0.0.1` only (security rule 3) and speaks the
@@ -75,6 +78,12 @@ export interface BridgeOptions {
   /** Fixed port for same-host convenience; `0` picks an ephemeral free port. */
   port?: number;
   /**
+   * Directory of the built PWA to serve over plain HTTP on the same port that
+   * carries the `/bridge` WebSocket (the packaged gateway). Omit for dev/test —
+   * Vite serves the app then, and the bridge answers plain HTTP with `426`.
+   */
+  serveDir?: string;
+  /**
    * Ping/pong liveness interval (ms). A socket that misses a pong is terminated
    * so its followers (and their fs.watch handles) are reclaimed even when the
    * client never sends a close frame (crash, sleep, network/tunnel drop).
@@ -102,8 +111,36 @@ export async function startBridge(
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 7801;
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
+  const serveDir = opts.serveDir;
 
-  const wss = new WebSocketServer({ host, port });
+  // One http server: plain GETs serve the built PWA (prod gateway), and the
+  // `upgrade` handshake becomes the bridge WebSocket — so a single tunnelled
+  // port carries both the app and the live stream (same-origin `/bridge`).
+  const server = http.createServer((req, res) => {
+    if (!serveDir) {
+      res.writeHead(426, { "content-type": "text/plain; charset=utf-8" });
+      res.end("CloakCode bridge: WebSocket only");
+      return;
+    }
+    const file = resolveStaticPath(serveDir, req.url ?? "/");
+    if (!file) {
+      res.writeHead(400).end();
+      return;
+    }
+    readFile(file).then(
+      (data) => {
+        res.writeHead(200, { "content-type": contentTypeFor(file) });
+        res.end(data);
+      },
+      () => res.writeHead(404).end(),
+    );
+  });
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (req, socket, head) => {
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      wss.emit("connection", ws, req),
+    );
+  });
   const connections = new Map<WebSocket, Connection>();
 
   const cleanup = (socket: WebSocket, conn: Connection): void => {
@@ -144,11 +181,11 @@ export async function startBridge(
   heartbeat.unref(); // never keep the process alive for the heartbeat alone
 
   await new Promise<void>((resolve, reject) => {
-    wss.once("listening", resolve);
-    wss.once("error", reject);
+    server.once("error", reject);
+    server.listen(port, host, () => resolve());
   });
 
-  const address = wss.address();
+  const address = server.address();
   const boundPort =
     typeof address === "object" && address ? address.port : port;
 
@@ -157,8 +194,12 @@ export async function startBridge(
     close: () =>
       new Promise<void>((resolve, reject) => {
         clearInterval(heartbeat);
-        for (const [socket, conn] of connections) cleanup(socket, conn);
-        wss.close((err) => (err ? reject(err) : resolve()));
+        for (const [socket, conn] of connections) {
+          cleanup(socket, conn);
+          socket.terminate();
+        }
+        wss.close();
+        server.close((err) => (err ? reject(err) : resolve()));
       }),
   };
 }

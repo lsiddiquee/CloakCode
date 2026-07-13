@@ -485,3 +485,46 @@ describe("startBridge", () => {
     }
   });
 });
+
+describe("startBridge static gateway", () => {
+  it("serves the built PWA over HTTP and still upgrades the WebSocket on the same port", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-web-"));
+    await fs.writeFile(
+      path.join(dir, "index.html"),
+      "<!doctype html><title>CloakCode</title>",
+    );
+    await fs.mkdir(path.join(dir, "assets"));
+    await fs.writeFile(path.join(dir, "assets", "app.js"), "console.log(1)");
+    const bridge = await startBridge(deps(), { port: 0, serveDir: dir });
+    try {
+      const index = await fetch(`http://127.0.0.1:${bridge.port}/`);
+      expect(index.status).toBe(200);
+      expect(index.headers.get("content-type")).toContain("text/html");
+      expect(await index.text()).toContain("CloakCode");
+
+      const asset = await fetch(`http://127.0.0.1:${bridge.port}/assets/app.js`);
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get("content-type")).toContain("javascript");
+
+      const missing = await fetch(`http://127.0.0.1:${bridge.port}/nope.js`);
+      expect(missing.status).toBe(404);
+
+      // The live stream still works on the very same port.
+      const res = await request(bridge.port, { id: "1", op: "sessions.list" });
+      expect(res).toMatchObject({ ok: true, op: "sessions.list" });
+    } finally {
+      await bridge.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers plain HTTP with 426 when no PWA is bundled (dev/test WS-only)", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await fetch(`http://127.0.0.1:${bridge.port}/`);
+      expect(res.status).toBe(426);
+    } finally {
+      await bridge.close();
+    }
+  });
+});

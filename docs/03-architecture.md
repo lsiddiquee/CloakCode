@@ -214,6 +214,19 @@ flowchart TB
 Keeping `vscode` isolated to one package makes the protocol and agent unit-testable
 without an extension host.
 
+### The gateway (one port serves the PWA + `/bridge`)
+
+In dev, Vite serves the PWA and proxies `/bridge` to the bridge. Packaged, there is no Vite:
+the extension's bridge **is** an `http.createServer` that serves the **built PWA**
+(`<extensionUri>/dist/web`, bundled in the `.vsix`) on plain GETs and **upgrades `/bridge`** to
+the same WebSocket — so one tunnelled `127.0.0.1` port carries both the app and the live stream
+(the client already talks **same-origin `/bridge`**). Static serving is optional (`serveDir`):
+without it (dev/test) the server answers plain HTTP with `426` and stays WS-only, so nothing
+changes for the dev-server or the bridge tests. The single path-safety check (traversal /
+null-byte / percent-decode) lives in the pure `resolveStaticPath` (`static-files.ts`),
+unit-tested without a filesystem. Reaching the phone is a separate concern (`asExternalUri` + QR
+in cloud remotes; your Dev Tunnel locally) — the gateway itself only binds loopback.
+
 ## The core abstraction: `SessionPart`
 
 A discriminated union both the VS Code side and the phone renderer understand — mirroring
