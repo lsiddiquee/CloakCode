@@ -412,6 +412,19 @@ export async function activate(
   void recommendDebugLog(context);
   void promptTunnelOnce(context);
 
+  // Tunnel already opted-in on a prior run: silently re-host it on activation so
+  // the phone URL is live again after a reload without re-opening the link.
+  // Best-effort — failures only log (no guided-fix modal on every activation).
+  if (bridge && cfg.get<string>("tunnel") === "devtunnel") {
+    const b = bridge;
+    void startOrRecoverTunnel(
+      b.port,
+      devTunnelName(instanceId),
+      (m) => out.appendLine(m),
+      true,
+    );
+  }
+
   context.subscriptions.push({
     dispose: () => {
       void bridge?.close();
@@ -463,12 +476,14 @@ async function startOrRecoverTunnel(
   port: number,
   name: string,
   log: TunnelLog = () => {},
+  silent = false,
 ): Promise<string | undefined> {
   try {
     tunnel ??= await startDevTunnel(port, name, log);
     return tunnel.url;
   } catch (err) {
     log(`tunnel failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (silent) return undefined;
     if (err instanceof TunnelError) {
       await guideTunnelFix(err);
     } else {
