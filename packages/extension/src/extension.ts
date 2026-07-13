@@ -29,7 +29,7 @@ import {
   TunnelError,
   type Tunnel,
   type TunnelLog,
-} from "./tunnel.js";
+} from "@cloakcode/gateway";
 import { classifyRemote, parseDevcontainerName } from "./identity.js";
 
 /**
