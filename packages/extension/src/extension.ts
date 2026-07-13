@@ -28,6 +28,7 @@ import {
   startDevTunnel,
   TunnelError,
   type Tunnel,
+  type TunnelLog,
 } from "./tunnel.js";
 import { classifyRemote, parseDevcontainerName } from "./identity.js";
 
@@ -379,7 +380,9 @@ export async function activate(
         return;
       }
       showLinkPanel(
-        await resolvePhoneUrl(bridge.port, devTunnelName(instanceId)),
+        await resolvePhoneUrl(bridge.port, devTunnelName(instanceId), (m) =>
+          out.appendLine(m),
+        ),
       );
     }),
   );
@@ -393,14 +396,21 @@ export async function activate(
         return;
       }
       // Explicitly (re)establish the private Dev Tunnel, guiding through install
-      // / sign-in when needed; show the link on success.
+      // / sign-in when needed; show the link on success. Reveal the log so the
+      // devtunnel progress/errors are visible while it runs.
+      out.show(true);
+      out.appendLine(`Set Up Phone Tunnel: hosting 127.0.0.1:${bridge.port}`);
       const url = await startOrRecoverTunnel(
         bridge.port,
         devTunnelName(instanceId),
+        (m) => out.appendLine(m),
       );
       if (url) showLinkPanel(url);
     }),
   );
+
+  void recommendDebugLog(context);
+  void promptTunnelOnce(context);
 
   context.subscriptions.push({
     dispose: () => {
@@ -424,7 +434,11 @@ export function deactivate(): void {
  * tunnel → auto-host one when `cloakcode.tunnel: devtunnel` → `asExternalUri`
  * (desktop-loopback in local containers). Re-resolved per call.
  */
-async function resolvePhoneUrl(port: number, name: string): Promise<string> {
+async function resolvePhoneUrl(
+  port: number,
+  name: string,
+  log: TunnelLog = () => {},
+): Promise<string> {
   const cfg = vscode.workspace.getConfiguration("cloakcode");
   const configured =
     cfg.get<string>("publicUrl")?.trim() ||
@@ -432,7 +446,7 @@ async function resolvePhoneUrl(port: number, name: string): Promise<string> {
   if (configured) return configured;
   if (tunnel) return tunnel.url;
   if (cfg.get<string>("tunnel") === "devtunnel") {
-    const url = await startOrRecoverTunnel(port, name);
+    const url = await startOrRecoverTunnel(port, name, log);
     if (url) return url;
   }
   return (
@@ -448,11 +462,13 @@ async function resolvePhoneUrl(port: number, name: string): Promise<string> {
 async function startOrRecoverTunnel(
   port: number,
   name: string,
+  log: TunnelLog = () => {},
 ): Promise<string | undefined> {
   try {
-    tunnel ??= await startDevTunnel(port, name);
+    tunnel ??= await startDevTunnel(port, name, log);
     return tunnel.url;
   } catch (err) {
+    log(`tunnel failed: ${err instanceof Error ? err.message : String(err)}`);
     if (err instanceof TunnelError) {
       await guideTunnelFix(err);
     } else {
@@ -577,4 +593,65 @@ async function readDevcontainerName(
     }
   }
   return undefined;
+}
+
+const DEBUG_LOG_SETTING =
+  "github.copilot.chat.agentDebugLog.fileLogging.enabled";
+
+/**
+ * Recommend Copilot's agent debug log — the observer's preferred source: more
+ * complete for editor-hosted sessions and closer to live than the transcript
+ * (docs/02 §3.6). Non-blocking, suppressible; offers a one-click enable.
+ */
+async function recommendDebugLog(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  if (context.globalState.get<boolean>("skipDebugLogHint")) return;
+  const conf = vscode.workspace.getConfiguration();
+  if (conf.get<boolean>(DEBUG_LOG_SETTING)) return;
+  const pick = await vscode.window.showInformationMessage(
+    "CloakCode mirrors best with Copilot's agent debug log enabled (a more complete, live source). Enable it?",
+    "Enable",
+    "Not now",
+    "Don't show again",
+  );
+  if (pick === "Enable") {
+    await conf.update(
+      DEBUG_LOG_SETTING,
+      true,
+      vscode.ConfigurationTarget.Global,
+    );
+    const reload = await vscode.window.showInformationMessage(
+      "Copilot agent debug log enabled — reload the window to apply.",
+      "Reload Window",
+    );
+    if (reload === "Reload Window") {
+      void vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }
+  } else if (pick === "Don't show again") {
+    await context.globalState.update("skipDebugLogHint", true);
+  }
+}
+
+/**
+ * On first activation, offer remote (phone) access via a private Dev Tunnel, or
+ * keep it local. Asked once (globalState); enabling flips `cloakcode.tunnel` and
+ * kicks off the guided setup.
+ */
+async function promptTunnelOnce(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  if (context.globalState.get<boolean>("promptedTunnel")) return;
+  await context.globalState.update("promptedTunnel", true);
+  const cfg = vscode.workspace.getConfiguration("cloakcode");
+  if (cfg.get<string>("tunnel") === "devtunnel") return;
+  const pick = await vscode.window.showInformationMessage(
+    "CloakCode: reach your Copilot sessions from a phone? Enable a private Dev Tunnel, or keep it local for now.",
+    "Enable Dev Tunnel",
+    "Keep local",
+  );
+  if (pick === "Enable Dev Tunnel") {
+    await cfg.update("tunnel", "devtunnel", vscode.ConfigurationTarget.Global);
+    void vscode.commands.executeCommand("cloakcode.setupTunnel");
+  }
 }
