@@ -7,8 +7,25 @@ const URL_RE = /https:\/\/[^\s,"']+\.devtunnels\.ms[^\s,"']*/i;
 const URL_TIMEOUT_MS = 30_000;
 const CLI_TIMEOUT_MS = 30_000;
 
-/** The first `*.devtunnels.ms` URL in `output`, or `undefined`. Pure. */
-export function parseTunnelUrl(output: string): string | undefined {
+/**
+ * The `*.devtunnels.ms` URL in `output`. When `port` is given, prefer the URL
+ * whose subdomain carries that port (`<name>-<port>.<region>.devtunnels.ms`) so
+ * we pick OUR forwarded port when the tunnel exposes several; otherwise the
+ * first URL. Pure.
+ */
+export function parseTunnelUrl(
+  output: string,
+  port?: number,
+): string | undefined {
+  if (port !== undefined) {
+    const scoped = output.match(
+      new RegExp(
+        `https:\\/\\/[^\\s,"']*-${port}\\.[^\\s,"']*devtunnels\\.ms[^\\s,"']*`,
+        "i",
+      ),
+    )?.[0];
+    if (scoped) return scoped;
+  }
   return output.match(URL_RE)?.[0];
 }
 
@@ -43,6 +60,9 @@ export interface Tunnel {
   stop(): void;
 }
 
+/** Sink for human-readable tunnel progress lines (wired to the Output channel). */
+export type TunnelLog = (line: string) => void;
+
 /**
  * Host `port` on a persistent, **private** Microsoft Dev Tunnel named `name`,
  * resolving once the public URL appears in the CLI output. Private by design —
@@ -54,18 +74,31 @@ export interface Tunnel {
 export async function startDevTunnel(
   port: number,
   name: string,
+  log: TunnelLog = () => {},
 ): Promise<Tunnel> {
-  await ensureTunnel(name, port);
-  const child = spawn("devtunnel", ["host", name, "-p", String(port)], {
+  await ensureTunnel(name, port, log);
+  // Host WITHOUT `-p`: the port is added individually by `ensureTunnel`, so
+  // hosting serves the tunnel's configured ports. Passing `-p` here makes the
+  // CLI submit a BATCH port update, which the service rejects ("Batch update of
+  // ports is not supported") whenever the named tunnel already has ports — i.e.
+  // on every reload of our persistent tunnel.
+  log(`$ devtunnel host ${name}`);
+  const child = spawn("devtunnel", ["host", name], {
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const url = await firstTunnelUrl(child);
+  const url = await firstTunnelUrl(child, port, log);
   return { url, stop: () => stop(child) };
 }
 
 /** Create the named tunnel + forwarded port, tolerating "already exists". */
-async function ensureTunnel(name: string, port: number): Promise<void> {
+async function ensureTunnel(
+  name: string,
+  port: number,
+  log: TunnelLog,
+): Promise<void> {
+  log(`$ devtunnel create ${name}`);
   await cli(["create", name]).catch(ignoreExists);
+  log(`$ devtunnel port create ${name} -p ${port}`);
   await cli(["port", "create", name, "-p", String(port)]).catch(ignoreExists);
 }
 
@@ -73,14 +106,27 @@ async function cli(args: string[]): Promise<void> {
   await execFileAsync("devtunnel", args, { timeout: CLI_TIMEOUT_MS });
 }
 
-/** Swallow "already exists" (idempotent re-run); rethrow real failures. */
+/**
+ * True when a devtunnel failure means the entity already exists, so an
+ * idempotent re-run can safely continue. The service reports this as either
+ * `already exists` / `already has` (older wording) or, on `create` for a name
+ * that is already present, `Conflict with existing entity`. Pure.
+ */
+export function isExistsConflict(message: string): boolean {
+  return /already exists|already has|conflict|existing entity/i.test(message);
+}
+
+/** Swallow an "already exists" conflict (idempotent re-run); rethrow real failures. */
 function ignoreExists(err: unknown): void {
-  const msg = errText(err);
-  if (/already exists|already has/i.test(msg)) return;
+  if (isExistsConflict(errText(err))) return;
   throw tunnelError(err);
 }
 
-function firstTunnelUrl(child: ChildProcess): Promise<string> {
+function firstTunnelUrl(
+  child: ChildProcess,
+  port: number,
+  log: TunnelLog,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     let out = "";
     let errBuf = "";
@@ -92,10 +138,15 @@ function firstTunnelUrl(child: ChildProcess): Promise<string> {
       child.removeAllListeners("exit");
       child.removeAllListeners("error");
     };
+    const emit = (chunk: string): void => {
+      const line = chunk.replace(/\s+$/, "");
+      if (line) log(line);
+    };
     const ok = (url: string): void => {
       if (done) return;
       done = true;
       cleanup();
+      log(`tunnel URL: ${url}`);
       resolve(url);
     };
     const fail = (e: Error): void => {
@@ -107,13 +158,17 @@ function firstTunnelUrl(child: ChildProcess): Promise<string> {
     };
 
     child.stdout?.on("data", (c: Buffer) => {
-      out = (out + c.toString("utf8")).slice(-8192);
-      const url = parseTunnelUrl(out);
+      const s = c.toString("utf8");
+      emit(s);
+      out = (out + s).slice(-8192);
+      const url = parseTunnelUrl(out, port);
       if (url) ok(url);
     });
     child.stderr?.on("data", (c: Buffer) => {
-      errBuf = (errBuf + c.toString("utf8")).slice(-8192);
-      const url = parseTunnelUrl(errBuf);
+      const s = c.toString("utf8");
+      emit(s);
+      errBuf = (errBuf + s).slice(-8192);
+      const url = parseTunnelUrl(errBuf, port);
       if (url) ok(url);
     });
     child.once("error", (e) => fail(tunnelError(e)));

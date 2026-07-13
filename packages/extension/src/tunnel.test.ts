@@ -3,6 +3,7 @@ import {
   classifyTunnelError,
   devTunnelInstallHint,
   devTunnelName,
+  isExistsConflict,
   parseTunnelUrl,
 } from "./tunnel.js";
 
@@ -20,6 +21,33 @@ describe("parseTunnelUrl", () => {
 
   it("returns undefined when no URL is present", () => {
     expect(parseTunnelUrl("Hosting port: 7801\nReady")).toBeUndefined();
+  });
+
+  it("prefers the URL matching the given port", () => {
+    const out = [
+      "Connect via browser: https://cloakcode-ab12cd34-7801.euw.devtunnels.ms",
+      "Connect via browser: https://cloakcode-ab12cd34-7803.euw.devtunnels.ms",
+    ].join("\n");
+    expect(parseTunnelUrl(out, 7803)).toBe(
+      "https://cloakcode-ab12cd34-7803.euw.devtunnels.ms",
+    );
+  });
+
+  it("ignores the inspect URL when scoping by port", () => {
+    const out = [
+      "Connect via browser: https://cloakcode-ab12cd34-7801.euw.devtunnels.ms",
+      "Inspect: https://cloakcode-ab12cd34-7801-inspect.euw.devtunnels.ms",
+    ].join("\n");
+    expect(parseTunnelUrl(out, 7801)).toBe(
+      "https://cloakcode-ab12cd34-7801.euw.devtunnels.ms",
+    );
+  });
+
+  it("falls back to the first URL when the scoped port is absent", () => {
+    const out = "Connect: https://cloakcode-ab12cd34-7801.euw.devtunnels.ms";
+    expect(parseTunnelUrl(out, 9999)).toBe(
+      "https://cloakcode-ab12cd34-7801.euw.devtunnels.ms",
+    );
   });
 });
 
@@ -58,5 +86,24 @@ describe("classifyTunnelError", () => {
 
   it("falls back to 'other' for anything else", () => {
     expect(classifyTunnelError(new Error("network blip"))).toBe("other");
+  });
+});
+
+describe("isExistsConflict", () => {
+  it("treats 'already exists' as idempotent", () => {
+    expect(isExistsConflict("Tunnel 'cloakcode-x' already exists")).toBe(true);
+  });
+
+  it("treats the service 'Conflict with existing entity' as idempotent", () => {
+    expect(
+      isExistsConflict(
+        "Tunnel service error: Conflict with existing entity. Retry tunnel operation.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not swallow unrelated failures", () => {
+    expect(isExistsConflict("Tunnel service error: Unauthorized")).toBe(false);
+    expect(isExistsConflict("command not found")).toBe(false);
   });
 });
