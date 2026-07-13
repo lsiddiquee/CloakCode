@@ -174,7 +174,8 @@ The observer reads whichever Copilot log is complete for a session (`findSession
 1. **`debug-logs/<id>/main.jsonl`** (OTel spans) — **preferred**. Complete for **both** panel-
    and editor-hosted sessions; `parseDebugLogEvents` maps `user_message` / `agent_response`
    (text + reasoning) / `tool_call` → the same `SessionPart`s as the transcript parser. Opt-in
-   (`chat.chatDebug.fileLogging.enabled`), ~4s buffered flush (docs/02 §4.10).
+   (`github.copilot.chat.agentDebugLog.fileLogging.enabled`, experiment-gated; docs/02 §4.25),
+   ~4s buffered flush.
 2. **`transcripts/<id>.jsonl`** — **fallback** (zero-config). Complete for panel/agent sessions
    but records only `assistant.turn_start` for **editor-hosted** ones — hence the preference.
 

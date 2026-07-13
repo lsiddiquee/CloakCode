@@ -94,7 +94,7 @@ after events). Each line: `{ type, data, id, parentId, timestamp }`.
 | `assistant.turn_start` / `assistant.turn_end` | threaded by `turnId`                                 |
 | `assistant.message`                           | `messageId, content, toolRequests, reasoningText`    |
 | `tool.execution_start`                        | **`toolCallId, toolName, arguments`**                |
-| `tool.execution_complete`                     | **`toolCallId, success, result?: { content }`**                            |
+| `tool.execution_complete`                     | **`toolCallId, success, result?: { content }`**      |
 
 `debug-logs/main.jsonl` adds `llm_request`, `agent_response`, `tool_call`, `turn_start/end`,
 `child_session_ref`, plus the full `system_prompt_*.json` and `tools_*.json`.
@@ -102,7 +102,8 @@ after events). Each line: `{ type, data, id, parentId, timestamp }`.
 > **The transcript is not always complete (§4.10).** For **editor-hosted** sessions it records
 > only `assistant.turn_start` (no assistant message/turn_end). The **debug-log** is complete for
 > both panel and editor hosting, so it is the observer's **primary** source, with the transcript
-> as the zero-config fallback. Debug-logging is opt-in (`chat.chatDebug.fileLogging.enabled`).
+> as the zero-config fallback. Debug-logging is gated by
+> `github.copilot.chat.agentDebugLog.fileLogging.enabled` (default false, **experiment-gated**; §4.25).
 
 ### 2.2 Remote-topology caveat
 
@@ -236,7 +237,7 @@ From `sessionTranscriptService.ts`: transcript entries are **buffered in memory*
 only on **`flush()`**, which fires at **discrete points** (turn boundaries, tool start/complete,
 and before every hook) — **not** continuously. `assistant.message` is a **single entry with the
 full `content`** (no partial/streaming entry). The `debug-logs/main.jsonl` copy has its own
-timer (`chat.chatDebug.fileLogging.flushIntervalMs`, default 4000 ms).
+timer (`github.copilot.chat.agentDebugLog.fileLogging.flushIntervalMs`, default 4000 ms; §4.25).
 
 **Consequence:** a file observer **cannot token-stream**; its ceiling is **message-granular** —
 user message appears → (silence while the assistant generates) → the whole assistant message
@@ -332,8 +333,10 @@ skipped: boolean } } }` — `selected` = chosen option labels, `freeText` = the 
   (`debug-logs/<id>/main.jsonl`, OTel spans) is complete for **both** hostings. So the observer
   now reads the **debug-log as PRIMARY**, transcript as **fallback** (`findSessionLog`;
   `parseDebugLogEvents` maps `user_message`/`agent_response`/`tool_call` → the same
-  `SessionPart`s). The debug-log is **opt-in**: `chat.chatDebug.fileLogging.enabled` (default
-  **false**); buffered auto-flush **~4s** (`chat.chatDebug.fileLogging.flushIntervalMs`) + on
+  `SessionPart`s). The debug-log is **opt-in**:
+  `github.copilot.chat.agentDebugLog.fileLogging.enabled` (default **false**, experiment-gated;
+  §4.25); buffered auto-flush **~4s**
+  (`github.copilot.chat.agentDebugLog.fileLogging.flushIntervalMs`) + on
   session end; 50-log / 100 MB rotation. (Live overlay still uses the real-time hook spool.)
 - **4.11** _§2/§4.1 "Copilot persists all chat data server-side" →_ **REFINED (2026-07-10).**
   Only **Copilot's** logs (transcript + debug-log) are server-side. VS Code's authoritative
@@ -496,7 +499,7 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   **container rebuild wipes** transcripts + debug-logs + every session dir. On restore, copilot-chat's
   `SessionTranscriptService.startSession(id, ctx, history)` finds **no** `<id>.jsonl` and **replays**
   the conversation `history` into a fresh transcript (`user.message → turn_start → assistant.message →
-  turn_end` per round; dir = `context.storageUri/transcripts`). `history` is reconstructed by VS Code
+turn_end` per round; dir = `context.storageUri/transcripts`). `history` is reconstructed by VS Code
   **core** from the ChatModel, persisted **client-side** (`state.vscdb` / `chatSessions/<id>.json`,
   §2.2) — **not** the empty `session-store.db`. Replayed entries are stamped at **reconstruction
   time** (core drops original per-turn times — ours were one ~5-min burst), so a **rehydrated
@@ -518,9 +521,42 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   reverse-engineered vocabulary (§2.1) is correct with one refinement — **`tool.execution_complete.data`
   also carries `result?: { content: string }`** (the tool output lives in the transcript), not just
   `{ toolCallId, success }`. Likewise `session.start.data = { sessionId, version, producer,
-  copilotVersion, vscodeVersion, startTime, context?.cwd }` and `assistant.message.data =
-  { messageId, content, toolRequests[], reasoningText? }`. Folded from local source research together
+copilotVersion, vscodeVersion, startTime, context?.cwd }` and `assistant.message.data =
+{ messageId, content, toolRequests[], reasoningText? }`. Folded from local source research together
   with the Hooks-feature seam (§3.5) and the observer liveness ceiling (§3.6).
+- **4.25** _Copilot Chat is now built into **core VS Code**; the debug-log setting was renamed and is
+  experiment-gated (2026-07-13, host + container verified)._ The `microsoft/vscode-copilot-chat` repo was
+  **archived 2026-05-20** — Copilot Chat now ships **inside VS Code** as the built-in `extensions/copilot`
+  (bundled in the desktop / `vscode-server` install, which is what gives it host access). **Anchor all
+  Copilot-internals research on core VS Code (`microsoft/vscode` → `extensions/copilot`), never the
+  archived repo.** The debug-log toggle recorded above (§2.1 / §3.6 / §4.10) as
+  `chat.chatDebug.fileLogging.enabled` was **renamed** to
+  **`github.copilot.chat.agentDebugLog.fileLogging.enabled`** — source `configurationService.ts`:
+  `ChatDebugFileLogging = defineAndMigrateExpSetting('chat.chatDebug.fileLogging.enabled',
+'chat.agentDebugLog.fileLogging.enabled', false)`. It is the **canonical** toggle (the old
+  `agentDebugLog.enabled` is deprecated → merged into it), **experiment-gated** (tags
+  `['advanced','experimental','onExp']`, default **false**, needs a window reload). So file logging can be
+  effectively on via **either** an explicit setting **or** an ExP treatment — **both were observed**: the
+  **host** built-in **v0.56.0** has it explicitly `true` in User settings (mtime 2026-07-08); the
+  **container** built-in **v0.52.0** has it in **no** settings.json yet writes logs → ExP. _Implication:_
+  never assume the debug-log exists — CloakCode keeps the transcript fallback **and** offers a one-click
+  explicit enable (`recommendDebugLog`). Red herring: `github.copilot.chat.copilotDebugCommand.enabled` is a
+  **Preview** toggle for the `copilot-debug` **terminal command**, unrelated to logging. The palette command
+  **"Developer: Open Agent Debug Logs"** = core `workbench.action.chat.openAgentDebugPanel`; it opens the
+  panel and does **not** write the setting (verified: settings.json mtime unchanged after running it).
+- **4.26** _`session-store.db` (chronicle) is a **lagging index**, not a live source; no-folder windows log
+  to globalStorage (2026-07-13, host inventory)._ `globalStorage/github.copilot-chat/session-store.db`
+  (schema*version 3; tables `sessions` / `turns` / `session_files` / `session_refs` / `checkpoints` /
+  `search_index` [FTS5]; `sessions` keyed by `created_at` / `updated_at` / `cwd` / `repository`) **lags the
+  on-disk logs**: on the host it stopped at **2026-05-26** (5 sessions / 154 turns) with a **4.1 MB
+  uncommitted WAL** (larger than the 1.3 MB DB), while debug-logs + transcripts show activity weeks later and
+  today — none indexed. So the observer **must read the debug-log / transcript directly** (as it does) and
+  treat the DB as a **stale** convenience index (needs a reindex / WAL-checkpoint to catch up). Inventory
+  notes: a window with **no folder open** writes its debug-log under
+  **`globalStorage/github.copilot-chat/debug-logs/<id>/`** (not workspaceStorage); a rich session dir carries
+  `main.jsonl` + `models.json` + `system_prompt*_.json`+`tools\__.json`+`categorization-<uuid>.jsonl`+`title-<uuid>.jsonl`(workspace sessions with no subagent carry only`main.jsonl`+`models.json`). The
+built-in Copilot version **drifts across environments** (host 0.56.0 vs container 0.52.0); the desktop
+install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
 
 ---
 
