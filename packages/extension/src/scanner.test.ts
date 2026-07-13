@@ -117,11 +117,11 @@ describe("storageHashFromUri", () => {
     );
   });
 
-  it("handles the packaged extension id (cloakcode.cloakcode)", () => {
-    // The .vsix ships as publisher.name = cloakcode.cloakcode (no slash), vs the
-    // dev-host's cloakcode.@cloakcode/extension — both must resolve the hash.
+  it("handles the packaged extension id (rexwel.cloakcode)", () => {
+    // The .vsix ships as publisher.name = rexwel.cloakcode (no slash), vs the
+    // dev-host's rexwel.@cloakcode/extension — both must resolve the hash.
     expect(
-      storageHashFromUri(root, `${root}/feedface99/cloakcode.cloakcode`),
+      storageHashFromUri(root, `${root}/feedface99/rexwel.cloakcode`),
     ).toBe("feedface99");
   });
 

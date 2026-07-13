@@ -96,7 +96,9 @@ try {
   });
   console.log(`\n[cloakcode] packaged → ${out}`);
   console.log("  install:   code --install-extension " + out);
-  console.log("  uninstall: code --uninstall-extension cloakcode.cloakcode");
+  console.log(
+    `  uninstall: code --uninstall-extension ${manifest.publisher}.${manifest.name}`,
+  );
 } finally {
   rmSync(stage, { recursive: true, force: true });
 }
