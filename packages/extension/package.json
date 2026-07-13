@@ -6,6 +6,26 @@
   "type": "module",
   "displayName": "CloakCode",
   "publisher": "cloakcode",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lsiddiquee/CloakCode.git"
+  },
+  "homepage": "https://github.com/lsiddiquee/CloakCode#readme",
+  "bugs": {
+    "url": "https://github.com/lsiddiquee/CloakCode/issues"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "copilot",
+    "remote",
+    "mobile",
+    "chat",
+    "observability"
+  ],
   "main": "dist/extension.cjs",
   "engines": {
     "vscode": "^1.90.0"
@@ -82,6 +102,7 @@
     "dev": "tsx src/dev-server.ts",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.cjs --sourcemap && esbuild src/hook.ts --bundle --platform=node --format=cjs --outfile=dist/hook.cjs --sourcemap",
     "build:web": "pnpm --filter @cloakcode/web build && node scripts/bundle-web.mjs",
+    "package": "pnpm bundle && pnpm build:web && node scripts/package-vsix.mjs",
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
@@ -97,6 +118,7 @@
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
     "@types/ws": "^8.5.12",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.21.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.0",

@@ -117,6 +117,14 @@ describe("storageHashFromUri", () => {
     );
   });
 
+  it("handles the packaged extension id (cloakcode.cloakcode)", () => {
+    // The .vsix ships as publisher.name = cloakcode.cloakcode (no slash), vs the
+    // dev-host's cloakcode.@cloakcode/extension — both must resolve the hash.
+    expect(
+      storageHashFromUri(root, `${root}/feedface99/cloakcode.cloakcode`),
+    ).toBe("feedface99");
+  });
+
   it("returns undefined when the path is not under the root", () => {
     expect(storageHashFromUri(root, "/somewhere/else/x")).toBeUndefined();
   });

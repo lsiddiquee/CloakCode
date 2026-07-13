@@ -10,3 +10,10 @@ allowBuilds:
 # platform binary is linked. pnpm 11 reads build allowlists from here.
 onlyBuiltDependencies:
   - esbuild
+
+# vsce (packaging devDependency) pulls in native modules used only for marketplace
+# PUBLISH/signing — never for `vsce package`. We intentionally do NOT build them;
+# acknowledge them so `pnpm install` and the pre-run deps check don't error.
+ignoredBuiltDependencies:
+  - "@vscode/vsce-sign"
+  - keytar
