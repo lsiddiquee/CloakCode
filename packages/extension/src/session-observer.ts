@@ -380,7 +380,8 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
 /** The first user-message text in an event list — the turn the log opens on. */
 function firstUserText(events: SessionEvent[]): string | undefined {
   for (const e of events) {
-    if (e.type === "append" && e.part.kind === "userMessage") return e.part.text;
+    if (e.type === "append" && e.part.kind === "userMessage")
+      return e.part.text;
   }
   return undefined;
 }

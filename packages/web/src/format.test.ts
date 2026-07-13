@@ -44,7 +44,9 @@ describe("sessionActivity", () => {
     toolCallId: "t2",
     toolName: "vscode_askQuestions",
     createdAt: "2026-07-12T00:00:00Z",
-    confirmations: [{ kind: "confirmation", id: "c0", prompt: "Pick", options: [] }],
+    confirmations: [
+      { kind: "confirmation", id: "c0", prompt: "Pick", options: [] },
+    ],
   };
 
   it("labels a tool approval as blocked on approval", () => {
@@ -72,7 +74,13 @@ describe("sessionActivity", () => {
 
   it("labels a running tool as tool calling", () => {
     const parts: SessionPart[] = [
-      { kind: "toolCall", id: "x", name: "read_file", input: {}, status: "running" },
+      {
+        kind: "toolCall",
+        id: "x",
+        name: "read_file",
+        input: {},
+        status: "running",
+      },
     ];
     expect(sessionActivity([], parts, none, "active", 0)).toEqual({
       label: "tool calling",
@@ -81,7 +89,9 @@ describe("sessionActivity", () => {
   });
 
   it("falls back to the scan status label", () => {
-    expect(sessionActivity([], noParts, none, "idle", 7200).label).toBe("idle 2h");
+    expect(sessionActivity([], noParts, none, "idle", 7200).label).toBe(
+      "idle 2h",
+    );
   });
 });
 
