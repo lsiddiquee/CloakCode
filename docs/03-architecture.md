@@ -243,10 +243,14 @@ warns when the resolved URL is still loopback. **`CloakCode: Set Up Phone Tunnel
 or a sign-in flow picker (GitHub / Microsoft × browser / device-code) — device-code for
 containers/remote where a local browser can't open.
 
-**Two deployment modes.** The above is the **embedded** gateway (one extension serves its own
-environment's PWA + `/bridge`). When you instead run the **standalone gateway** and point your
-extensions at it (`cloakcode.gatewayUrl`), the extension serves nothing itself and connects out
-as a **provider** — see “Explicit gateway (MVP)” under Multi-instance topology.
+**Two deployment modes (same server, two homes).** **Embedded is the default:** with no
+configuration the extension serves its own environment's PWA + `/bridge` (what ships today) — a
+self-sufficient, single-environment gateway. Opt in to the **standalone gateway** by setting
+`cloakcode.gatewayUrl`: the extension then serves nothing itself and connects out as a
+**provider** to the hub you run. Both modes run the _same_ `startBridge` / `serveDir` server — the
+standalone gateway is that server extracted to its own process (host binary / Docker), extended to
+accept provider connections — so surfacing the webapp from the extension and from the hub is one
+code path, not two. See “Explicit gateway (MVP)” under Multi-instance topology.
 
 ## The core abstraction: `SessionPart`
 
@@ -458,11 +462,14 @@ Two connection **roles** share the one `/bridge` endpoint, distinguished by a fi
   `provider.hello { instanceId, … }`, then serves the gateway's forwarded RPCs for its own
   sessions (observer + actuator — which is why the provider stays in the extension host).
 
+**Unset (the default) → embedded:** the extension serves its own PWA + `/bridge` and needs no hub.
 When `cloakcode.gatewayUrl` is set (scope **machine / user / workspace** — a reachable hub is
 usually a per-machine fact, overridable per workspace) and the hub is reachable, the extension
 **does not** start its own bridge or serve the PWA — it connects as a **provider** and speaks
 **only the protocol**. The leader is whoever you pointed the extensions at, so **N extensions in
-one environment all register with the one gateway** and it de-dupes.
+one environment all register with the one gateway** and it de-dupes. If the configured hub is
+**unreachable**, the extension **falls back to embedded** so you're never locked out — surfacing
+the webapp locally is always available.
 
 **Routing + de-dup.** The gateway keeps a `Map<instanceId, provider>`. `sessions.list` fans out
 to every provider and returns the **union, de-duped by `(instanceId, sessionId)`** (preferring the
