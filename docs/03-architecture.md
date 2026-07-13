@@ -243,6 +243,11 @@ warns when the resolved URL is still loopback. **`CloakCode: Set Up Phone Tunnel
 or a sign-in flow picker (GitHub / Microsoft × browser / device-code) — device-code for
 containers/remote where a local browser can't open.
 
+**Two deployment modes.** The above is the **embedded** gateway (one extension serves its own
+environment's PWA + `/bridge`). When you instead run the **standalone gateway** and point your
+extensions at it (`cloakcode.gatewayUrl`), the extension serves nothing itself and connects out
+as a **provider** — see “Explicit gateway (MVP)” under Multi-instance topology.
+
 ## The core abstraction: `SessionPart`
 
 A discriminated union both the VS Code side and the phone renderer understand — mirroring
@@ -435,6 +440,50 @@ flowchart LR
     E3 -->|register + stream| R
     E4 -->|register + stream| R
     R["Rendezvous relay\n(your infra, via tunnel)"] <-->|one connection| P["📱 PWA"]
+```
+
+### Explicit gateway (MVP): the hub you run
+
+The relay above assumes **auto** leader election + auto discovery. For the MVP we make the leader
+**explicit** and ship the hub as a **standalone artifact** you run yourself — a plain Node process
+(or a **Docker image**) that is the relay: it serves the **PWA** and accepts WebSocket
+connections, and it holds **no `vscode`** (it extends the existing `dev-server` seam — the bridge
+is already `vscode`-free, with the actuator injected as callbacks).
+
+Two connection **roles** share the one `/bridge` endpoint, distinguished by a first frame:
+
+- **operator** (the phone / PWA) — speaks the existing client RPC (`sessions.list`,
+  `session.subscribe|respond|decide|answer`), unchanged.
+- **provider** (an extension in client mode) — dials **out** to the gateway and registers with a
+  `provider.hello { instanceId, … }`, then serves the gateway's forwarded RPCs for its own
+  sessions (observer + actuator — which is why the provider stays in the extension host).
+
+When `cloakcode.gatewayUrl` is set (scope **machine / user / workspace** — a reachable hub is
+usually a per-machine fact, overridable per workspace) and the hub is reachable, the extension
+**does not** start its own bridge or serve the PWA — it connects as a **provider** and speaks
+**only the protocol**. The leader is whoever you pointed the extensions at, so **N extensions in
+one environment all register with the one gateway** and it de-dupes.
+
+**Routing + de-dup.** The gateway keeps a `Map<instanceId, provider>`. `sessions.list` fans out
+to every provider and returns the **union, de-duped by `(instanceId, sessionId)`** (preferring the
+`owned` provider); session-addressed RPCs (`subscribe/respond/decide/answer`, which already carry
+`instanceId`) route to that instance's provider and relay its frames. The protocol needs nothing
+new for addressing — only the `provider.hello` registration envelope.
+
+**Deferred (post-MVP):** **auto** leader election _within_ an environment (the `globalStorage`
+lock above) and auto-discovery of the hub. Until then, explicit `cloakcode.gatewayUrl` + gateway
+de-dup cover multiple extensions per environment.
+
+```mermaid
+flowchart LR
+    subgraph ENV["one or more environments"]
+        X1["extension A (provider)"]
+        X2["extension B (provider)"]
+    end
+    G["Standalone gateway (host binary / Docker)\nserves PWA + /bridge hub"]
+    X1 -->|provider.hello + serve RPCs| G
+    X2 -->|provider.hello + serve RPCs| G
+    G <-->|operator RPC| P["📱 PWA"]
 ```
 
 ### Instance identity (touches the M1 protocol)
