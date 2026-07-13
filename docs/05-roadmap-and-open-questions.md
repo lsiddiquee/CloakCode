@@ -168,6 +168,23 @@ the critical path.
 
 ## Known issues (to fix)
 
+- **Self-review 2026-07-13 — guardrail gaps in the last 7 commits.** (1) The
+  **read-position restore** (`SessionView`, `41f392b`) was **broken** — `toBottom` ran on the first
+  content measurement, before the transcript streamed in, so `scrollHeight` ≈ 0 clamped the target near
+  the top and `restoredRef` then blocked any re-restore. **Fixed 2026-07-13:** the restore decision is
+  now a pure `nextScrollAction` (`web/scroll.ts`) that **waits** until
+  `scrollHeight − clientHeight ≥ saved.top` before restoring, unit-tested in `scroll.test.ts`.
+  (Persisting parts + `lastSeq` alongside scroll stays deferred as YAGNI — `sessionStorage` size risk,
+  and the resume-from-`lastSeq` reconnect already refills the transcript.) (2) The **auto-reconnect**
+  logic in `web/bridge.ts` (`c3420fe`) was **untested** — the RTL test only asserted the banner against
+  a mocked bridge. **Fixed 2026-07-13:** `bridge.test.ts` drives a mock `WebSocket` under fake timers to
+  cover the capped-exponential backoff **and** resume-from-`lastSeq`. (3) **Docs-sync was skipped** for
+  the **diagnostics dump** (`0c222f4`) and the **richer session activity** (`428a3e9`).
+  **Fixed 2026-07-13:** both are documented in [docs/03](03-architecture.md) (the diagnostics-dump and
+  derived-session-activity subsections). (4) The stitch commit (`e5ef695`) was **non-atomic**
+  (`git add -A` swept unrelated churn) — historical; the standing lesson is to stage paths explicitly,
+  never `-A`. (5) `dotClass` was **duplicated** across `App.tsx` and `SessionView.tsx`.
+  **Fixed 2026-07-13:** consolidated into `@cloakcode/web` `format.ts`.
 - **Web client does not auto-reconnect (2026-07-10).** `subscribeSession` (web `bridge.ts`) opens
   the WebSocket with an `error` handler but **no reconnect/backoff**, and the header only offers a
   **manual** "reconnect" button (`App.tsx`). So when the bridge restarts (extension reload / F5 dev

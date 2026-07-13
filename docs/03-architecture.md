@@ -284,6 +284,23 @@ Streamed as a **sequence-numbered event log** (`append(part)`, `patch(id, delta)
 `awaiting-input` = the blocker state, detected via the unmatched interactive
 `tool.execution_start` signature (see research §3.2).
 
+### Derived session activity (client header phrase)
+
+The scan status (`active` / `blocked` / `idle`) lags a live turn, so the session
+header derives a sharper "what's happening now" phrase from the live-pending overlay
+plus the mirrored parts (`@cloakcode/web` `sessionActivity`) — no new event type, no
+extra egress:
+
+| Condition (first match wins)                                               | Phrase                | Awaiting operator? |
+| -------------------------------------------------------------------------- | --------------------- | ------------------ |
+| pending blocker with raw `input` and no `confirmations`                    | `blocked on approval` | yes (amber)        |
+| pending blocker with `confirmations`, or an unresolved `confirmation` part | `awaiting response`   | yes (amber)        |
+| a `toolCall` part currently `running`                                      | `tool calling`        | no                 |
+| otherwise                                                                  | the scan status word  | `blocked` → amber  |
+
+The returned `awaiting` bit drives the amber indicator; every phrase is derived
+purely from data the observer already streams (no new `SessionPart`, no new RPC).
+
 ## Data flows
 
 ### List sessions
@@ -426,6 +443,28 @@ So the address triple `(instanceId, workspaceHash, sessionId)` carries an owners
   The UI `owned` flag is correctness for the honest path; the router plus the receiver guard
   are the **security boundary** once actions can arrive for a workspace this window does not
   own.
+
+### Diagnostics dump (`cloakcode.showDiagnostics`)
+
+Ownership resolving to "everything read-only" is hard to debug blind — the root cause
+once was an extension id containing a slash breaking the storage-hash derivation (see the
+[docs/02](02-research-findings.md) corrections log). The **Show Diagnostics** command
+prints a snapshot to the `CloakCode` output channel (activation also dumps it there, and to
+`CLOAKCODE_DIAG_FILE` when set — the dev launch points it at `.local/cloakcode-diagnostics.txt`).
+It is **redaction-safe**: no secrets, tokens, code, or prompts — only environment metadata
+and the `CLOAKCODE_*` vars.
+
+| Section        | Contents                                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[identity]`   | instance id, pid, extension mode/version, node/platform                                                                                           |
+| `[vscode.env]` | app name/host/uiKind, remote name, uri scheme, language, machineId                                                                                |
+| _uris_         | `extensionUri`, `storageUri`, `globalStorageUri`, `logUri`, workspace file + folders                                                              |
+| `[ownership]`  | owned hashes + how they were resolved, storage root, and **every** scanned workspace hash tagged `[OWNED]` / `[read-only]` with transcript counts |
+| `[runtime]`    | bridge port (vs configured), spool dir, hook config path                                                                                          |
+| `[env]`        | `CLOAKCODE_*` vars only — explicitly nothing else                                                                                                 |
+
+The `[ownership]` section is the one that answers "why is this session read-only?": it puts
+the activating window's resolved hash next to the hashes actually present on disk.
 
 ### Endpoint modes (pluggable behind one protocol)
 
