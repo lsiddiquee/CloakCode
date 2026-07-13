@@ -141,6 +141,26 @@ python3 research/list_sessions.py   # session lister PoC
 pre-commit run --all-files          # hooks
 ```
 
+## Context persistence (never lose work on tangents) — MANDATORY
+
+We go on tangents constantly, and long sessions **will** exceed the context window; session memory
+can also be flushed on container rebuild. Assume anything not written to the workspace is lost.
+These rules are **not optional** and apply **no matter the reason for a switch or deep dive**.
+
+- **Persist locally, not in memory.** Create `.local/scratch/` if missing and keep
+  work-in-progress there — it is gitignored and survives rebuilds. Use it freely as a scratchpad.
+- **One task-state file:** maintain `.local/scratch/task-state.md` with the current focus, a ledger
+  of every in-flight issue (`pending` / `in-progress` / `blocked` / `done` + next step), open
+  threads (deferred items), and key findings. Create it before the first edit of any non-trivial
+  task.
+- **Checkpoint before you act** — before switching focus or deep-diving, the moment you spot a new
+  sub-issue, after completing meaningful steps or learning key facts, and before any long/branching
+  operation. Re-read and reconcile it when resuming or whenever you're unsure you still hold earlier
+  state.
+- Durable **design** decisions still go in the relevant `docs/` file in the same change.
+
+Rule of thumb: if it isn't in `.local/scratch/` or `docs/`, assume it will be forgotten.
+
 ## Pattern capture
 
 When you find yourself re-explaining the same thing to the AI, fixing the same class of issue
