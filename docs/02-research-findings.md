@@ -94,7 +94,7 @@ after events). Each line: `{ type, data, id, parentId, timestamp }`.
 | `assistant.turn_start` / `assistant.turn_end` | threaded by `turnId`                                 |
 | `assistant.message`                           | `messageId, content, toolRequests, reasoningText`    |
 | `tool.execution_start`                        | **`toolCallId, toolName, arguments`**                |
-| `tool.execution_complete`                     | **`toolCallId, success`**                            |
+| `tool.execution_complete`                     | **`toolCallId, success, result?: { content }`**                            |
 
 `debug-logs/main.jsonl` adds `llm_request`, `agent_response`, `tool_call`, `turn_start/end`,
 `child_session_ref`, plus the full `system_prompt_*.json` and `tools_*.json`.
@@ -204,6 +204,46 @@ inspectable: `.../extensions/copilot/dist/{extension.js,cli.js}` and
 `.../node_modules/@github/copilot/sdk/index.js`, paired with
 `globalStorage/github.copilot-chat/agent-host-config.json`. This SDK is the most promising
 surface for a **live steer/input channel** and is the first build-time investigation.
+
+### 3.5 The Hooks feature — the supported observe + actuate seam
+
+Copilot Chat ships a **documented, JSON-configured Hooks feature**
+(<https://code.visualstudio.com/docs/copilot/customization/hooks>; source
+`src/platform/chat/common/{chatHookService,hookCommandTypes}.ts`). Hooks are **external
+commands** (not extension code) registered in `.github/hooks/*.json` (team) or
+`~/.claude/settings.json` (user), fired at lifecycle points — `SessionStart`,
+`UserPromptSubmit`, **`PreToolUse`**, `PostToolUse`, `PreCompact`, `SubagentStart/Stop`,
+`Stop`, `ErrorOccurred` — with **JSON on stdin → JSON on stdout**.
+
+- **`PreToolUse`** receives `{ tool_name, tool_input, tool_use_id }` and returns
+  `hookSpecificOutput.permissionDecision = allow | ask | deny` (+ reason / `updatedInput` /
+  `additionalContext`); exit code 2 blocks. This is a **supported remote tool-approval seam** —
+  the hook hands CloakCode the full payload, waits for the phone, and returns the decision.
+- **The transcript is flushed to disk _before_ each hook runs**, so a hook fires with a fresh
+  on-disk transcript — hooks compose cleanly with the read-only observer.
+- **Caveats:** a long-blocking hook is an "anti-pattern" — wait N seconds for the phone, else
+  return `ask` (fall back to the native prompt); a **prose-only** blocker with no tool call is
+  still missed (same gap as §3.2); requires a Copilot Chat recent enough to support hooks.
+
+This is the basis for the live-pending notifier + remote approval (design in docs/03 §M3,
+security in docs/04). It needs **no proposed API** (`chatHooks@6` is used by Copilot itself,
+not by hook authors), which is why the extension is an optional convenience, not a core
+dependency of the actuator.
+
+### 3.6 Observer liveness ceiling (message-granular, not token-live)
+
+From `sessionTranscriptService.ts`: transcript entries are **buffered in memory** and written
+only on **`flush()`**, which fires at **discrete points** (turn boundaries, tool start/complete,
+and before every hook) — **not** continuously. `assistant.message` is a **single entry with the
+full `content`** (no partial/streaming entry). The `debug-logs/main.jsonl` copy has its own
+timer (`chat.chatDebug.fileLogging.flushIntervalMs`, default 4000 ms).
+
+**Consequence:** a file observer **cannot token-stream**; its ceiling is **message-granular** —
+user message appears → (silence while the assistant generates) → the whole assistant message
+appears on flush → tool cards update on start/complete. To feel more live without owning the
+loop: the hybrid `fs.watch` + short mtime-poll follower catches flushes sub-second, and a no-op
+flush-forcing hook makes tool cards real-time. **Token-live** requires owning the `vscode.lm`
+loop (opt-in "live chat", docs/05).
 
 ---
 
@@ -473,6 +513,14 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   `agent_response`). Consequence for live viewing / remote-drive: the **transcript alone can never
   show the current answer** — the **debug-log is required** for the latest turn (its caveats stand:
   ~5 KB truncation §4.21 [salvaged], history loss on rebuild §4.22).
+- **4.24** _Transcript schema is authoritatively typed; `tool.execution_complete` carries the tool
+  output (2026-07-13)._ `sessionTranscriptService.ts` is the authoritative typed schema; the
+  reverse-engineered vocabulary (§2.1) is correct with one refinement — **`tool.execution_complete.data`
+  also carries `result?: { content: string }`** (the tool output lives in the transcript), not just
+  `{ toolCallId, success }`. Likewise `session.start.data = { sessionId, version, producer,
+  copilotVersion, vscodeVersion, startTime, context?.cwd }` and `assistant.message.data =
+  { messageId, content, toolRequests[], reasoningText? }`. Folded from local source research together
+  with the Hooks-feature seam (§3.5) and the observer liveness ceiling (§3.6).
 
 ---
 
