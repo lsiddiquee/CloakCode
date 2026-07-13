@@ -29,6 +29,7 @@ import {
   TunnelError,
   type Tunnel,
 } from "./tunnel.js";
+import { classifyRemote, parseDevcontainerName } from "./identity.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -130,8 +131,14 @@ export async function activate(
   const out = vscode.window.createOutputChannel("CloakCode");
   context.subscriptions.push(out);
 
-  const instanceId = process.env["CLOAKCODE_INSTANCE_ID"] ?? os.hostname();
-  const port = Number(process.env["CLOAKCODE_PORT"] ?? 7801);
+  const cfg = vscode.workspace.getConfiguration("cloakcode");
+  const instanceId =
+    cfg.get<string>("instanceId")?.trim() || (await defaultInstanceId());
+  // `0` = an ephemeral free port (avoids collisions across windows/instances); a
+  // fixed `cloakcode.port` locks it (stable phone/tunnel URL). `CLOAKCODE_PORT`
+  // overrides for the dev launch so Vite's proxy target stays fixed.
+  const port =
+    Number(process.env["CLOAKCODE_PORT"]) || cfg.get<number>("port") || 0;
   const root = defaultWorkspaceStorageRoot();
   // The spool is a fixed, per-environment dir shared by the hook and every
   // window's follower (see hook-spool `defaultSpoolDir`) — NOT `globalStorageUri`,
@@ -142,18 +149,14 @@ export async function activate(
   // Opt-out for the per-environment hook file. Machine-scoped (User/Remote
   // settings, not per-workspace) because it controls one global file shared by
   // every window. Off = we never write it; the user manages the hook themselves.
-  const installEnabled = vscode.workspace
-    .getConfiguration("cloakcode")
-    .get<boolean>("installHook", true);
+  const installEnabled = cfg.get<boolean>("installHook", true);
   if (installEnabled) {
     await installHook(context, spoolDir, out);
   } else {
     out.appendLine("hook install disabled (cloakcode.installHook = false)");
   }
 
-  const surfaceDebounceMs = vscode.workspace
-    .getConfiguration("cloakcode")
-    .get<number>("surfaceDebounceMs");
+  const surfaceDebounceMs = cfg.get<number>("surfaceDebounceMs");
 
   // Packaged gateway: if the built PWA was bundled into the .vsix, serve it from
   // the bridge so ONE tunnelled port carries the app + `/bridge`. Absent in dev
@@ -546,4 +549,32 @@ function showLinkPanel(url: string): void {
     .then((pick) => {
       if (pick === "Copy") void vscode.env.clipboard.writeText(url);
     });
+}
+
+/** Default instanceId: `<env-kind>:<workspace-or-devcontainer-name>`. */
+async function defaultInstanceId(): Promise<string> {
+  const kind = classifyRemote(vscode.env.remoteName);
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  let loc = folder?.name ?? "no-folder";
+  if (kind === "devcontainer" && folder) {
+    const name = await readDevcontainerName(folder.uri.fsPath);
+    if (name) loc = name;
+  }
+  return `${kind}:${loc}`;
+}
+
+/** Best-effort friendly dev-container name from its `devcontainer.json`. */
+async function readDevcontainerName(
+  folderPath: string,
+): Promise<string | undefined> {
+  for (const rel of [".devcontainer/devcontainer.json", ".devcontainer.json"]) {
+    try {
+      const buf = await fs.readFile(path.join(folderPath, rel), "utf8");
+      const name = parseDevcontainerName(buf);
+      if (name) return name;
+    } catch {
+      // absent / unreadable — try the next location
+    }
+  }
+  return undefined;
 }

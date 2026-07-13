@@ -13,7 +13,6 @@
       ],
       "env": {
         "CLOAKCODE_PORT": "7803",
-        "CLOAKCODE_INSTANCE_ID": "ext-dev",
         "CLOAKCODE_DIAG_FILE": "${workspaceFolder}/.local/cloakcode-diagnostics.txt"
       },
       "preLaunchTask": "bundle-extension"

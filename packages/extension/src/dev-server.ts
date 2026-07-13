@@ -12,7 +12,7 @@ import { defaultSpoolDir } from "./hook-spool.js";
  *   pnpm --filter @cloakcode/extension dev
  */
 
-const instanceId = process.env["CLOAKCODE_INSTANCE_ID"] ?? os.hostname();
+const instanceId = os.hostname();
 const port = Number(process.env["CLOAKCODE_PORT"] ?? 7801);
 const root = defaultWorkspaceStorageRoot();
 const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();

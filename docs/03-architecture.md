@@ -160,9 +160,12 @@ _X_ only sees records where `sessionId === X` (`computePendingBlockers` filters 
 hook needs no notion of "which VS Code window" — fire-and-forget per interactive record is
 sufficient; the `session_id` in the record is the correlation key the follower routes on.
 
-_Deferred (Q6/M4):_ per-window **ephemeral bridge port** + a per-environment **leader** (lock in
-globalStorage) so one observer owns the environment, and a **rendezvous relay** to unify
-_different_ environments (container ↔ WSL ↔ host) for the phone. Not built until the tunnel.
+The per-window **ephemeral bridge port** is now the default (`cloakcode.port: 0` picks a free
+port; set a fixed port to lock the phone/tunnel URL), and `instanceId` defaults to
+`<env-kind>:<workspace>` (dev-container name when available; `cloakcode.instanceId` overrides
+per workspace). _Deferred (Q6/M4):_ a per-environment **leader** (lock in globalStorage) so one
+observer owns the environment, and a **rendezvous relay** to unify _different_ environments
+(container ↔ WSL ↔ host) for the phone. Not built until the tunnel.
 
 ### Session log source (debug-log primary, transcript fallback)
 
