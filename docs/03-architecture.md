@@ -226,6 +226,9 @@ changes for the dev-server or the bridge tests. The single path-safety check (tr
 null-byte / percent-decode) lives in the pure `resolveStaticPath` (`static-files.ts`),
 unit-tested without a filesystem. Reaching the phone is a separate concern (`asExternalUri` + QR
 in cloud remotes; your Dev Tunnel locally) — the gateway itself only binds loopback.
+The `CloakCode: Show Phone Link` command resolves that external URL (via
+`asExternalUri`) and shows a scannable **QR** — a tiny zero-dep encoder → inline SVG
+in a webview, so there's no rasterization and ~0 runtime weight beyond the encoder.
 
 ## The core abstraction: `SessionPart`
 

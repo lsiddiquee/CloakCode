@@ -21,6 +21,7 @@ import {
   defaultSpoolDir,
   localChatSessionUri,
 } from "./hook-spool.js";
+import { phoneLinkHtml } from "./phone-link.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -149,7 +150,11 @@ export async function activate(
   // Packaged gateway: if the built PWA was bundled into the .vsix, serve it from
   // the bridge so ONE tunnelled port carries the app + `/bridge`. Absent in dev
   // (Vite serves the app), so the bridge stays WebSocket-only.
-  const webDir = vscode.Uri.joinPath(context.extensionUri, "dist", "web").fsPath;
+  const webDir = vscode.Uri.joinPath(
+    context.extensionUri,
+    "dist",
+    "web",
+  ).fsPath;
   const serveDir = await fs
     .access(path.join(webDir, "index.html"))
     .then(() => webDir)
@@ -336,6 +341,37 @@ export async function activate(
       out.appendLine("");
       out.appendLine(formatDiagnostics(await gatherDiagnostics()));
       out.show(true);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.showPhoneLink", async () => {
+      if (!bridge) {
+        void vscode.window.showWarningMessage(
+          "CloakCode bridge is not running yet.",
+        );
+        return;
+      }
+      // `asExternalUri` forwards the loopback gateway to a reachable URL (a
+      // *.devtunnels.ms / *.app.github.dev host in remotes); locally it returns
+      // loopback and you expose the port with your own tunnel. Re-resolved on
+      // each invocation, so the link shown is always current.
+      const external = await vscode.env.asExternalUri(
+        vscode.Uri.parse(`http://127.0.0.1:${bridge.port}`),
+      );
+      const url = external.toString();
+      const panel = vscode.window.createWebviewPanel(
+        "cloakcodePhoneLink",
+        "CloakCode — Phone Link",
+        vscode.ViewColumn.Active,
+        { enableScripts: false },
+      );
+      panel.webview.html = phoneLinkHtml(url);
+      void vscode.window
+        .showInformationMessage(`CloakCode phone link: ${url}`, "Copy")
+        .then((pick) => {
+          if (pick === "Copy") void vscode.env.clipboard.writeText(url);
+        });
     }),
   );
 
