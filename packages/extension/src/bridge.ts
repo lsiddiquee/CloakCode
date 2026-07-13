@@ -96,12 +96,20 @@ export interface Bridge {
   close: () => Promise<void>;
 }
 
-interface Connection {
+export interface Connection {
   alive: boolean;
   /** One follower per subscribed sessionId; re-subscribe replaces (dedupe). */
   followers: Map<string, SessionFollower>;
   /** Live-pending overlay follower, paired 1:1 with `followers`. */
   spoolFollowers: Map<string, SpoolFollower>;
+}
+
+/** Stop + clear a connection's followers (subscription teardown). */
+export function stopFollowers(conn: Connection): void {
+  for (const follower of conn.followers.values()) follower.stop();
+  for (const follower of conn.spoolFollowers.values()) follower.stop();
+  conn.followers.clear();
+  conn.spoolFollowers.clear();
 }
 
 export async function startBridge(
@@ -144,10 +152,7 @@ export async function startBridge(
   const connections = new Map<WebSocket, Connection>();
 
   const cleanup = (socket: WebSocket, conn: Connection): void => {
-    for (const follower of conn.followers.values()) follower.stop();
-    for (const follower of conn.spoolFollowers.values()) follower.stop();
-    conn.followers.clear();
-    conn.spoolFollowers.clear();
+    stopFollowers(conn);
     connections.delete(socket);
   };
 
@@ -204,7 +209,7 @@ export async function startBridge(
   };
 }
 
-async function handleMessage(
+export async function handleMessage(
   socket: WebSocket,
   raw: string,
   deps: BridgeDeps,

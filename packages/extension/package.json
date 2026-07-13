@@ -94,6 +94,12 @@
           "default": "",
           "scope": "window",
           "markdownDescription": "Identifier for this environment + workspace, shown in the client and used to key multi-instance routing (and the Dev Tunnel name). Empty = auto: `<local|wsl|devcontainer|ssh|codespaces|tunnel>:<workspace-folder>` (using the dev container's `name` when available). This is **workspace-specific** — override it in workspace settings."
+        },
+        "cloakcode.gatewayUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "WebSocket URL of a standalone **CloakCode gateway** to connect to as a provider (e.g. `ws://localhost:7900`). When set and reachable, this window does **not** host its own bridge or serve the PWA — it connects OUT to the gateway and speaks only the protocol (the gateway serves the app + owns the phone link). Empty (default) = **embedded** mode: the extension serves its own PWA + bridge. If the gateway is unreachable at activation, it falls back to embedded. See docs/03 ‘Explicit gateway’."
         }
       }
     }

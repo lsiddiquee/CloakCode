@@ -2,7 +2,12 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { startBridge, type Bridge } from "./bridge.js";
+import {
+  startBridge,
+  type Bridge,
+  type BridgeDeps,
+} from "./bridge.js";
+import { connectGateway, type GatewayClient } from "./gateway-client.js";
 import {
   defaultWorkspaceStorageRoot,
   scanSessions,
@@ -42,6 +47,7 @@ import { classifyRemote, parseDevcontainerName } from "./identity.js";
  */
 
 let bridge: Bridge | undefined;
+let gatewayClient: GatewayClient | undefined;
 let tunnel: Tunnel | undefined;
 
 /**
@@ -172,9 +178,7 @@ export async function activate(
     .then(() => webDir)
     .catch(() => undefined);
 
-  try {
-    bridge = await startBridge(
-      {
+  const deps: BridgeDeps = {
         listSessions: () => {
           const { hashes, names } = resolveOwnedHashes(context, root);
           return scanSessions({
@@ -244,19 +248,36 @@ export async function activate(
             );
           }
         },
+  };
+
+  const gatewayUrl = cfg.get<string>("gatewayUrl")?.trim();
+  if (gatewayUrl) {
+    // Client mode (docs/03 "Explicit gateway"): connect OUT to the gateway as a
+    // provider — the gateway serves the PWA + owns the phone link, so this window
+    // hosts no local bridge. If the hub is unreachable, fall back to embedded.
+    void connectGateway(gatewayUrl, { instanceId }, deps, (m) =>
+      out.appendLine(m),
+    ).then(
+      (client) => {
+        gatewayClient = client;
       },
-      { host: "127.0.0.1", port, ...(serveDir ? { serveDir } : {}) },
+      async (err: unknown) => {
+        out.appendLine(
+          `gateway ${gatewayUrl} unreachable (${
+            err instanceof Error ? err.message : String(err)
+          }); falling back to the embedded bridge`,
+        );
+        bridge = await startEmbeddedBridge(
+          deps,
+          port,
+          serveDir,
+          instanceId,
+          out,
+        );
+      },
     );
-    out.appendLine(
-      `bridge listening on ws://127.0.0.1:${bridge.port} (instance "${instanceId}")` +
-        (serveDir ? " + PWA from dist/web" : ""),
-    );
-  } catch (err) {
-    out.appendLine(
-      `failed to start bridge on ${port}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+  } else {
+    bridge = await startEmbeddedBridge(deps, port, serveDir, instanceId, out);
   }
 
   // Always-visible one-click entry to the phone link (QR) — the low-friction
@@ -429,6 +450,8 @@ export async function activate(
     dispose: () => {
       void bridge?.close();
       bridge = undefined;
+      gatewayClient?.close();
+      gatewayClient = undefined;
       tunnel?.stop();
       tunnel = undefined;
     },
@@ -438,8 +461,42 @@ export async function activate(
 export function deactivate(): void {
   void bridge?.close();
   bridge = undefined;
+  gatewayClient?.close();
+  gatewayClient = undefined;
   tunnel?.stop();
   tunnel = undefined;
+}
+
+/**
+ * Start the embedded bridge (serves the PWA + `/bridge`) with logging. Returns
+ * the running bridge, or `undefined` when it failed to bind.
+ */
+async function startEmbeddedBridge(
+  deps: BridgeDeps,
+  port: number,
+  serveDir: string | undefined,
+  instanceId: string,
+  out: vscode.OutputChannel,
+): Promise<Bridge | undefined> {
+  try {
+    const b = await startBridge(deps, {
+      host: "127.0.0.1",
+      port,
+      ...(serveDir ? { serveDir } : {}),
+    });
+    out.appendLine(
+      `bridge listening on ws://127.0.0.1:${b.port} (instance "${instanceId}")` +
+        (serveDir ? " + PWA from dist/web" : ""),
+    );
+    return b;
+  } catch (err) {
+    out.appendLine(
+      `failed to start bridge on ${port}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return undefined;
+  }
 }
 
 /**
