@@ -22,7 +22,13 @@ import {
   localChatSessionUri,
 } from "./hook-spool.js";
 import { phoneLinkHtml, isLoopback } from "./phone-link.js";
-import { devTunnelName, startDevTunnel, type Tunnel } from "./tunnel.js";
+import {
+  devTunnelInstallHint,
+  devTunnelName,
+  startDevTunnel,
+  TunnelError,
+  type Tunnel,
+} from "./tunnel.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -369,51 +375,27 @@ export async function activate(
         );
         return;
       }
-      // URL priority: an explicit public URL (your tunnel / a VS Code PUBLIC
-      // forwarded port) → an auto-hosted private Dev Tunnel (cloakcode.tunnel) →
-      // `asExternalUri` (desktop-loopback in local containers). Re-resolved each
-      // invocation, so the link shown is always current.
-      const cfg = vscode.workspace.getConfiguration("cloakcode");
-      let url =
-        cfg.get<string>("publicUrl")?.trim() ||
-        process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
-      if (!url && cfg.get<string>("tunnel") === "devtunnel") {
-        try {
-          tunnel ??= await startDevTunnel(
-            bridge.port,
-            devTunnelName(instanceId),
-          );
-          url = tunnel.url;
-        } catch (err) {
-          void vscode.window.showErrorMessage(
-            `CloakCode auto-tunnel: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-      url ??= (
-        await vscode.env.asExternalUri(
-          vscode.Uri.parse(`http://127.0.0.1:${bridge.port}`),
-        )
-      ).toString();
-      if (isLoopback(url)) {
-        void vscode.window.showWarningMessage(
-          `CloakCode phone link is loopback (${url}) — a phone can't reach it. ` +
-            `Forward port ${bridge.port} as a PUBLIC port (VS Code Ports view) or ` +
-            `run a tunnel, then set "cloakcode.publicUrl" to that URL.`,
-        );
-      }
-      const panel = vscode.window.createWebviewPanel(
-        "cloakcodePhoneLink",
-        "CloakCode — Phone Link",
-        vscode.ViewColumn.Active,
-        { enableScripts: false },
+      showLinkPanel(
+        await resolvePhoneUrl(bridge.port, devTunnelName(instanceId)),
       );
-      panel.webview.html = phoneLinkHtml(url);
-      void vscode.window
-        .showInformationMessage(`CloakCode phone link: ${url}`, "Copy")
-        .then((pick) => {
-          if (pick === "Copy") void vscode.env.clipboard.writeText(url);
-        });
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.setupTunnel", async () => {
+      if (!bridge) {
+        void vscode.window.showWarningMessage(
+          "CloakCode bridge is not running yet.",
+        );
+        return;
+      }
+      // Explicitly (re)establish the private Dev Tunnel, guiding through install
+      // / sign-in when needed; show the link on success.
+      const url = await startOrRecoverTunnel(
+        bridge.port,
+        devTunnelName(instanceId),
+      );
+      if (url) showLinkPanel(url);
     }),
   );
 
@@ -430,4 +412,138 @@ export async function activate(
 export function deactivate(): void {
   void bridge?.close();
   bridge = undefined;
+  tunnel?.stop();
+  tunnel = undefined;
+}
+
+/**
+ * Resolve the phone URL: an explicit public URL → an already-running managed
+ * tunnel → auto-host one when `cloakcode.tunnel: devtunnel` → `asExternalUri`
+ * (desktop-loopback in local containers). Re-resolved per call.
+ */
+async function resolvePhoneUrl(port: number, name: string): Promise<string> {
+  const cfg = vscode.workspace.getConfiguration("cloakcode");
+  const configured =
+    cfg.get<string>("publicUrl")?.trim() ||
+    process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
+  if (configured) return configured;
+  if (tunnel) return tunnel.url;
+  if (cfg.get<string>("tunnel") === "devtunnel") {
+    const url = await startOrRecoverTunnel(port, name);
+    if (url) return url;
+  }
+  return (
+    await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${port}`))
+  ).toString();
+}
+
+/**
+ * Start (and cache) the managed Dev Tunnel, or guide the user through the fix
+ * (install / sign-in) when it fails. Returns the URL, or `undefined` when a
+ * remedy was offered (the user retries via “Set Up Phone Tunnel”).
+ */
+async function startOrRecoverTunnel(
+  port: number,
+  name: string,
+): Promise<string | undefined> {
+  try {
+    tunnel ??= await startDevTunnel(port, name);
+    return tunnel.url;
+  } catch (err) {
+    if (err instanceof TunnelError) {
+      await guideTunnelFix(err);
+    } else {
+      void vscode.window.showErrorMessage(
+        `CloakCode tunnel: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return undefined;
+  }
+}
+
+/** Confirmation-based remedy for a tunnel failure: install the CLI or sign in. */
+async function guideTunnelFix(err: TunnelError): Promise<void> {
+  if (err.kind === "missing") {
+    const pick = await vscode.window.showWarningMessage(
+      "CloakCode: the devtunnel CLI isn't installed.",
+      {
+        modal: true,
+        detail: `Install it, then set up the tunnel again.\n\n${devTunnelInstallHint()}`,
+      },
+      "Install in terminal",
+      "Open docs",
+    );
+    if (pick === "Install in terminal") {
+      runSetupTerminal("CloakCode: install devtunnel", devTunnelInstallHint());
+    } else if (pick === "Open docs") {
+      void vscode.env.openExternal(
+        vscode.Uri.parse("https://aka.ms/DevTunnelCliInstall"),
+      );
+    }
+    return;
+  }
+  if (err.kind === "auth") {
+    const flows: (vscode.QuickPickItem & { args: string[] })[] = [
+      {
+        label: "$(github) GitHub — device code",
+        description: "recommended in containers / remote",
+        args: ["-g", "-d"],
+      },
+      { label: "$(github) GitHub — browser", args: ["-g"] },
+      { label: "$(account) Microsoft — device code", args: ["-d"] },
+      { label: "$(account) Microsoft — browser", args: [] },
+    ];
+    const pick = await vscode.window.showQuickPick(flows, {
+      title: "Sign in to Dev Tunnels",
+      placeHolder: "Choose an account and login method",
+    });
+    if (pick) {
+      runSetupTerminal(
+        "CloakCode: devtunnel login",
+        `devtunnel user login ${pick.args.join(" ")}`.trim(),
+      );
+    }
+    return;
+  }
+  void vscode.window.showErrorMessage(`CloakCode tunnel: ${err.message}`);
+}
+
+/** Run a setup command in a visible terminal + offer a one-click retry. */
+function runSetupTerminal(name: string, command: string): void {
+  const term = vscode.window.createTerminal(name);
+  term.show();
+  term.sendText(command);
+  void vscode.window
+    .showInformationMessage(
+      "CloakCode: finish in the terminal, then run “Set Up Phone Tunnel”.",
+      "Set Up Phone Tunnel",
+    )
+    .then((p) => {
+      if (p === "Set Up Phone Tunnel") {
+        void vscode.commands.executeCommand("cloakcode.setupTunnel");
+      }
+    });
+}
+
+/** Show the phone-link webview (QR) + a Copy notification; warn on loopback. */
+function showLinkPanel(url: string): void {
+  if (isLoopback(url)) {
+    void vscode.window.showWarningMessage(
+      `CloakCode phone link is loopback (${url}) — a phone can't reach it. ` +
+        `Set "cloakcode.tunnel": "devtunnel" (run “Set Up Phone Tunnel”) or ` +
+        `set "cloakcode.publicUrl".`,
+    );
+  }
+  const panel = vscode.window.createWebviewPanel(
+    "cloakcodePhoneLink",
+    "CloakCode — Phone Link",
+    vscode.ViewColumn.Active,
+    { enableScripts: false },
+  );
+  panel.webview.html = phoneLinkHtml(url);
+  void vscode.window
+    .showInformationMessage(`CloakCode phone link: ${url}`, "Copy")
+    .then((pick) => {
+      if (pick === "Copy") void vscode.env.clipboard.writeText(url);
+    });
 }

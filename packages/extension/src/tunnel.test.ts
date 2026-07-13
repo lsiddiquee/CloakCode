@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyTunnelError,
   devTunnelInstallHint,
   devTunnelName,
   parseTunnelUrl,
@@ -38,5 +39,24 @@ describe("devTunnelInstallHint", () => {
     expect(devTunnelInstallHint("darwin")).toContain("brew");
     expect(devTunnelInstallHint("linux")).toContain("aka.ms");
     expect(devTunnelInstallHint("win32")).toContain("winget");
+  });
+});
+
+describe("classifyTunnelError", () => {
+  it("flags a missing CLI (ENOENT)", () => {
+    expect(classifyTunnelError({ code: "ENOENT" })).toBe("missing");
+  });
+
+  it("flags an auth failure from the message or stderr", () => {
+    expect(classifyTunnelError(new Error("User is not authorized"))).toBe(
+      "auth",
+    );
+    expect(
+      classifyTunnelError({}, "Please sign in: devtunnel user login"),
+    ).toBe("auth");
+  });
+
+  it("falls back to 'other' for anything else", () => {
+    expect(classifyTunnelError(new Error("network blip"))).toBe("other");
   });
 });

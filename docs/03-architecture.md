@@ -234,7 +234,10 @@ webview, so there's no rasterization and ~0 runtime weight beyond the encoder). 
 **local dev container** `asExternalUri` returns a desktop-loopback URL (VS Code forwards
 to the desktop, not a public tunnel); use `cloakcode.tunnel: devtunnel`, or forward the
 port **Public** (Ports view) / run a tunnel and set `cloakcode.publicUrl`. The command
-warns when the resolved URL is still loopback.
+warns when the resolved URL is still loopback. **`CloakCode: Set Up Phone Tunnel`**
+(re)establishes the Dev Tunnel and, on failure, offers a confirmation-based CLI install
+or a sign-in flow picker (GitHub / Microsoft × browser / device-code) — device-code for
+containers/remote where a local browser can't open.
 
 ## The core abstraction: `SessionPart`
 

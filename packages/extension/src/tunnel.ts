@@ -77,7 +77,7 @@ async function cli(args: string[]): Promise<void> {
 function ignoreExists(err: unknown): void {
   const msg = errText(err);
   if (/already exists|already has/i.test(msg)) return;
-  throw toFriendly(err);
+  throw tunnelError(err);
 }
 
 function firstTunnelUrl(child: ChildProcess): Promise<string> {
@@ -116,21 +116,14 @@ function firstTunnelUrl(child: ChildProcess): Promise<string> {
       const url = parseTunnelUrl(errBuf);
       if (url) ok(url);
     });
-    child.once("error", (e) => fail(toFriendly(e)));
+    child.once("error", (e) => fail(tunnelError(e)));
     child.once("exit", (code) => {
       if (done) return;
       done = true;
       cleanup();
-      const hint = /unauthorized|not permitted|sign ?in|login|does not have/i.test(
-        errBuf,
-      )
-        ? " — run: devtunnel user login"
-        : "";
-      reject(
-        new Error(
-          `devtunnel exited (code ${code ?? "?"}) before a URL${hint}. ${errBuf.trim()}`.trim(),
-        ),
-      );
+      const detail =
+        `devtunnel exited (code ${code ?? "?"}) before a URL. ${errBuf.trim()}`.trim();
+      reject(tunnelError(new Error(detail), errBuf));
     });
     const timer = setTimeout(
       () => fail(new Error("Timed out waiting for the devtunnel URL (30s).")),
@@ -153,15 +146,38 @@ function errText(err: unknown): string {
   return String(e?.stderr ?? e?.message ?? err ?? "");
 }
 
-function toFriendly(err: unknown): Error {
-  if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
-    return new Error(
-      `devtunnel CLI not found. Install: ${devTunnelInstallHint()}`,
-    );
+export type TunnelErrorKind = "missing" | "auth" | "other";
+
+/** A devtunnel failure tagged with a kind so the UI can offer the right fix. */
+export class TunnelError extends Error {
+  readonly kind: TunnelErrorKind;
+  constructor(message: string, kind: TunnelErrorKind) {
+    super(message);
+    this.name = "TunnelError";
+    this.kind = kind;
   }
-  const msg = errText(err);
-  if (/unauthorized|not permitted|sign ?in|login|does not have/i.test(msg)) {
-    return new Error("devtunnel not signed in. Run: devtunnel user login");
-  }
-  return err instanceof Error ? err : new Error(msg);
+}
+
+const AUTH_RE =
+  /authoriz|not permitted|forbidden|sign ?in|log ?in|not.*authenticated|does not have|no access/i;
+
+/** Classify a devtunnel failure from an error and/or its stderr. Pure. */
+export function classifyTunnelError(
+  err: unknown,
+  stderr = "",
+): TunnelErrorKind {
+  if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return "missing";
+  if (AUTH_RE.test(`${errText(err)} ${stderr}`)) return "auth";
+  return "other";
+}
+
+function tunnelError(err: unknown, stderr = ""): TunnelError {
+  const kind = classifyTunnelError(err, stderr);
+  const message =
+    kind === "missing"
+      ? `devtunnel CLI not found. Install: ${devTunnelInstallHint()}`
+      : kind === "auth"
+        ? "devtunnel is not signed in. Run: devtunnel user login"
+        : errText(err) || "devtunnel failed.";
+  return new TunnelError(message, kind);
 }
