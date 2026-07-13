@@ -114,14 +114,61 @@ describe("startGateway", () => {
     expect(gw!.registry.all()).toHaveLength(0);
   });
 
-  it("rejects a not-yet-supported operator op explicitly", async () => {
+  it("relays session.subscribe to the owning provider and pipes frames back", async () => {
+    gw = await startGateway({ port: 0 });
+    const url = `ws://127.0.0.1:${gw.port}`;
+    const p = await open(url);
+    p.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "i1" },
+      }),
+    );
+    p.on("message", (raw) => {
+      const req = JSON.parse(raw.toString());
+      if (req.op === "session.subscribe") {
+        // Echo one event frame back with the SAME (relay) id the gateway sent.
+        p.send(
+          JSON.stringify({
+            id: req.id,
+            op: "session.subscribe",
+            kind: "event",
+            event: {
+              type: "append",
+              seq: 0,
+              part: { kind: "markdown", id: "m1", text: "hi" },
+            },
+          }),
+        );
+      }
+    });
+    await waitFor(() => gw!.registry.forInstance("i1").length === 1);
+
+    const operator = await open(url);
+    operator.send(
+      JSON.stringify({
+        id: "op-1",
+        op: "session.subscribe",
+        params: { instanceId: "i1", sessionId: "s1", sinceSeq: 0 },
+      }),
+    );
+    const frame = await nextMessage(operator);
+    expect(frame["id"]).toBe("op-1"); // rewritten back to the operator's id
+    expect(frame["kind"]).toBe("event");
+
+    p.close();
+    operator.close();
+  });
+
+  it("errors when no provider serves the requested instance", async () => {
     gw = await startGateway({ port: 0 });
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
     operator.send(
       JSON.stringify({
         id: "9",
         op: "session.subscribe",
-        params: { instanceId: "i1", sessionId: "s1", sinceSeq: 0 },
+        params: { instanceId: "ghost", sessionId: "s1", sinceSeq: 0 },
       }),
     );
     const res = await nextMessage(operator);

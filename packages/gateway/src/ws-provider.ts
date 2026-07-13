@@ -45,6 +45,13 @@ export class WsProvider implements SessionProvider {
     pending.resolve(msg);
   }
 
+  /** Write a raw frame to the provider socket (used by the relay). */
+  send(text: string): void {
+    if (this.#socket.readyState === this.#socket.OPEN) {
+      this.#socket.send(text);
+    }
+  }
+
   /** Reject every in-flight request (the socket closed). */
   dispose(reason = "provider disconnected"): void {
     for (const pending of this.#pending.values()) {

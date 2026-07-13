@@ -8,6 +8,7 @@ import {
 } from "@cloakcode/protocol";
 import { ProviderRegistry } from "./registry.js";
 import { WsProvider } from "./ws-provider.js";
+import { Relay } from "./relay.js";
 import { contentTypeFor, resolveStaticPath } from "./static-files.js";
 
 export interface GatewayOptions {
@@ -68,6 +69,7 @@ export async function startGateway(opts: GatewayOptions = {}): Promise<Gateway> 
     );
   });
 
+  const relay = new Relay();
   wss.on("connection", (socket: WebSocket) => {
     // The first frame decides the role: a `provider.hello` marks an extension in
     // client mode; anything else is treated as an operator (the phone/PWA), which
@@ -78,18 +80,27 @@ export async function startGateway(opts: GatewayOptions = {}): Promise<Gateway> 
       if (hello?.role === "provider") {
         const provider = new WsProvider(hello.provider.instanceId, socket);
         registry.add(provider);
-        socket.on("message", (m) => provider.handleMessage(m.toString()));
+        socket.on("message", (m) => {
+          const frame = m.toString();
+          // A provider frame is either a relayed reply for an operator, or a
+          // response to a gateway-initiated request (e.g. sessions.list).
+          if (!relay.routeProviderFrame(frame)) provider.handleMessage(frame);
+        });
         socket.on("close", () => {
           registry.remove(provider);
           provider.dispose();
         });
         return;
       }
-      // Operator: wire the RPC handler, and process this first frame too unless
-      // it was just an explicit operator hello.
-      socket.on("message", (m) => void handleOperator(socket, registry, m.toString()));
+      // Operator: wire the RPC handler + process this first frame unless it was
+      // just an explicit operator hello; drop its relays when it disconnects.
+      socket.on(
+        "message",
+        (m) => void handleOperator(socket, registry, relay, m.toString()),
+      );
+      socket.on("close", () => relay.dropOperator(socket));
       if (hello?.role !== "operator") {
-        void handleOperator(socket, registry, text);
+        void handleOperator(socket, registry, relay, text);
       }
     });
   });
@@ -127,10 +138,15 @@ function parseHello(
   return parsed.success ? parsed.data : undefined;
 }
 
-/** Handle one operator RPC frame. Currently: `sessions.list` (aggregated). */
+/**
+ * Handle one operator RPC frame: `sessions.list` is aggregated across providers;
+ * every other (session-addressed) op is relayed to the owning provider by
+ * `instanceId`, with its frames piped back through {@link Relay}.
+ */
 async function handleOperator(
   socket: WebSocket,
   registry: ProviderRegistry,
+  relay: Relay,
   text: string,
 ): Promise<void> {
   let json: unknown;
@@ -152,13 +168,25 @@ async function handleOperator(
     send(socket, { id, ok: true, op: "sessions.list", result });
     return;
   }
-  // Streaming + actuator relay (session.subscribe/respond/decide/answer) is the
-  // next slice — until then, be explicit rather than silently dropping.
-  send(socket, {
-    id,
-    ok: false,
-    error: { message: `gateway: '${op}' not supported yet` },
-  });
+  const instanceId = (req.data.params as { instanceId?: string }).instanceId;
+  const provider = instanceId
+    ? registry
+        .forInstance(instanceId)
+        .find((p): p is WsProvider => p instanceof WsProvider)
+    : undefined;
+  if (!provider) {
+    send(socket, {
+      id,
+      ok: false,
+      error: {
+        message: `gateway: no provider for instance '${instanceId ?? "?"}'`,
+      },
+    });
+    return;
+  }
+  relay.forward(socket, { id, op, params: req.data.params }, (t) =>
+    provider.send(t),
+  );
 }
 
 function send(socket: WebSocket, msg: unknown): void {
