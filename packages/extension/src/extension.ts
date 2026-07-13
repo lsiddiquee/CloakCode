@@ -249,6 +249,21 @@ export async function activate(
     );
   }
 
+  // Always-visible one-click entry to the phone link (QR) — the low-friction
+  // way in, instead of hunting the command palette.
+  const status = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100,
+  );
+  status.name = "CloakCode";
+  status.text = "$(broadcast) CloakCode";
+  status.tooltip = bridge
+    ? `CloakCode gateway on 127.0.0.1:${bridge.port} — click for the phone link`
+    : "CloakCode bridge failed to start";
+  status.command = "cloakcode.showPhoneLink";
+  status.show();
+  context.subscriptions.push(status);
+
   const gatherDiagnostics = async (): Promise<DiagnosticsSnapshot> => {
     const { hashes, source } = resolveOwnedHashes(context, root);
     const scanned: ScannedHash[] = [];
