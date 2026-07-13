@@ -146,6 +146,15 @@ export async function activate(
     .getConfiguration("cloakcode")
     .get<number>("surfaceDebounceMs");
 
+  // Packaged gateway: if the built PWA was bundled into the .vsix, serve it from
+  // the bridge so ONE tunnelled port carries the app + `/bridge`. Absent in dev
+  // (Vite serves the app), so the bridge stays WebSocket-only.
+  const webDir = vscode.Uri.joinPath(context.extensionUri, "dist", "web").fsPath;
+  const serveDir = await fs
+    .access(path.join(webDir, "index.html"))
+    .then(() => webDir)
+    .catch(() => undefined);
+
   try {
     bridge = await startBridge(
       {
@@ -219,10 +228,11 @@ export async function activate(
           }
         },
       },
-      { host: "127.0.0.1", port },
+      { host: "127.0.0.1", port, ...(serveDir ? { serveDir } : {}) },
     );
     out.appendLine(
-      `bridge listening on ws://127.0.0.1:${bridge.port} (instance "${instanceId}")`,
+      `bridge listening on ws://127.0.0.1:${bridge.port} (instance "${instanceId}")` +
+        (serveDir ? " + PWA from dist/web" : ""),
     );
   } catch (err) {
     out.appendLine(
