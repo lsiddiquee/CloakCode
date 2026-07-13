@@ -16,6 +16,7 @@ import {
 } from "./bridge";
 import { approvalSummary, sessionActivity, toolSummary } from "./format";
 import { Markdown } from "./Markdown";
+import { nextScrollAction, readScroll, writeScroll } from "./scroll";
 
 interface ViewState {
   parts: SessionPart[];
@@ -50,42 +51,6 @@ function reducer(state: ViewState, action: ViewAction): ViewState {
         : p,
     ),
   };
-}
-
-interface SavedScroll {
-  top: number;
-  atBottom: boolean;
-}
-
-/**
- * Persist the transcript scroll position per session. It survives a PWA reload
- * (e.g. a phone lock/unlock that rebuilds the DOM) via `sessionStorage`, so the
- * reader isn't yanked to the bottom when the transcript re-streams. Best-effort:
- * blocked/absent storage just means the position won't persist.
- */
-function readScroll(sessionId: string): SavedScroll | null {
-  try {
-    const raw = sessionStorage.getItem(`cc-scroll:${sessionId}`);
-    const v: unknown = raw ? JSON.parse(raw) : null;
-    if (
-      v &&
-      typeof v === "object" &&
-      typeof (v as SavedScroll).top === "number" &&
-      typeof (v as SavedScroll).atBottom === "boolean"
-    )
-      return v as SavedScroll;
-  } catch {
-    // no/blocked sessionStorage
-  }
-  return null;
-}
-
-function writeScroll(sessionId: string, value: SavedScroll): void {
-  try {
-    sessionStorage.setItem(`cc-scroll:${sessionId}`, JSON.stringify(value));
-  } catch {
-    // no/blocked sessionStorage
-  }
 }
 
 export function SessionView({
@@ -147,25 +112,34 @@ export function SessionView({
     if (!el || !inner) return;
     restoredRef.current = false;
     const saved = readScroll(session.sessionId);
-    const toBottom = (): void => {
-      // First content measurement after (re)mount: if a reload wiped the DOM but
-      // the user had scrolled up mid-read, restore that position instead of
-      // yanking to the bottom; afterwards normal stick-to-bottom applies.
-      if (!restoredRef.current) {
-        restoredRef.current = true;
-        if (saved && !saved.atBottom) {
+    const settle = (): void => {
+      const action = nextScrollAction({
+        saved,
+        restored: restoredRef.current,
+        stick: stickRef.current,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      });
+      switch (action.kind) {
+        case "wait":
+          return; // content not tall enough yet; a later growth retries
+        case "restore":
+          restoredRef.current = true;
           stickRef.current = false;
-          el.scrollTop = Math.min(saved.top, el.scrollHeight);
-          lastTopRef.current = el.scrollTop;
+          el.scrollTop = action.top;
+          break;
+        case "stick":
+          restoredRef.current = true;
+          el.scrollTop = el.scrollHeight;
+          break;
+        case "none":
+          restoredRef.current = true;
           return;
-        }
       }
-      if (!stickRef.current) return;
-      el.scrollTop = el.scrollHeight;
       lastTopRef.current = el.scrollTop;
     };
-    toBottom();
-    const ro = new ResizeObserver(toBottom);
+    settle();
+    const ro = new ResizeObserver(settle);
     ro.observe(inner);
     return () => ro.disconnect();
   }, [session.sessionId]);
