@@ -12,6 +12,13 @@ export function humanAge(seconds: number): string {
   return `${Math.max(0, Math.floor(seconds))}s`;
 }
 
+/** Traffic-light dot class for a session status. */
+export function dotClass(status: SessionStatus): string {
+  if (status === "blocked") return "amber";
+  if (status === "active") return "green";
+  return "grey";
+}
+
 /** Short status word shown next to a session row. */
 export function statusLabel(
   status: SessionStatus,

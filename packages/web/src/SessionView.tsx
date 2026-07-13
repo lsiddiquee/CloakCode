@@ -14,7 +14,12 @@ import {
   subscribeSession,
   type ConnState,
 } from "./bridge";
-import { approvalSummary, sessionActivity, toolSummary } from "./format";
+import {
+  approvalSummary,
+  dotClass,
+  sessionActivity,
+  toolSummary,
+} from "./format";
 import { Markdown } from "./Markdown";
 import { nextScrollAction, readScroll, writeScroll } from "./scroll";
 
@@ -617,10 +622,4 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
       </div>
     </form>
   );
-}
-
-function dotClass(status: SessionSummary["status"]): string {
-  if (status === "blocked") return "amber";
-  if (status === "active") return "green";
-  return "grey";
 }

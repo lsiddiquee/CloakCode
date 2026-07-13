@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { bridgeUrl, fetchSessions } from "./bridge";
-import { statusLabel } from "./format";
+import { dotClass, statusLabel } from "./format";
 import { SessionView } from "./SessionView";
 
 type LoadState =
@@ -160,10 +160,4 @@ export function App(): JSX.Element {
       </main>
     </div>
   );
-}
-
-function dotClass(status: SessionSummary["status"]): string {
-  if (status === "blocked") return "amber";
-  if (status === "active") return "green";
-  return "grey";
 }
