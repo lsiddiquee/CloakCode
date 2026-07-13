@@ -268,6 +268,22 @@ type Choice = {
 Streamed as a **sequence-numbered event log** (`append(part)`, `patch(id, delta)`,
 `updateStatus(id, status)`) so a reconnecting phone resumes from `lastSeq`.
 
+### Rendering a long backlog (keep the open O(n))
+
+Opening a session replays its **whole backlog** — the observer's `SessionFollower`
+emits one event per record, and stitch (above) makes that backlog as long as the
+transcript. The client must therefore treat the open as O(n), not O(n²):
+
+- **Coalesce, don't render per event.** `@cloakcode/web` buffers incoming events and
+  applies **one batch per animation frame** (`applyEvents`), so the parts array —
+  and the reflow/auto-scroll — rebuilds once per frame, not once per event.
+- **Memoize parts.** `Part` and `Markdown` are `React.memo`'d (with hoisted
+  react-markdown plugins/components), so a streamed append never re-parses the
+  markdown of the earlier parts. Parsing is the hot path; this is what keeps it O(n).
+
+Don't reintroduce per-event `dispatch`, a per-render markdown `components` object, or
+an un-memoized part — any one silently restores the O(n²) open on long transcripts.
+
 ### Mapping the on-disk observer onto `SessionPart`
 
 | Transcript event          | Becomes                                                                          |

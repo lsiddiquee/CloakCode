@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
   Decision,
   PendingBlocker,
@@ -6,6 +6,7 @@ import type {
   SessionEvent,
   SessionPart,
   SessionSummary,
+  ToolStatus,
 } from "@cloakcode/protocol";
 import {
   answerSession,
@@ -31,31 +32,58 @@ interface ViewState {
 }
 
 type ViewAction =
-  | SessionEvent
+  | { type: "batch"; events: SessionEvent[] }
   | { type: "error"; message: string }
   | { type: "pending"; blockers: PendingBlocker[] };
+
+/**
+ * Fold a batch of session events into the view state in one pass. Opening a long
+ * session replays its whole backlog as many discrete events; coalescing them
+ * (see the subscribe effect) and applying them together rebuilds the parts array
+ * at most once per batch instead of once per event — the difference between an
+ * O(n) and an O(n²) open. Appends dedupe by id (a reconnect may resume with
+ * overlap); status updates fold so the array is mapped at most once. Returns the
+ * same reference when nothing effectively changed, so React can skip the render.
+ */
+export function applyEvents(
+  state: ViewState,
+  events: SessionEvent[],
+): ViewState {
+  if (events.length === 0) return state;
+  const seen = new Set(state.parts.map((p) => p.id));
+  let appended: SessionPart[] | null = null;
+  let resolved: Set<string> | null = null;
+  let statusUpdates: Map<string, ToolStatus> | null = null;
+
+  for (const e of events) {
+    if (e.type === "append") {
+      if (seen.has(e.part.id)) continue;
+      seen.add(e.part.id);
+      (appended ??= []).push(e.part);
+    } else if (e.type === "resolve") {
+      (resolved ??= new Set(state.resolved)).add(e.id);
+    } else {
+      (statusUpdates ??= new Map()).set(e.id, e.status);
+    }
+  }
+
+  let parts = appended ? [...state.parts, ...appended] : state.parts;
+  if (statusUpdates) {
+    const updates = statusUpdates;
+    parts = parts.map((p) => {
+      if (p.kind !== "toolCall") return p;
+      const next = updates.get(p.id);
+      return next ? { ...p, status: next } : p;
+    });
+  }
+  if (parts === state.parts && !resolved) return state;
+  return { ...state, parts, resolved: resolved ?? state.resolved };
+}
 
 function reducer(state: ViewState, action: ViewAction): ViewState {
   if (action.type === "error") return { ...state, error: action.message };
   if (action.type === "pending") return { ...state, pending: action.blockers };
-  if (action.type === "append") {
-    if (state.parts.some((p) => p.id === action.part.id)) return state;
-    return { ...state, parts: [...state.parts, action.part] };
-  }
-  if (action.type === "resolve") {
-    const resolved = new Set(state.resolved);
-    resolved.add(action.id);
-    return { ...state, resolved };
-  }
-  // updateStatus
-  return {
-    ...state,
-    parts: state.parts.map((p) =>
-      p.kind === "toolCall" && p.id === action.id
-        ? { ...p, status: action.status }
-        : p,
-    ),
-  };
+  return applyEvents(state, action.events);
 }
 
 export function SessionView({
@@ -73,15 +101,33 @@ export function SessionView({
   });
   const [conn, setConn] = useState<ConnState>("connecting");
 
+  // Coalesce the event stream. A long transcript replays as many discrete
+  // events; buffering them and applying one batch per animation frame turns N
+  // renders (and N markdown re-parses + layouts) into ~1 — the difference
+  // between a snappy and an unusable open. Live events past the backlog still
+  // flush within a frame, so the mirror stays effectively real-time.
   useEffect(() => {
+    const buffer: SessionEvent[] = [];
+    let raf: number | null = null;
+    const flush = (): void => {
+      raf = null;
+      if (buffer.length > 0)
+        dispatch({ type: "batch", events: buffer.splice(0) });
+    };
     const unsubscribe = subscribeSession(
       { instanceId: session.instanceId, sessionId: session.sessionId },
-      (event) => dispatch(event),
+      (event) => {
+        buffer.push(event);
+        if (raf === null) raf = requestAnimationFrame(flush);
+      },
       (blockers) => dispatch({ type: "pending", blockers }),
       (message) => dispatch({ type: "error", message }),
       setConn,
     );
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (raf !== null) cancelAnimationFrame(raf);
+    };
   }, [session.instanceId, session.sessionId]);
 
   // Stick-to-bottom: follow the latest message unless the user scrolled up.
@@ -149,12 +195,22 @@ export function SessionView({
     return () => ro.disconnect();
   }, [session.sessionId]);
 
-  const activity = sessionActivity(
-    state.pending,
-    state.parts,
-    state.resolved,
-    session.status,
-    session.idleSeconds,
+  const activity = useMemo(
+    () =>
+      sessionActivity(
+        state.pending,
+        state.parts,
+        state.resolved,
+        session.status,
+        session.idleSeconds,
+      ),
+    [
+      state.pending,
+      state.parts,
+      state.resolved,
+      session.status,
+      session.idleSeconds,
+    ],
   );
   // Foreign workspace (no live extension here) => observe-only. Actuation is
   // gated in the UI; a receiving-side guard lands with the gateway (docs/03).
@@ -233,7 +289,7 @@ export function SessionView({
   );
 }
 
-function Part({
+const Part = memo(function Part({
   part,
   resolved,
 }: {
@@ -295,7 +351,7 @@ function Part({
         </div>
       );
   }
-}
+});
 
 /**
  * Shared send state for remote-operator text (a blocker answer or a free chat
