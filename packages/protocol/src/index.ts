@@ -309,3 +309,34 @@ export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type SessionSubscribeEvent = z.infer<typeof sessionSubscribeEventSchema>;
+
+/**
+ * Info a **provider** (an extension in client mode) announces to a standalone
+ * gateway (docs/03 “Explicit gateway”). `instanceId` is how the gateway routes
+ * session-addressed RPCs back to this provider and de-dupes `(instanceId,
+ * sessionId)` across providers; `version` / `workspaceHashes` are diagnostics.
+ */
+export const providerInfoSchema = z.object({
+  instanceId: z.string().min(1),
+  version: z.string().optional(),
+  workspaceHashes: z.array(z.string()).optional(),
+});
+export type ProviderInfo = z.infer<typeof providerInfoSchema>;
+
+/**
+ * First frame on a gateway `/bridge` connection, declaring the peer's role so
+ * the standalone gateway can multiplex phones and extension providers on one
+ * endpoint. An `operator` (phone / PWA) then speaks the usual client RPC; a
+ * `provider` serves the gateway's forwarded RPCs for its own `instanceId`. A
+ * connection that sends no hello is treated as an `operator`, so the embedded
+ * bridge (where every client is a phone) is unaffected.
+ */
+export const connectionHelloSchema = z.discriminatedUnion("role", [
+  z.object({ type: z.literal("hello"), role: z.literal("operator") }),
+  z.object({
+    type: z.literal("hello"),
+    role: z.literal("provider"),
+    provider: providerInfoSchema,
+  }),
+]);
+export type ConnectionHello = z.infer<typeof connectionHelloSchema>;

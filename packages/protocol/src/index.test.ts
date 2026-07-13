@@ -12,6 +12,8 @@ import {
   sessionsListResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
+  providerInfoSchema,
+  connectionHelloSchema,
   type SessionSummary,
 } from "./index.js";
 
@@ -427,5 +429,51 @@ describe("response schemas", () => {
   it("parses a session.answer ack", () => {
     const res = { id: "7", ok: true as const, op: "session.answer" as const };
     expect(sessionAnswerResponseSchema.parse(res)).toEqual(res);
+  });
+});
+
+describe("connectionHelloSchema", () => {
+  it("parses an operator hello", () => {
+    const hello = { type: "hello" as const, role: "operator" as const };
+    expect(connectionHelloSchema.parse(hello)).toEqual(hello);
+  });
+
+  it("parses a provider hello with instance info", () => {
+    const hello = {
+      type: "hello" as const,
+      role: "provider" as const,
+      provider: {
+        instanceId: "devcontainer:cloakcode",
+        version: "0.1.0",
+        workspaceHashes: ["abc123", "def456"],
+      },
+    };
+    const parsed = connectionHelloSchema.parse(hello);
+    expect(parsed.role).toBe("provider");
+    if (parsed.role === "provider") {
+      expect(parsed.provider.instanceId).toBe("devcontainer:cloakcode");
+    }
+  });
+
+  it("accepts a minimal provider info (instanceId only)", () => {
+    expect(
+      providerInfoSchema.parse({ instanceId: "local:myrepo" }).instanceId,
+    ).toBe("local:myrepo");
+  });
+
+  it("rejects a provider hello with no instanceId", () => {
+    expect(
+      connectionHelloSchema.safeParse({
+        type: "hello",
+        role: "provider",
+        provider: {},
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown role", () => {
+    expect(
+      connectionHelloSchema.safeParse({ type: "hello", role: "phone" }).success,
+    ).toBe(false);
   });
 });
