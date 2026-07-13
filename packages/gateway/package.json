@@ -1,0 +1,22 @@
+{
+  "name": "@cloakcode/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Standalone CloakCode gateway — the run-it-yourself hub that serves the PWA and multiplexes phone (operator) + extension (provider) connections. NO vscode import.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cloakcode/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.8"
+  }
+}
