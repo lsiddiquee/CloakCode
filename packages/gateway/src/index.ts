@@ -15,3 +15,6 @@ export {
   type TunnelErrorKind,
   type TunnelLog,
 } from "./tunnel.js";
+export { contentTypeFor, resolveStaticPath } from "./static-files.js";
+export { startGateway, type Gateway, type GatewayOptions } from "./gateway.js";
+export { WsProvider } from "./ws-provider.js";

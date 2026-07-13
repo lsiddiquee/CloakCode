@@ -9,7 +9,7 @@ import {
 } from "@cloakcode/protocol";
 import { SessionFollower, type SessionLog } from "./session-observer.js";
 import { SpoolFollower } from "./hook-spool.js";
-import { contentTypeFor, resolveStaticPath } from "./static-files.js";
+import { contentTypeFor, resolveStaticPath } from "@cloakcode/gateway";
 
 /**
  * The localhost bridge. Binds `127.0.0.1` only (security rule 3) and speaks the
