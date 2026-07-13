@@ -226,13 +226,15 @@ changes for the dev-server or the bridge tests. The single path-safety check (tr
 null-byte / percent-decode) lives in the pure `resolveStaticPath` (`static-files.ts`),
 unit-tested without a filesystem. Reaching the phone is a separate concern (`asExternalUri` + QR
 in cloud remotes; your Dev Tunnel locally) — the gateway itself only binds loopback.
-The `CloakCode: Show Phone Link` command resolves that external URL (via
-`asExternalUri`, or the `cloakcode.publicUrl` setting when set) and shows a scannable
-**QR** — a tiny zero-dep encoder → inline SVG in a webview, so there's no rasterization
-and ~0 runtime weight beyond the encoder. In a **local dev container** `asExternalUri`
-returns a desktop-loopback URL (VS Code forwards to the desktop, not a public tunnel);
-forward the port **Public** (Ports view) or run a tunnel and set `cloakcode.publicUrl`,
-and the command warns when the resolved URL is still loopback.
+The `CloakCode: Show Phone Link` command resolves the URL in priority order —
+`cloakcode.publicUrl` → an **auto-hosted private Dev Tunnel** (`cloakcode.tunnel:
+devtunnel`, which spawns `devtunnel host` and scrapes the URL, no manual step) →
+`asExternalUri` — and shows a scannable **QR** (a tiny zero-dep encoder → inline SVG in a
+webview, so there's no rasterization and ~0 runtime weight beyond the encoder). In a
+**local dev container** `asExternalUri` returns a desktop-loopback URL (VS Code forwards
+to the desktop, not a public tunnel); use `cloakcode.tunnel: devtunnel`, or forward the
+port **Public** (Ports view) / run a tunnel and set `cloakcode.publicUrl`. The command
+warns when the resolved URL is still loopback.
 
 ## The core abstraction: `SessionPart`
 

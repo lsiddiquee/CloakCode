@@ -22,6 +22,7 @@ import {
   localChatSessionUri,
 } from "./hook-spool.js";
 import { phoneLinkHtml, isLoopback } from "./phone-link.js";
+import { devTunnelName, startDevTunnel, type Tunnel } from "./tunnel.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -33,6 +34,7 @@ import { phoneLinkHtml, isLoopback } from "./phone-link.js";
  */
 
 let bridge: Bridge | undefined;
+let tunnel: Tunnel | undefined;
 
 /**
  * Write the user-global hook config (`~/.copilot/hooks/cloakcode.json`) pointing
@@ -352,22 +354,32 @@ export async function activate(
         );
         return;
       }
-      // Prefer an explicit public URL (your tunnel / a VS Code PUBLIC forwarded
-      // port): `asExternalUri` returns a desktop-loopback forward in local dev
-      // containers (only Codespaces/remotes get a phone-reachable URL from it).
-      // Re-resolved each invocation, so the link shown is always current.
-      const configured =
-        vscode.workspace
-          .getConfiguration("cloakcode")
-          .get<string>("publicUrl")
-          ?.trim() || process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
-      const url =
-        configured ??
-        (
-          await vscode.env.asExternalUri(
-            vscode.Uri.parse(`http://127.0.0.1:${bridge.port}`),
-          )
-        ).toString();
+      // URL priority: an explicit public URL (your tunnel / a VS Code PUBLIC
+      // forwarded port) → an auto-hosted private Dev Tunnel (cloakcode.tunnel) →
+      // `asExternalUri` (desktop-loopback in local containers). Re-resolved each
+      // invocation, so the link shown is always current.
+      const cfg = vscode.workspace.getConfiguration("cloakcode");
+      let url =
+        cfg.get<string>("publicUrl")?.trim() ||
+        process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
+      if (!url && cfg.get<string>("tunnel") === "devtunnel") {
+        try {
+          tunnel ??= await startDevTunnel(
+            bridge.port,
+            devTunnelName(instanceId),
+          );
+          url = tunnel.url;
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `CloakCode auto-tunnel: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      url ??= (
+        await vscode.env.asExternalUri(
+          vscode.Uri.parse(`http://127.0.0.1:${bridge.port}`),
+        )
+      ).toString();
       if (isLoopback(url)) {
         void vscode.window.showWarningMessage(
           `CloakCode phone link is loopback (${url}) — a phone can't reach it. ` +
@@ -394,6 +406,8 @@ export async function activate(
     dispose: () => {
       void bridge?.close();
       bridge = undefined;
+      tunnel?.stop();
+      tunnel = undefined;
     },
   });
 }
