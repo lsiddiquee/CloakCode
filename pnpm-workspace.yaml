@@ -12,17 +12,11 @@ packages:
 # replacement for the removed `managePackageManagerVersions: false`.
 pmOnFail: ignore
 
+# pnpm 11 build-script allowlist (replaces the removed onlyBuiltDependencies /
+# ignoredBuiltDependencies keys). esbuild (via vitest/vite) needs its platform
+# binary linked → allow. vsce-sign + keytar are publish/signing-only native
+# modules that `vsce package` never needs → deny (don't build).
 allowBuilds:
-  esbuild: set this to true or false
-
-# Allow esbuild (pulled in by vitest/vite) to run its install script so the
-# platform binary is linked. pnpm 11 reads build allowlists from here.
-onlyBuiltDependencies:
-  - esbuild
-
-# vsce (packaging devDependency) pulls in native modules used only for marketplace
-# PUBLISH/signing — never for `vsce package`. We intentionally do NOT build them;
-# acknowledge them so `pnpm install` and the pre-run deps check don't error.
-ignoredBuiltDependencies:
-  - "@vscode/vsce-sign"
-  - keytar
+  esbuild: true
+  "@vscode/vsce-sign": false
+  keytar: false
