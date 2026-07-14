@@ -143,29 +143,45 @@ pre-commit run --all-files          # hooks
 
 ## Context persistence (never lose work on tangents) — MANDATORY
 
-We go on tangents constantly, and long sessions **will** exceed the context window; session memory
-can also be flushed on container rebuild. Assume anything not written to the workspace is lost.
-These rules are **not optional** and apply **no matter the reason for a switch or deep dive**.
+We go on tangents constantly, and long sessions **will** exceed the context window; the assistant
+**memory store (`/memories/`) is ephemeral — a container rebuild wipes it** (it already has, once).
+Assume anything not written to a durable location is lost. These rules are **not optional** and
+apply **no matter the reason for a switch or deep dive**.
 
-- **Persist locally, not in memory.** Create `.local/scratch/` if missing and keep
-  work-in-progress there — it is gitignored and survives rebuilds. Use it freely as a scratchpad.
+**Three storage tiers — choose by durability AND audience:**
+
+- **`.local/` — in-progress, LOCAL-only** (gitignored, survives rebuild, never shared). Create
+  `.local/scratch/` if missing and keep work-in-progress there; use it freely as a scratchpad.
+- **`/memories/` — short-lived session notes only** (EPHEMERAL: wiped on rebuild, never shared).
+  Fine for the current conversation's working state; **never** the home for anything durable or that
+  others need — it does not survive a rebuild and reaches no one else.
+- **Git-tracked docs (`docs/`) — durable, shared knowledge.** Anything **potentially useful to anyone
+  else** MUST be recorded there: design decisions (docs/01–05), the empirical record + corrections log
+  (docs/02), and durable **build / tooling / agent gotchas + verified practices**
+  ([docs/06 field notes](../docs/06-field-notes.md)) — in the **same change** that produced it. If a
+  rediscovery would waste someone's time, it belongs here, not in `/memories/`.
+
 - **One task-state file:** maintain `.local/scratch/task-state.md` with the current focus, a ledger
   of every in-flight issue (`pending` / `in-progress` / `blocked` / `done` + next step), open
   threads (deferred items), and key findings. Create it before the first edit of any non-trivial
   task.
-- **Checkpoint before you act** — before switching focus or deep-diving, the moment you spot a new
+- **Checkpoint as you work** — before switching focus or deep-diving, the moment you spot a new
   sub-issue, after completing meaningful steps or learning key facts, and before any long/branching
   operation. Re-read and reconcile it when resuming or whenever you're unsure you still hold earlier
   state.
-- Durable **design** decisions still go in the relevant `docs/` file in the same change.
 
-Rule of thumb: if it isn't in `.local/scratch/` or `docs/`, assume it will be forgotten.
+Rule of thumb: **in-progress → `.local/`; useful to everyone → git-tracked `docs/`; `/memories/` is
+scratch that vanishes on rebuild.** If it isn't in `.local/scratch/` or `docs/`, assume
+it will be forgotten.
 
 ## Pattern capture
 
 When you find yourself re-explaining the same thing to the AI, fixing the same class of issue
-repeatedly, or hitting a non-obvious gotcha, capture it — extend the relevant `docs/` file (or
-the corrections log in docs/02) so the project learns.
+repeatedly, or hitting a non-obvious gotcha, **capture it in committed git so nobody rediscovers
+it**: build / tooling / AI-edit gotchas + verified practices go in
+[docs/06 field notes](../docs/06-field-notes.md); research findings about Copilot / VS Code
+internals extend the relevant `docs/` file (or the corrections log in docs/02). Do **not** leave a
+durable gotcha only in `/memories/` (ephemeral) — migrate it to `docs/`.
 
 ## Docs map
 

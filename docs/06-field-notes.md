@@ -5,6 +5,10 @@
 > The narrative versions live in [02-research-findings.md](02-research-findings.md); this is the
 > compressed field log. Environment when captured: `copilot-agent` 0.56.0, VS Code 1.128.0,
 > remote server (`~/.vscode-server`).
+>
+> It **also** holds the ongoing **"Build, tooling & agent gotchas"** section at the bottom — the
+> **committed** home for the traps the assistant used to keep in its ephemeral `/memories/` store
+> (which a rebuild wipes). Add gotchas there so nobody rediscovers them.
 
 ## Goal & requirements (evolved)
 
@@ -95,3 +99,41 @@ Base: `~/.vscode-server/data/User/`
 - Steer / Stop-and-Send command IDs (client-side `workbench.desktop.main.js`).
 - The `@github/copilot` agent-host SDK input/steer channel.
 - Prose-only blocker detection; whether UI tool-approval confirmations log like `vscode_askQuestions`.
+
+## Build, tooling & agent gotchas (durable — the committed home; `/memories/` is ephemeral)
+
+> Non-obvious traps that cost real time. This is the **committed** replacement for the assistant's
+> ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
+> rediscovery would waste someone's time.
+
+- **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
+  `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
+  the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does
+  **not** fix it (regenerates the same node-wrapper; verified 2026-07-14) and manual shim edits are
+  wiped on the next install. **Fix = invoke esbuild via its JS API** (`import { build } from
+  "esbuild"`) in a `scripts/bundle.mjs`, never the `esbuild` CLI. Both bundlers do this
+  (`packages/gateway/scripts/bundle.mjs`, `packages/extension/scripts/bundle.mjs`; the extension
+  `bundle` script is `node scripts/bundle.mjs`). vitest/vite use esbuild's JS API internally, so
+  tests were always unaffected. Do **not** re-add an `esbuild …` CLI call to any npm script.
+- **Edit-tool unicode trap.** The string-replace edit tools can write `\uXXXX` escapes as **literal
+  text**. Use the actual glyphs (em-dash —, middot ·, arrow →, section §) in the replacement, or a
+  Python heredoc with ASCII anchors for unicode-heavy edits.
+- **Prettier ≠ ESLint.** `pnpm lint` (eslint) does **not** enforce prettier's width; the pre-commit
+  Prettier hook does and reformats (wraps > 80 cols). Run `node_modules/.bin/prettier --write <f>`
+  before staging so the commit doesn't leave an unstaged reformat.
+- **markdownlint (docs/).** Underscores for italics (MD049), `**` for bold; verify with
+  `pre-commit run markdownlint-cli2 --files <f>` before committing docs.
+- **`.local/` is gitignored** → `grep_search` needs `includeIgnoredFiles: true` and `file_search`
+  won't find it. Vendored VS Code source anchor = `.local/research/vscode/extensions/copilot`
+  (Copilot Chat is **built into core VS Code**; `microsoft/vscode-copilot-chat` was archived
+  2026-05-20 — do not anchor on it).
+- **Extension changes need a bundle + reload.** `pnpm --filter @cloakcode/extension bundle` (the
+  JS-API bundler) then reload the Extension Dev Host; the packaged PWA has Vite HMR off →
+  hard-refresh. TDD the pure layers (protocol/gateway) with a failing test first.
+- **Storage is EPHEMERAL here (overlay).** A container rebuild wipes `~/.vscode-server`
+  workspaceStorage (transcripts + debug-logs) **and** `/memories/`. Durable records must live in
+  git (`docs/`), local-only WIP in `.local/`. Transcripts GC to ~20 and rehydrate from the client
+  ChatModel (docs/02); rehydrated timestamps are replay time.
+- **Transcript render must stay O(n)** (docs/03 "Rendering a long backlog"): coalesce events one
+  batch per animation frame + `React.memo` on Part/Markdown with hoisted plugins/components. Do not
+  reintroduce per-event dispatch or a per-render markdown-components object → silently O(n²).
