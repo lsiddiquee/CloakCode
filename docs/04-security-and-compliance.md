@@ -85,6 +85,26 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
      PIN + lockout + device-approval pattern) so a non-CloakCode client — including anything that
      discovers the tunnel URL — cannot drive it. See docs/05 M4.
 
+## Gateway discovery trust (opt-in, local-only)
+
+Auto-discovery (`cloakcode.gatewayDiscovery`) makes the extension **connect out** to whatever
+answers the minimal **knock** (`cloakcode.hello`) on the probed local candidates (loopback,
+`host.docker.internal`, configured `cloakcode.gatewayHosts`). The probe reveals **only the knock**
+— no `instanceId`, workspace, or other payload reaches a peer until it has answered as a gateway —
+but because the extension then registers as a **provider** and serves that hub's forwarded RPCs,
+discovering a hub is still a **trust decision**, not just a convenience: a hostile local process
+answering the knock on the port could pose as a gateway. Until the gateway gains client/hub auth
+(M4), discovery is therefore:
+
+- **Off by default** — strictly opt-in.
+- **Local-only** — candidates are limited to loopback + `host.docker.internal` + hosts you list;
+  it never scans the network and never crosses a tunnel.
+- **Non-authenticating** — the gateway's knock ack proves the peer speaks the protocol, **not**
+  that it is trustworthy. Only enable it where every local process is trusted.
+
+When M4 lands, discovery must additionally verify the hub's identity (shared operator secret /
+mTLS) before a provider hands over any session data.
+
 ## Threat-model quick list
 
 | Threat                      | Mitigation                                                                                 |
@@ -92,5 +112,6 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
 | Code exfiltration           | No sync path; localhost bridge; redaction gate; token budget.                              |
 | Reflected prompt injection  | Provenance tagging; distinguish staged vs human input; confirm remote destructive actions. |
 | Unauthorized remote control | mTLS/token auth on the tunnel; localhost-only bind.                                        |
+| Rogue local gateway (discovery) | Discovery off by default; local-only candidates; no network/tunnel scan; hub auth at M4. |
 | Sensitive data in prompts   | Secret/entropy scan blocks before send; audit log.                                         |
 | Tool output tampering       | Treat tool/log content as untrusted input; validate at the boundary (zod).                 |

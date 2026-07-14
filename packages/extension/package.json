@@ -100,6 +100,27 @@
           "default": "",
           "scope": "machine-overridable",
           "markdownDescription": "WebSocket URL of a standalone **CloakCode gateway** to connect to as a provider (e.g. `ws://localhost:7900`). When set and reachable, this window does **not** host its own bridge or serve the PWA — it connects OUT to the gateway and speaks only the protocol (the gateway serves the app + owns the phone link). Empty (default) = **embedded** mode: the extension serves its own PWA + bridge. If the gateway is unreachable at activation, it falls back to embedded. See docs/03 ‘Explicit gateway’."
+        },
+        "cloakcode.gatewayDiscovery": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine-overridable",
+          "markdownDescription": "When `cloakcode.gatewayUrl` is **empty**, auto-discover a running **CloakCode gateway** on the local machine instead of starting the embedded bridge. The extension probes known-local candidates — loopback, `host.docker.internal`, and any `cloakcode.gatewayHosts` — on `cloakcode.gatewayPort` and connects to the first that identifies itself. **Off by default**: it auto-connects (as a provider) to whatever answers, so only enable it on trusted local hosts until gateway auth lands. See docs/04."
+        },
+        "cloakcode.gatewayPort": {
+          "type": "number",
+          "default": 7900,
+          "scope": "machine-overridable",
+          "markdownDescription": "Port probed by `cloakcode.gatewayDiscovery` when auto-discovering a gateway (the gateway's default is `7900`). Ignored unless discovery is enabled and `cloakcode.gatewayUrl` is empty."
+        },
+        "cloakcode.gatewayHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine-overridable",
+          "markdownDescription": "Extra hosts for `cloakcode.gatewayDiscovery` to probe, in addition to loopback and `host.docker.internal` (which are always tried). Use this to reach a gateway across a network namespace the extension can't guess — e.g. a WSL host IP from a container. Ignored unless discovery is enabled and `cloakcode.gatewayUrl` is empty."
         }
       }
     }

@@ -324,6 +324,22 @@ export const providerInfoSchema = z.object({
 export type ProviderInfo = z.infer<typeof providerInfoSchema>;
 
 /**
+ * The minimal "knock" — the FIRST frame on a gateway connection, before any
+ * payload. A client announces only that it speaks CloakCode and its role
+ * (`provider` = an extension, `operator` = a phone/PWA); the gateway, once it has
+ * heard a valid knock, answers with its own `gateway` knock. Nothing sensitive
+ * (instanceId, workspace, phone URL) is exchanged until BOTH sides have
+ * identified this way — so a stray port scanner that opens the socket and stays
+ * silent, or sends garbage, learns nothing and is dropped. A `provider` then
+ * follows with its full {@link connectionHelloSchema} hello.
+ */
+export const cloakcodeHelloSchema = z.object({
+  type: z.literal("cloakcode.hello"),
+  role: z.enum(["provider", "operator", "gateway"]),
+});
+export type CloakcodeHello = z.infer<typeof cloakcodeHelloSchema>;
+
+/**
  * First frame on a gateway `/bridge` connection, declaring the peer's role so
  * the standalone gateway can multiplex phones and extension providers on one
  * endpoint. An `operator` (phone / PWA) then speaks the usual client RPC; a

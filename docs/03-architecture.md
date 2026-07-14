@@ -465,6 +465,16 @@ Two connection **roles** share the one `/bridge` endpoint, distinguished by a fi
   `provider.hello { instanceId, … }`, then serves the gateway's forwarded RPCs for its own
   sessions (observer + actuator — which is why the provider stays in the extension host).
 
+**Two-phase handshake (the "knock").** The gateway stays **silent until it hears a known knock**:
+every connection's first frame is a minimal `cloakcode.hello { role }` — no `instanceId`,
+workspace, or phone URL. Only after a valid knock does the gateway answer with its own
+`cloakcode.hello { role: "gateway" }`; **then** the peer sends its real payload (a `provider` its
+full `provider.hello`, an operator its RPCs) and the gateway its `gateway.info`. So a stray port
+scanner that opens the socket and stays silent — or sends garbage — learns nothing and is dropped,
+and a `provider` never leaks its instance/workspace to a non-gateway it probed. The `provider`
+knock is **required**; an operator knock is currently **optional** (the phone/embedded path is
+unchanged) — hardening operators to knock too is a tracked follow-up (docs/05).
+
 **Unset (the default) → embedded:** the extension serves its own PWA + `/bridge` and needs no hub.
 When `cloakcode.gatewayUrl` is set (scope **machine / user / workspace** — a reachable hub is
 usually a per-machine fact, overridable per workspace) and the hub is reachable, the extension
@@ -481,15 +491,35 @@ to every provider and returns the **union, de-duped by `(instanceId, sessionId)`
 new for addressing — only the `provider.hello` registration envelope.
 
 **Phone link + connect URLs.** The gateway owns the phone tunnel, so it **pushes its phone URL to
-each provider** as a `gateway.info` control frame (on connect and whenever it changes) — an
+each provider** as a `gateway.info` control frame (once the provider completes the knock + hello,
+and whenever it changes) — an
 extension in client mode renders that for **Show Phone Link** instead of a bridge it doesn't run.
 On startup the runner also **probes the host's network interfaces and prints the ranked
 `cloakcode.gatewayUrl` candidates** (loopback → each LAN/virtual IP → a `host.docker.internal`
 hint) so you can pick the one matching where each extension runs.
 
+**Opt-in local auto-discovery (knock probe).** So a hub can be found without hand-copying a URL, the
+extension can **auto-discover** one on the local machine: when `cloakcode.gatewayUrl` is empty
+**and** `cloakcode.gatewayDiscovery` is on, it opens a WebSocket to each **known-local candidate**
+— loopback, `host.docker.internal`, and any configured `cloakcode.gatewayHosts` — on
+`cloakcode.gatewayPort` (default 7900), sends only the minimal **knock**, and keeps the **first**
+peer that answers with the gateway knock — so a non-CloakCode server on that port never receives
+the extension's instance or workspace. There is **no discovery endpoint or new API** — the knock
+handshake _is_ the probe, and the winning URL is handed to the normal `connectGateway` path (which
+repeats the knock, then sends the full `provider.hello`). It is **candidate-probing, not true
+discovery**: the host set and port are known inputs, so it only removes the copy-paste for the
+common local topologies (same host; container→host via `host.docker.internal`; host↔WSL via
+localhost forwarding). Cross-namespace hops the extension can't guess (WSL↔container) still need an
+explicit `cloakcode.gatewayHosts` entry or `cloakcode.gatewayUrl`. It is **off by default** and
+**local-only** because it auto-connects (as a provider) to whatever answers — a trust decision
+that stays bounded until gateway auth (M4); see [security](04-security-and-compliance.md).
+
 **Deferred (post-MVP):** **auto** leader election _within_ an environment (the `globalStorage`
-lock above) and auto-discovery of the hub. Until then, explicit `cloakcode.gatewayUrl` + gateway
-de-dup cover multiple extensions per environment.
+lock above) and **true** hub discovery — advertising the gateway's IP+port so a client finds a hub
+it was never told about (mDNS/DNS-SD is the native fit, but multicast doesn't cross Docker/WSL
+namespaces without an avahi reflector or WSL mirrored networking — see Q6). The opt-in knock
+probe above already covers the common **same-machine** case; explicit `cloakcode.gatewayUrl` +
+gateway de-dup cover the rest.
 
 ```mermaid
 flowchart LR

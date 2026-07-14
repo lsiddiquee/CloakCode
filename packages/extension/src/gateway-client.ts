@@ -10,6 +10,7 @@ import {
   type BridgeDeps,
   type Connection,
 } from "./bridge.js";
+import { knockFrame, isGatewayKnock } from "./ws-knock.js";
 
 export interface GatewayClient {
   /** The gateway URL this client connected to (`cloakcode.gatewayUrl`). */
@@ -74,18 +75,32 @@ export function connectGateway(
       socket = s;
       conn = c;
 
+      let knocked = false;
       s.on("open", () => {
         attempt = 0;
-        s.send(JSON.stringify({ type: "hello", role: "provider", provider }));
-        log(`gateway: connected as provider (${provider.instanceId})`);
-        if (!settled) {
-          settled = true;
-          clearTimeout(firstTimer);
-          resolve(client);
-        }
+        // Phase 1: knock with no provider info — the gateway answers only if it
+        // is a real CloakCode gateway; only then do we send the full hello.
+        s.send(knockFrame("provider"));
       });
       s.on("message", (raw) => {
         const text = raw.toString();
+        if (!knocked) {
+          if (!isGatewayKnock(text)) {
+            log(`gateway: ${url} did not answer the knock`);
+            s.close();
+            return;
+          }
+          knocked = true;
+          // Phase 2: reveal the full provider hello.
+          s.send(JSON.stringify({ type: "hello", role: "provider", provider }));
+          log(`gateway: connected as provider (${provider.instanceId})`);
+          if (!settled) {
+            settled = true;
+            clearTimeout(firstTimer);
+            resolve(client);
+          }
+          return;
+        }
         // The gateway pushes its phone URL as a `gateway.info` control frame;
         // capture it (so “Show Phone Link” reflects the hub) and don't route it
         // through the RPC handler.

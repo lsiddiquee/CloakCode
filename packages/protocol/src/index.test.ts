@@ -13,6 +13,7 @@ import {
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
   providerInfoSchema,
+  cloakcodeHelloSchema,
   connectionHelloSchema,
   gatewayInfoSchema,
   type SessionSummary,
@@ -430,6 +431,34 @@ describe("response schemas", () => {
   it("parses a session.answer ack", () => {
     const res = { id: "7", ok: true as const, op: "session.answer" as const };
     expect(sessionAnswerResponseSchema.parse(res)).toEqual(res);
+  });
+});
+
+describe("cloakcodeHelloSchema", () => {
+  it("parses a provider knock", () => {
+    const k = { type: "cloakcode.hello" as const, role: "provider" as const };
+    expect(cloakcodeHelloSchema.parse(k)).toEqual(k);
+  });
+
+  it("parses the gateway's answering knock", () => {
+    const k = { type: "cloakcode.hello" as const, role: "gateway" as const };
+    expect(cloakcodeHelloSchema.parse(k)).toEqual(k);
+  });
+
+  it("rejects a frame that is not a cloakcode knock", () => {
+    expect(
+      cloakcodeHelloSchema.safeParse({ type: "hello", role: "provider" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown role", () => {
+    expect(
+      cloakcodeHelloSchema.safeParse({
+        type: "cloakcode.hello",
+        role: "intruder",
+      }).success,
+    ).toBe(false);
   });
 });
 

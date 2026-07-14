@@ -50,12 +50,14 @@ async function waitFor(pred: () => boolean, ms = 1000): Promise<void> {
   }
 }
 
-/** A fake provider: registers as `instanceId` and answers sessions.list. */
-function fakeProvider(
-  ws: WebSocket,
+/** Open a socket and complete the provider knock + full hello handshake. */
+async function openProvider(
+  url: string,
   instanceId: string,
-  sessions: SessionSummary[],
-): void {
+): Promise<WebSocket> {
+  const ws = await open(url);
+  ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
+  await nextMessage(ws); // the gateway's answering knock
   ws.send(
     JSON.stringify({
       type: "hello",
@@ -63,6 +65,16 @@ function fakeProvider(
       provider: { instanceId },
     }),
   );
+  return ws;
+}
+
+/** A fake provider: completes the handshake, then answers sessions.list. */
+async function fakeProvider(
+  url: string,
+  instanceId: string,
+  sessions: SessionSummary[],
+): Promise<WebSocket> {
+  const ws = await openProvider(url, instanceId);
   ws.on("message", (raw) => {
     const req = JSON.parse(raw.toString());
     if (req.op === "sessions.list") {
@@ -76,6 +88,7 @@ function fakeProvider(
       );
     }
   });
+  return ws;
 }
 
 describe("startGateway", () => {
@@ -83,10 +96,11 @@ describe("startGateway", () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
 
-    const a = await open(url);
-    fakeProvider(a, "i1", [summary("i1", "s1", true), summary("i1", "s2")]);
-    const b = await open(url);
-    fakeProvider(b, "i1", [summary("i1", "s1", false)]); // dup of s1, read-only
+    const a = await fakeProvider(url, "i1", [
+      summary("i1", "s1", true),
+      summary("i1", "s2"),
+    ]);
+    const b = await fakeProvider(url, "i1", [summary("i1", "s1", false)]); // dup of s1, read-only
 
     await waitFor(() => gw!.registry.forInstance("i1").length === 2);
 
@@ -107,8 +121,7 @@ describe("startGateway", () => {
   it("drops a provider from the registry when it disconnects", async () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
-    const a = await open(url);
-    fakeProvider(a, "i9", []);
+    const a = await fakeProvider(url, "i9", []);
     await waitFor(() => gw!.registry.forInstance("i9").length === 1);
     a.close();
     await waitFor(() => gw!.registry.forInstance("i9").length === 0);
@@ -118,14 +131,7 @@ describe("startGateway", () => {
   it("relays session.subscribe to the owning provider and pipes frames back", async () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
-    const p = await open(url);
-    p.send(
-      JSON.stringify({
-        type: "hello",
-        role: "provider",
-        provider: { instanceId: "i1" },
-      }),
-    );
+    const p = await openProvider(url, "i1");
     p.on("message", (raw) => {
       const req = JSON.parse(raw.toString());
       if (req.op === "session.subscribe") {
@@ -179,30 +185,16 @@ describe("startGateway", () => {
 
   it("sends gateway.info to a provider on connect (no phone URL yet)", async () => {
     gw = await startGateway({ port: 0 });
-    const p = await open(`ws://127.0.0.1:${gw.port}`);
-    p.send(
-      JSON.stringify({
-        type: "hello",
-        role: "provider",
-        provider: { instanceId: "i1" },
-      }),
-    );
+    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i1");
     expect(await nextMessage(p)).toEqual({ type: "gateway.info" });
     p.close();
   });
 
   it("broadcasts the phone URL to connected providers on setPhoneUrl", async () => {
     gw = await startGateway({ port: 0 });
-    const p = await open(`ws://127.0.0.1:${gw.port}`);
+    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i1");
     const seen: Record<string, unknown>[] = [];
     p.on("message", (m) => seen.push(JSON.parse(m.toString())));
-    p.send(
-      JSON.stringify({
-        type: "hello",
-        role: "provider",
-        provider: { instanceId: "i1" },
-      }),
-    );
     await waitFor(() => gw!.registry.forInstance("i1").length === 1);
     const phoneUrl = "https://hub-7900.euw.devtunnels.ms";
     gw.setPhoneUrl(phoneUrl);
@@ -215,15 +207,31 @@ describe("startGateway", () => {
     gw = await startGateway({ port: 0 });
     const phoneUrl = "https://hub-7900.euw.devtunnels.ms";
     gw.setPhoneUrl(phoneUrl);
-    const p = await open(`ws://127.0.0.1:${gw.port}`);
-    p.send(
-      JSON.stringify({
-        type: "hello",
-        role: "provider",
-        provider: { instanceId: "i2" },
-      }),
-    );
+    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i2");
     expect(await nextMessage(p)).toEqual({ type: "gateway.info", phoneUrl });
     p.close();
+  });
+
+  it("answers a provider knock with a gateway knock before any payload", async () => {
+    gw = await startGateway({ port: 0 });
+    const ws = await open(`ws://127.0.0.1:${gw.port}`);
+    ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
+    expect(await nextMessage(ws)).toEqual({
+      type: "cloakcode.hello",
+      role: "gateway",
+    });
+    ws.close();
+  });
+
+  it("stays silent to a peer that never sends a valid knock", async () => {
+    gw = await startGateway({ port: 0 });
+    const ws = await open(`ws://127.0.0.1:${gw.port}`);
+    ws.send("not-a-knock");
+    const outcome = await Promise.race([
+      nextMessage(ws),
+      new Promise((r) => setTimeout(() => r("silence"), 150)),
+    ]);
+    expect(outcome).toBe("silence");
+    ws.close();
   });
 });

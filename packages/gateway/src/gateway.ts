@@ -2,8 +2,10 @@ import * as http from "node:http";
 import { readFile } from "node:fs/promises";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+  cloakcodeHelloSchema,
   connectionHelloSchema,
   rpcRequestSchema,
+  type CloakcodeHello,
   type GatewayInfo,
   type SessionSummary,
 } from "@cloakcode/protocol";
@@ -82,40 +84,57 @@ export async function startGateway(
   });
 
   const relay = new Relay();
+
+  // Register a provider once it completes the knock + full hello. We only reach
+  // here after answering the provider's knock, so no provider info was exchanged
+  // with a non-CloakCode peer.
+  const addProvider = (text: string, socket: WebSocket): void => {
+    const hello = parseHello(text);
+    if (hello?.role !== "provider") {
+      socket.close(); // knocked as a provider but didn't complete the hello
+      return;
+    }
+    const provider = new WsProvider(hello.provider.instanceId, socket);
+    registry.add(provider);
+    // Tell the provider the hub's phone URL so its “Show Phone Link” reflects the
+    // gateway's tunnel, not a local bridge it doesn't run (docs/03).
+    send(socket, gatewayInfo(phoneUrl));
+    socket.on("message", (m) => {
+      const frame = m.toString();
+      // A provider frame is either a relayed reply for an operator, or a response
+      // to a gateway-initiated request (e.g. sessions.list).
+      if (!relay.routeProviderFrame(frame)) provider.handleMessage(frame);
+    });
+    socket.on("close", () => {
+      registry.remove(provider);
+      provider.dispose();
+    });
+  };
+
   wss.on("connection", (socket: WebSocket) => {
-    // The first frame decides the role: a `provider.hello` marks an extension in
-    // client mode; anything else is treated as an operator (the phone/PWA), which
-    // then speaks the usual client RPC.
+    // Stay SILENT until we hear a valid knock (`cloakcode.hello`): a scanner that
+    // connects and says nothing — or sends garbage — learns nothing. A `provider`
+    // MUST knock (then we await its full hello); an `operator` (phone/PWA) may
+    // knock, else its first frame is a normal RPC (the embedded bridge never
+    // knocks). The phone URL is never revealed before a provider has identified.
     socket.once("message", (raw) => {
-      const text = raw.toString();
-      const hello = parseHello(text);
-      if (hello?.role === "provider") {
-        const provider = new WsProvider(hello.provider.instanceId, socket);
-        registry.add(provider);
-        // Tell the provider the hub's phone URL so its “Show Phone Link” reflects
-        // the gateway's tunnel, not a local bridge it doesn't run (docs/03).
-        send(socket, gatewayInfo(phoneUrl));
-        socket.on("message", (m) => {
-          const frame = m.toString();
-          // A provider frame is either a relayed reply for an operator, or a
-          // response to a gateway-initiated request (e.g. sessions.list).
-          if (!relay.routeProviderFrame(frame)) provider.handleMessage(frame);
-        });
-        socket.on("close", () => {
-          registry.remove(provider);
-          provider.dispose();
-        });
+      const first = raw.toString();
+      const knock = parseKnock(first);
+      if (knock?.role === "provider") {
+        send(socket, cloakcodeHello("gateway")); // answer the knock, no payload
+        socket.once("message", (m) => addProvider(m.toString(), socket));
         return;
       }
-      // Operator: wire the RPC handler + process this first frame unless it was
-      // just an explicit operator hello; drop its relays when it disconnects.
+      // Operator path: ack an operator knock, else treat the first frame as RPC.
       socket.on(
         "message",
         (m) => void handleOperator(socket, registry, relay, m.toString()),
       );
       socket.on("close", () => relay.dropOperator(socket));
-      if (hello?.role !== "operator") {
-        void handleOperator(socket, registry, relay, text);
+      if (knock?.role === "operator") {
+        send(socket, cloakcodeHello("gateway"));
+      } else {
+        void handleOperator(socket, registry, relay, first);
       }
     });
   });
@@ -161,6 +180,23 @@ function parseHello(
   }
   const parsed = connectionHelloSchema.safeParse(json);
   return parsed.success ? parsed.data : undefined;
+}
+
+/** Parse a first frame as a minimal CloakCode knock, or undefined if it isn't one. */
+function parseKnock(text: string): CloakcodeHello | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const parsed = cloakcodeHelloSchema.safeParse(json);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Build the gateway's minimal knock frame (its answer to a client's knock). */
+function cloakcodeHello(role: CloakcodeHello["role"]): CloakcodeHello {
+  return { type: "cloakcode.hello", role };
 }
 
 /**

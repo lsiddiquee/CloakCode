@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
 import { connectGateway, type GatewayClient } from "./gateway-client.js";
+import { discoverGateway } from "./discover.js";
 import {
   defaultWorkspaceStorageRoot,
   scanSessions,
@@ -246,7 +247,23 @@ export async function activate(
     },
   };
 
-  const gatewayUrl = cfg.get<string>("gatewayUrl")?.trim();
+  // Resolve the gateway to connect to: an explicit `cloakcode.gatewayUrl` always
+  // wins; otherwise, if discovery is opted-in (`cloakcode.gatewayDiscovery`),
+  // probe the known-local candidates for a running gateway. Discovery is
+  // local-only + off by default until gateway auth (M4) — docs/04.
+  let gatewayUrl = cfg.get<string>("gatewayUrl")?.trim();
+  if (!gatewayUrl && (cfg.get<boolean>("gatewayDiscovery") ?? false)) {
+    const gatewayPort = cfg.get<number>("gatewayPort") || 7900;
+    const gatewayHosts = cfg.get<string[]>("gatewayHosts") ?? [];
+    gatewayUrl = await discoverGateway(gatewayPort, gatewayHosts, 500, (m) =>
+      out.appendLine(m),
+    );
+    out.appendLine(
+      gatewayUrl
+        ? `auto-discovered gateway at ${gatewayUrl}`
+        : "gateway discovery found none on the local candidates; using the embedded bridge",
+    );
+  }
   if (gatewayUrl) {
     // Client mode (docs/03 "Explicit gateway"): connect OUT to the gateway as a
     // provider — the gateway serves the PWA + owns the phone link, so this window

@@ -20,7 +20,7 @@ afterEach(() => {
   server = undefined;
 });
 
-/** Start a fake gateway that runs `onProvider` once a provider hello arrives. */
+/** Start a fake gateway that answers the knock, then runs `onProvider` on the hello. */
 function startFakeGateway(onProvider: (ws: WsSocket) => void): Promise<number> {
   return new Promise((resolve) => {
     const wss = new WebSocketServer({ port: 0 }, () => {
@@ -30,8 +30,14 @@ function startFakeGateway(onProvider: (ws: WsSocket) => void): Promise<number> {
     server = wss;
     wss.on("connection", (ws) => {
       ws.once("message", (raw) => {
-        const hello = JSON.parse(raw.toString());
-        if (hello?.role === "provider") onProvider(ws);
+        const knock = JSON.parse(raw.toString());
+        if (knock?.type !== "cloakcode.hello" || knock?.role !== "provider")
+          return;
+        ws.send(JSON.stringify({ type: "cloakcode.hello", role: "gateway" }));
+        ws.once("message", (raw2) => {
+          const hello = JSON.parse(raw2.toString());
+          if (hello?.role === "provider") onProvider(ws);
+        });
       });
     });
   });
