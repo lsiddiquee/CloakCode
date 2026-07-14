@@ -3,7 +3,6 @@
   "version": "0.0.0",
   "private": true,
   "description": "Local-to-remote bridge to observe and drive GitHub Copilot from a phone/desktop with zero code-sync.",
-  "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=20"
   },
