@@ -14,6 +14,7 @@ import {
   sessionAnswerResponseSchema,
   providerInfoSchema,
   connectionHelloSchema,
+  gatewayInfoSchema,
   type SessionSummary,
 } from "./index.js";
 
@@ -474,6 +475,30 @@ describe("connectionHelloSchema", () => {
   it("rejects an unknown role", () => {
     expect(
       connectionHelloSchema.safeParse({ type: "hello", role: "phone" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("gatewayInfoSchema", () => {
+  it("parses gateway info carrying a phone URL", () => {
+    const info = {
+      type: "gateway.info" as const,
+      phoneUrl: "https://cloakcode-abc-7900.euw.devtunnels.ms",
+    };
+    expect(gatewayInfoSchema.parse(info)).toEqual(info);
+  });
+
+  it("parses gateway info without a phone URL (no tunnel yet)", () => {
+    const info = { type: "gateway.info" as const };
+    expect(gatewayInfoSchema.parse(info)).toEqual(info);
+  });
+
+  it("rejects a non-URL phone URL", () => {
+    expect(
+      gatewayInfoSchema.safeParse({
+        type: "gateway.info",
+        phoneUrl: "not a url",
+      }).success,
     ).toBe(false);
   });
 });

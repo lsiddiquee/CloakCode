@@ -340,3 +340,17 @@ export const connectionHelloSchema = z.discriminatedUnion("role", [
   }),
 ]);
 export type ConnectionHello = z.infer<typeof connectionHelloSchema>;
+
+/**
+ * Gateway → provider control frame. The standalone gateway pushes its
+ * phone-reachable URL (the tunnel it owns) down to each connected provider, so an
+ * extension in client mode can render the QR / “Show Phone Link” for the HUB
+ * rather than a local bridge it doesn't run. `phoneUrl` is absent until the
+ * gateway has a public URL (e.g. no tunnel yet). Its distinct `type` keeps it
+ * from colliding with the operator-facing RPC responses on the same socket.
+ */
+export const gatewayInfoSchema = z.object({
+  type: z.literal("gateway.info"),
+  phoneUrl: z.string().url().optional(),
+});
+export type GatewayInfo = z.infer<typeof gatewayInfoSchema>;

@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   connectionHelloSchema,
   rpcRequestSchema,
+  type GatewayInfo,
   type SessionSummary,
 } from "@cloakcode/protocol";
 import { ProviderRegistry } from "./registry.js";
@@ -23,6 +24,12 @@ export interface GatewayOptions {
 export interface Gateway {
   readonly port: number;
   readonly registry: ProviderRegistry;
+  /**
+   * Publish the gateway's phone-reachable URL (the tunnel it owns) to every
+   * connected provider, and to any that connect later, so an extension in client
+   * mode can render the QR / “Show Phone Link” for the hub. `undefined` clears it.
+   */
+  setPhoneUrl(url: string | undefined): void;
   close(): Promise<void>;
 }
 
@@ -43,6 +50,9 @@ export async function startGateway(
   const port = opts.port ?? 0;
   const serveDir = opts.serveDir;
   const registry = new ProviderRegistry();
+  // The hub's phone-reachable URL (its tunnel), pushed to providers as gateway.info.
+  // Set by the runner once the tunnel is up (setPhoneUrl); absent until then.
+  let phoneUrl: string | undefined;
 
   const server = http.createServer((req, res) => {
     if (!serveDir) {
@@ -82,6 +92,9 @@ export async function startGateway(
       if (hello?.role === "provider") {
         const provider = new WsProvider(hello.provider.instanceId, socket);
         registry.add(provider);
+        // Tell the provider the hub's phone URL so its “Show Phone Link” reflects
+        // the gateway's tunnel, not a local bridge it doesn't run (docs/03).
+        send(socket, gatewayInfo(phoneUrl));
         socket.on("message", (m) => {
           const frame = m.toString();
           // A provider frame is either a relayed reply for an operator, or a
@@ -118,6 +131,13 @@ export async function startGateway(
   return {
     port: boundPort,
     registry,
+    setPhoneUrl(url) {
+      phoneUrl = url;
+      const frame = JSON.stringify(gatewayInfo(phoneUrl));
+      for (const p of registry.all()) {
+        if (p instanceof WsProvider) p.send(frame);
+      }
+    },
     close: () =>
       new Promise<void>((resolve) => {
         for (const client of wss.clients) client.terminate();
@@ -196,4 +216,9 @@ async function handleOperator(
 
 function send(socket: WebSocket, msg: unknown): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
+}
+
+/** Build a gateway.info control frame carrying the phone URL when known. */
+function gatewayInfo(phoneUrl: string | undefined): GatewayInfo {
+  return { type: "gateway.info", ...(phoneUrl ? { phoneUrl } : {}) };
 }

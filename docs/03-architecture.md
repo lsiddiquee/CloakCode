@@ -241,7 +241,10 @@ port **Public** (Ports view) / run a tunnel and set `cloakcode.publicUrl`. The c
 warns when the resolved URL is still loopback. **`CloakCode: Set Up Phone Tunnel`**
 (re)establishes the Dev Tunnel and, on failure, offers a confirmation-based CLI install
 or a sign-in flow picker (GitHub / Microsoft × browser / device-code) — device-code for
-containers/remote where a local browser can't open.
+containers/remote where a local browser can't open. In **gateway (client) mode** the extension
+runs no bridge of its own — the hub owns the tunnel and **pushes its phone URL down** (a
+`gateway.info` control frame), so **Show Phone Link** renders the gateway's URL and **Set Up Phone
+Tunnel** points you at the hub instead.
 
 **Two deployment modes (same server, two homes).** **Embedded is the default:** with no
 configuration the extension serves its own environment's PWA + `/bridge` (what ships today) — a
@@ -476,6 +479,13 @@ to every provider and returns the **union, de-duped by `(instanceId, sessionId)`
 `owned` provider); session-addressed RPCs (`subscribe/respond/decide/answer`, which already carry
 `instanceId`) route to that instance's provider and relay its frames. The protocol needs nothing
 new for addressing — only the `provider.hello` registration envelope.
+
+**Phone link + connect URLs.** The gateway owns the phone tunnel, so it **pushes its phone URL to
+each provider** as a `gateway.info` control frame (on connect and whenever it changes) — an
+extension in client mode renders that for **Show Phone Link** instead of a bridge it doesn't run.
+On startup the runner also **probes the host's network interfaces and prints the ranked
+`cloakcode.gatewayUrl` candidates** (loopback → each LAN/virtual IP → a `host.docker.internal`
+hint) so you can pick the one matching where each extension runs.
 
 **Deferred (post-MVP):** **auto** leader election _within_ an environment (the `globalStorage`
 lock above) and auto-discovery of the hub. Until then, explicit `cloakcode.gatewayUrl` + gateway

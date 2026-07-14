@@ -1,5 +1,9 @@
 import { WebSocket } from "ws";
-import type { ProviderInfo } from "@cloakcode/protocol";
+import {
+  gatewayInfoSchema,
+  type GatewayInfo,
+  type ProviderInfo,
+} from "@cloakcode/protocol";
 import {
   handleMessage,
   stopFollowers,
@@ -8,6 +12,10 @@ import {
 } from "./bridge.js";
 
 export interface GatewayClient {
+  /** The gateway URL this client connected to (`cloakcode.gatewayUrl`). */
+  readonly url: string;
+  /** The hub's phone URL if the gateway has pushed one (its tunnel), else undefined. */
+  phoneUrl(): string | undefined;
   close(): void;
 }
 
@@ -33,11 +41,14 @@ export function connectGateway(
     let closed = false;
     let settled = false;
     let attempt = 0;
+    let phoneUrl: string | undefined;
     let socket: WebSocket | undefined;
     let conn: Connection | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
 
     const client: GatewayClient = {
+      url,
+      phoneUrl: () => phoneUrl,
       close: () => {
         closed = true;
         if (retry) clearTimeout(retry);
@@ -73,7 +84,19 @@ export function connectGateway(
           resolve(client);
         }
       });
-      s.on("message", (raw) => void handleMessage(s, raw.toString(), deps, c));
+      s.on("message", (raw) => {
+        const text = raw.toString();
+        // The gateway pushes its phone URL as a `gateway.info` control frame;
+        // capture it (so “Show Phone Link” reflects the hub) and don't route it
+        // through the RPC handler.
+        const info = tryGatewayInfo(text);
+        if (info) {
+          phoneUrl = info.phoneUrl;
+          log(`gateway: phone URL ${phoneUrl ?? "(none yet)"}`);
+          return;
+        }
+        void handleMessage(s, text, deps, c);
+      });
       s.on("error", () => {
         /* a 'close' event always follows; handle reconnect there */
       });
@@ -87,4 +110,16 @@ export function connectGateway(
 
     connect();
   });
+}
+
+/** Parse a frame as a gateway.info control message, or undefined if it isn't one. */
+function tryGatewayInfo(text: string): GatewayInfo | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const parsed = gatewayInfoSchema.safeParse(json);
+  return parsed.success ? parsed.data : undefined;
 }

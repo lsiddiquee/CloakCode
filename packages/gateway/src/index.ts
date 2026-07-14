@@ -17,4 +17,5 @@ export {
 } from "./tunnel.js";
 export { contentTypeFor, resolveStaticPath } from "./static-files.js";
 export { startGateway, type Gateway, type GatewayOptions } from "./gateway.js";
+export { connectionUrls, type ConnectUrl } from "./connect-urls.js";
 export { WsProvider } from "./ws-provider.js";

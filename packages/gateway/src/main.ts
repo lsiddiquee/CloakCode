@@ -15,6 +15,8 @@
  * Security: no app-layer auth yet (bridge auth is deferred) — keep it on
  * loopback + a PRIVATE tunnel; do not expose 0.0.0.0 on an untrusted network.
  */
+import { networkInterfaces } from "node:os";
+import { connectionUrls } from "./connect-urls.js";
 import { startGateway } from "./gateway.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
 
@@ -32,6 +34,19 @@ console.log(
     (serveDir ? ` (+ PWA from ${serveDir})` : " (WebSocket only)"),
 );
 
+// The URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where it
+// runs relative to this host (probed from the network interfaces).
+console.log(
+  "[cloakcode-gateway] connect extensions with cloakcode.gatewayUrl:",
+);
+for (const { url, label } of connectionUrls(
+  host,
+  gateway.port,
+  networkInterfaces(),
+)) {
+  console.log(`[cloakcode-gateway]   ${url.padEnd(34)} ${label}`);
+}
+
 if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
   const seed = process.env["CLOAKCODE_INSTANCE_ID"] || "gateway";
   try {
@@ -41,6 +56,7 @@ if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
       (l) => console.log(`[devtunnel] ${l}`),
     );
     console.log(`[cloakcode-gateway] phone URL: ${tunnel.url}`);
+    gateway.setPhoneUrl(tunnel.url);
   } catch (err) {
     console.error(
       `[cloakcode-gateway] tunnel failed: ${

@@ -284,9 +284,11 @@ export async function activate(
   );
   status.name = "CloakCode";
   status.text = "$(broadcast) CloakCode";
-  status.tooltip = bridge
-    ? `CloakCode gateway on 127.0.0.1:${bridge.port} — click for the phone link`
-    : "CloakCode bridge failed to start";
+  status.tooltip = gatewayUrl
+    ? `CloakCode: gateway mode (${gatewayUrl}) — click for the phone link`
+    : bridge
+      ? `CloakCode bridge on 127.0.0.1:${bridge.port} — click for the phone link`
+      : "CloakCode: bridge failed to start";
   status.command = "cloakcode.showPhoneLink";
   status.show();
   context.subscriptions.push(status);
@@ -390,6 +392,21 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.showPhoneLink", async () => {
+      // Gateway (client) mode: the hub owns the phone link — show the URL it
+      // pushed down, not a local bridge (which this window doesn't run).
+      if (gatewayClient) {
+        const url = gatewayClient.phoneUrl();
+        if (url) {
+          showLinkPanel(url);
+        } else {
+          void vscode.window.showInformationMessage(
+            `CloakCode: connected to the gateway (${gatewayClient.url}), but it ` +
+              `hasn't published a phone URL yet. Run the gateway with a tunnel ` +
+              `(CLOAKCODE_TUNNEL=devtunnel) and it will flow here automatically.`,
+          );
+        }
+        return;
+      }
       if (!bridge) {
         void vscode.window.showWarningMessage(
           "CloakCode bridge is not running yet.",
@@ -406,6 +423,15 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.setupTunnel", async () => {
+      // In gateway mode the hub owns the tunnel — nothing to host in this window.
+      if (gatewayClient) {
+        void vscode.window.showInformationMessage(
+          `CloakCode is in gateway mode (${gatewayClient.url}); the gateway owns ` +
+            `the phone tunnel. Start it with CLOAKCODE_TUNNEL=devtunnel and its ` +
+            `phone URL appears here automatically.`,
+        );
+        return;
+      }
       if (!bridge) {
         void vscode.window.showWarningMessage(
           "CloakCode bridge is not running yet.",

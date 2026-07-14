@@ -176,4 +176,54 @@ describe("startGateway", () => {
     expect(res["ok"]).toBe(false);
     operator.close();
   });
+
+  it("sends gateway.info to a provider on connect (no phone URL yet)", async () => {
+    gw = await startGateway({ port: 0 });
+    const p = await open(`ws://127.0.0.1:${gw.port}`);
+    p.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "i1" },
+      }),
+    );
+    expect(await nextMessage(p)).toEqual({ type: "gateway.info" });
+    p.close();
+  });
+
+  it("broadcasts the phone URL to connected providers on setPhoneUrl", async () => {
+    gw = await startGateway({ port: 0 });
+    const p = await open(`ws://127.0.0.1:${gw.port}`);
+    const seen: Record<string, unknown>[] = [];
+    p.on("message", (m) => seen.push(JSON.parse(m.toString())));
+    p.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "i1" },
+      }),
+    );
+    await waitFor(() => gw!.registry.forInstance("i1").length === 1);
+    const phoneUrl = "https://hub-7900.euw.devtunnels.ms";
+    gw.setPhoneUrl(phoneUrl);
+    await waitFor(() => seen.some((m) => m["phoneUrl"] === phoneUrl));
+    expect(seen.at(-1)).toEqual({ type: "gateway.info", phoneUrl });
+    p.close();
+  });
+
+  it("gives a provider connecting after setPhoneUrl the phone URL up front", async () => {
+    gw = await startGateway({ port: 0 });
+    const phoneUrl = "https://hub-7900.euw.devtunnels.ms";
+    gw.setPhoneUrl(phoneUrl);
+    const p = await open(`ws://127.0.0.1:${gw.port}`);
+    p.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "i2" },
+      }),
+    );
+    expect(await nextMessage(p)).toEqual({ type: "gateway.info", phoneUrl });
+    p.close();
+  });
 });
