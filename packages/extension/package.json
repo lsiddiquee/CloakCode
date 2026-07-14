@@ -59,6 +59,11 @@
         "command": "cloakcode.removeHook",
         "title": "Remove Copilot Hook (all workspaces)",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.reconnect",
+        "title": "Reconnect",
+        "category": "CloakCode"
       }
     ],
     "configuration": {

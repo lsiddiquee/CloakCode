@@ -183,7 +183,8 @@ export async function activate(
   // `0` = an ephemeral free port (avoids collisions across windows/instances); a
   // fixed `cloakcode.port` locks it (stable phone/tunnel URL). `CLOAKCODE_PORT`
   // overrides for the dev launch so Vite's proxy target stays fixed.
-  const port =
+  // `let` so establishConnection() can refresh it on reconnect (cloakcode.port).
+  let port =
     Number(process.env["CLOAKCODE_PORT"]) || cfg.get<number>("port") || 0;
   const root = defaultWorkspaceStorageRoot();
   // The spool is a fixed, per-environment dir shared by the hook and every
@@ -289,34 +290,52 @@ export async function activate(
     },
   };
 
-  // Resolve the gateway to connect to: an explicit `cloakcode.gatewayUrl` always
-  // wins; otherwise, if discovery is opted-in (`cloakcode.gatewayDiscovery`),
-  // probe the known-local candidates for a running gateway. Discovery is
-  // local-only + off by default until gateway auth (M4) — docs/04.
-  let gatewayUrl = cfg.get<string>("gatewayUrl")?.trim();
-  if (!gatewayUrl && (cfg.get<boolean>("gatewayDiscovery") ?? false)) {
-    const gatewayPort = cfg.get<number>("gatewayPort") || 7900;
-    const gatewayHosts = cfg.get<string[]>("gatewayHosts") ?? [];
-    gatewayUrl = await discoverGateway(gatewayPort, gatewayHosts, 500, (m) =>
-      out.appendLine(m),
-    );
-    out.appendLine(
-      gatewayUrl
-        ? `auto-discovered gateway at ${gatewayUrl}`
-        : "gateway discovery found none on the local candidates; using the embedded bridge",
-    );
-  }
-  if (gatewayUrl) {
-    // Client mode (docs/03 "Explicit gateway"): connect OUT to the gateway as a
-    // provider — the gateway serves the PWA + owns the phone link, so this window
-    // hosts no local bridge. If the hub is unreachable, fall back to embedded.
-    void connectGateway(gatewayUrl, { instanceId }, deps, (m) =>
-      out.appendLine(m),
-    ).then(
-      (client) => {
-        gatewayClient = client;
-      },
-      async (err: unknown) => {
+  // Always-visible one-click entry to the phone link (QR) — the low-friction way
+  // in, instead of hunting the command palette. Its tooltip reflects the live
+  // connection; establishConnection() refreshes it on every (re)connect.
+  const status = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100,
+  );
+  status.name = "CloakCode";
+  status.text = "$(broadcast) CloakCode";
+  status.command = "cloakcode.showPhoneLink";
+  status.show();
+  context.subscriptions.push(status);
+
+  // (Re)establish the connection from the CURRENT settings: an explicit
+  // `cloakcode.gatewayUrl` wins; else, if discovery is opted-in
+  // (`cloakcode.gatewayDiscovery`), probe known-local candidates; else run the
+  // embedded bridge. Discovery is local-only + off by default until gateway auth
+  // (M4) — docs/04. Re-run by the reconnect command / a relevant settings change.
+  const establishConnection = async (): Promise<string> => {
+    const cfgNow = vscode.workspace.getConfiguration("cloakcode");
+    port =
+      Number(process.env["CLOAKCODE_PORT"]) || cfgNow.get<number>("port") || 0;
+    let gatewayUrl = cfgNow.get<string>("gatewayUrl")?.trim();
+    if (!gatewayUrl && (cfgNow.get<boolean>("gatewayDiscovery") ?? false)) {
+      const gatewayPort = cfgNow.get<number>("gatewayPort") || 7900;
+      const gatewayHosts = cfgNow.get<string[]>("gatewayHosts") ?? [];
+      gatewayUrl = await discoverGateway(gatewayPort, gatewayHosts, 500, (m) =>
+        out.appendLine(m),
+      );
+      out.appendLine(
+        gatewayUrl
+          ? `auto-discovered gateway at ${gatewayUrl}`
+          : "gateway discovery found none on the local candidates; using the embedded bridge",
+      );
+    }
+    if (gatewayUrl) {
+      // Client mode (docs/03 "Explicit gateway"): connect OUT as a provider; the
+      // gateway serves the PWA + owns the phone link. Unreachable → embedded.
+      try {
+        gatewayClient = await connectGateway(
+          gatewayUrl,
+          { instanceId },
+          deps,
+          (m) => out.appendLine(m),
+        );
+      } catch (err) {
         out.appendLine(
           `gateway ${gatewayUrl} unreachable (${
             err instanceof Error ? err.message : String(err)
@@ -329,28 +348,66 @@ export async function activate(
           instanceId,
           out,
         );
-      },
-    );
-  } else {
-    bridge = await startEmbeddedBridge(deps, port, serveDir, instanceId, out);
-  }
+      }
+    } else {
+      bridge = await startEmbeddedBridge(deps, port, serveDir, instanceId, out);
+    }
+    status.tooltip = gatewayClient
+      ? `CloakCode: gateway mode (${gatewayClient.url}) — click for the phone link`
+      : bridge
+        ? `CloakCode bridge on 127.0.0.1:${bridge.port} — click for the phone link`
+        : "CloakCode: bridge failed to start";
+    return gatewayClient
+      ? `gateway ${gatewayClient.url}`
+      : bridge
+        ? `embedded bridge on 127.0.0.1:${bridge.port}`
+        : "no bridge or gateway (failed to start)";
+  };
 
-  // Always-visible one-click entry to the phone link (QR) — the low-friction
-  // way in, instead of hunting the command palette.
-  const status = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100,
+  // Tear down the live connection and re-establish from the latest settings.
+  // Serialized so overlapping triggers (a multi-key settings edit) can't race.
+  let reconnecting = false;
+  const reconnect = async (reason: string): Promise<void> => {
+    if (reconnecting) return;
+    reconnecting = true;
+    try {
+      out.appendLine(`reconnecting (${reason})…`);
+      gatewayClient?.close();
+      gatewayClient = undefined;
+      await bridge?.close();
+      bridge = undefined;
+      tunnel?.stop();
+      tunnel = undefined;
+      const summary = await establishConnection();
+      out.appendLine(`reconnected → ${summary}`);
+    } finally {
+      reconnecting = false;
+    }
+  };
+
+  // A change to any of these connection settings hot-applies via reconnect (no
+  // reload). instanceId / tunnel / publicUrl still need a reload — they reshape
+  // this window's identity or the tunnel it owns.
+  const reconnectKeys = [
+    "cloakcode.gatewayUrl",
+    "cloakcode.gatewayDiscovery",
+    "cloakcode.gatewayPort",
+    "cloakcode.gatewayHosts",
+    "cloakcode.port",
+  ];
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.reconnect", () =>
+      reconnect("command"),
+    ),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (reconnectKeys.some((k) => e.affectsConfiguration(k))) {
+        void reconnect("settings changed");
+      }
+    }),
   );
-  status.name = "CloakCode";
-  status.text = "$(broadcast) CloakCode";
-  status.tooltip = gatewayUrl
-    ? `CloakCode: gateway mode (${gatewayUrl}) — click for the phone link`
-    : bridge
-      ? `CloakCode bridge on 127.0.0.1:${bridge.port} — click for the phone link`
-      : "CloakCode: bridge failed to start";
-  status.command = "cloakcode.showPhoneLink";
-  status.show();
-  context.subscriptions.push(status);
+
+  // Initial connection — non-blocking so activation doesn't hang on a slow hub.
+  void establishConnection();
 
   const gatherDiagnostics = async (): Promise<DiagnosticsSnapshot> => {
     const { hashes, source } = resolveOwnedHashes(context, root);
