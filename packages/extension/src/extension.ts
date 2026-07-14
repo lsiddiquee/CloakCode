@@ -305,17 +305,31 @@ export async function activate(
 
   // (Re)establish the connection from the CURRENT settings: an explicit
   // `cloakcode.gatewayUrl` wins; else, if discovery is opted-in
-  // (`cloakcode.gatewayDiscovery`), probe known-local candidates; else run the
-  // embedded bridge. Discovery is local-only + off by default until gateway auth
-  // (M4) — docs/04. Re-run by the reconnect command / a relevant settings change.
+  // (`cloakcode.gatewayDiscovery`) OR extra hosts arrive via env, probe the
+  // known-local candidates; else run the embedded bridge. Discovery is local-only
+  // + off by default until gateway auth (M4) — docs/04. Re-run by the reconnect
+  // command / a relevant settings change.
   const establishConnection = async (): Promise<string> => {
     const cfgNow = vscode.workspace.getConfiguration("cloakcode");
     port =
       Number(process.env["CLOAKCODE_PORT"]) || cfgNow.get<number>("port") || 0;
     let gatewayUrl = cfgNow.get<string>("gatewayUrl")?.trim();
-    if (!gatewayUrl && (cfgNow.get<boolean>("gatewayDiscovery") ?? false)) {
+    // Extra discovery hosts can also arrive via env (`CLOAKCODE_GATEWAY_HOSTS`,
+    // comma-separated) — e.g. F5 maps the devcontainer's `HOST_IP` so a gateway
+    // on the WSL/host is probed. Supplying env hosts also opts THIS window into
+    // discovery (an explicit dev/deploy signal), even when the setting is off.
+    const envHosts = (process.env["CLOAKCODE_GATEWAY_HOSTS"] ?? "")
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+    const discoveryOn =
+      (cfgNow.get<boolean>("gatewayDiscovery") ?? false) || envHosts.length > 0;
+    if (!gatewayUrl && discoveryOn) {
       const gatewayPort = cfgNow.get<number>("gatewayPort") || 7900;
-      const gatewayHosts = cfgNow.get<string[]>("gatewayHosts") ?? [];
+      const gatewayHosts = [
+        ...(cfgNow.get<string[]>("gatewayHosts") ?? []),
+        ...envHosts,
+      ];
       gatewayUrl = await discoverGateway(gatewayPort, gatewayHosts, 500, (m) =>
         out.appendLine(m),
       );

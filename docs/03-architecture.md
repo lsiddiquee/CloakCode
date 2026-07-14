@@ -512,19 +512,26 @@ hint) so you can pick the one matching where each extension runs.
 
 **Opt-in local auto-discovery (knock probe).** So a hub can be found without hand-copying a URL, the
 extension can **auto-discover** one on the local machine: when `cloakcode.gatewayUrl` is empty
-**and** `cloakcode.gatewayDiscovery` is on, it opens a WebSocket to each **known-local candidate**
-— loopback, `host.docker.internal`, and any configured `cloakcode.gatewayHosts` — on
-`cloakcode.gatewayPort` (default 7900), sends only the minimal **knock**, and keeps the **first**
-peer that answers with the gateway knock — so a non-CloakCode server on that port never receives
-the extension's instance or workspace. There is **no discovery endpoint or new API** — the knock
-handshake _is_ the probe, and the winning URL is handed to the normal `connectGateway` path (which
-repeats the knock, then sends the full `provider.hello`). It is **candidate-probing, not true
-discovery**: the host set and port are known inputs, so it only removes the copy-paste for the
-common local topologies (same host; container→host via `host.docker.internal`; host↔WSL via
-localhost forwarding). Cross-namespace hops the extension can't guess (WSL↔container) still need an
-explicit `cloakcode.gatewayHosts` entry or `cloakcode.gatewayUrl`. It is **off by default** and
-**local-only** because it auto-connects (as a provider) to whatever answers — a trust decision
-that stays bounded until gateway auth (M4); see [security](04-security-and-compliance.md).
+**and** discovery is enabled — by `cloakcode.gatewayDiscovery`, **or** by supplying hosts via the
+`CLOAKCODE_GATEWAY_HOSTS` env var — it opens a WebSocket to each **known-local candidate** (loopback,
+`host.docker.internal`, any configured `cloakcode.gatewayHosts`, and any `CLOAKCODE_GATEWAY_HOSTS`
+env hosts) on `cloakcode.gatewayPort` (default 7900), sends only the minimal **knock**, and keeps the
+**first** peer that answers with the gateway knock — so a non-CloakCode server on that port never
+receives the extension's instance or workspace. There is **no discovery endpoint or new API** — the
+knock handshake _is_ the probe, and the winning URL is handed to the normal `connectGateway` path
+(which repeats the knock, then sends the full `provider.hello`). It is **candidate-probing, not true
+discovery**: the host set and port are known inputs, so it only removes the copy-paste for the common
+local topologies (same host; container→host via `host.docker.internal`; host↔WSL via localhost
+forwarding). Cross-namespace hops the extension can't guess (WSL↔container) still need an explicit
+`cloakcode.gatewayHosts` entry, a `CLOAKCODE_GATEWAY_HOSTS` env host, or `cloakcode.gatewayUrl` — the
+dev container wires this up automatically: its `initializeCommand` captures the WSL/host IP into
+`HOST_IP`, and the F5 launch config maps that into `CLOAKCODE_GATEWAY_HOSTS`, so the Extension Dev
+Host probes a host-run gateway at `ws://<HOST_IP>:7900` out of the box. The **probe itself is safe**
+(local-only candidates + a minimal knock that leaks nothing); it is **off by default** only because,
+until gateway auth (M4), completing the knock and registering as a provider would serve session RPCs
+to whatever answered — a hostile _local_ process squatting on the port could pose as the gateway.
+Enabling it (setting or env) is the explicit “I trust this machine” opt-in; see
+[security](04-security-and-compliance.md).
 
 **Deferred (post-MVP):** **auto** leader election _within_ an environment (the `globalStorage`
 lock above) and **true** hub discovery — advertising the gateway's IP+port so a client finds a hub

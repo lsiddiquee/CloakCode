@@ -35,3 +35,6 @@ Thumbs.db
 # Local hook probe (Copilot reads .github/hooks/*.json). Keep the throwaway
 # probe config out of git; the real CloakCode hook file ships intentionally.
 .github/hooks/cloakcode-probe.json
+
+# Generated env file while building devcontainer; not needed in git.
+.devcontainer/.devcontainer.env

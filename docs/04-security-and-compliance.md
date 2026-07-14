@@ -87,20 +87,26 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
 
 ## Gateway discovery trust (opt-in, local-only)
 
-Auto-discovery (`cloakcode.gatewayDiscovery`) makes the extension **connect out** to whatever
-answers the minimal **knock** (`cloakcode.hello`) on the probed local candidates (loopback,
-`host.docker.internal`, configured `cloakcode.gatewayHosts`). The probe reveals **only the knock**
-— no `instanceId`, workspace, or other payload reaches a peer until it has answered as a gateway —
-but because the extension then registers as a **provider** and serves that hub's forwarded RPCs,
-discovering a hub is still a **trust decision**, not just a convenience: a hostile local process
-answering the knock on the port could pose as a gateway. Until the gateway gains client/hub auth
-(M4), discovery is therefore:
+Auto-discovery (`cloakcode.gatewayDiscovery`, or hosts supplied via the `CLOAKCODE_GATEWAY_HOSTS`
+env var) makes the extension **connect out** to whatever answers the minimal **knock**
+(`cloakcode.hello`) on the probed local candidates (loopback, `host.docker.internal`, configured
+`cloakcode.gatewayHosts`, and any env hosts). The **probe itself is low-risk**: candidates are
+local-only and the knock reveals **only** that we speak CloakCode — no `instanceId`, workspace, or
+other payload reaches a peer until it has answered as a gateway. What makes it a **trust decision**
+is what happens _after_ a successful knock: the extension registers as a **provider** and serves that
+hub's forwarded RPCs (session list, transcripts, actuation). Until the gateway gains client/hub auth
+(M4) the knock is not a secret, so a hostile **local** process squatting on the gateway port could
+complete it and harvest session data. That precondition — a hostile process already running on your
+machine — keeps the risk bounded; discovery is therefore:
 
-- **Off by default** — strictly opt-in.
+- **Off by default (setting), opt-in by env.** `cloakcode.gatewayDiscovery` defaults off; supplying
+  `CLOAKCODE_GATEWAY_HOSTS` (e.g. the dev-container F5 flow mapping `HOST_IP`) is an explicit
+  “I trust this machine” signal that also enables it.
 - **Local-only** — candidates are limited to loopback + `host.docker.internal` + hosts you list;
   it never scans the network and never crosses a tunnel.
 - **Non-authenticating** — the gateway's knock ack proves the peer speaks the protocol, **not**
-  that it is trustworthy. Only enable it where every local process is trusted.
+  that it is trustworthy. Enable it where every local process is trusted (a dev box / the F5 loop
+  normally is).
 
 When M4 lands, discovery must additionally verify the hub's identity (shared operator secret /
 mTLS) before a provider hands over any session data.

@@ -7,6 +7,14 @@
   // absolute path (scripts, tasks, docs) stable no matter what the source folder is called.
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/cloakcode,type=bind",
   "workspaceFolder": "/workspaces/cloakcode",
+  // Grab the host IP from the host before building the container this is needed specially when running in WSL,
+  // we use this to connect to the gateway which can be running in the WSL/Host.
+  "initializeCommand": "echo \"HOST_IP=$(hostname -I | awk '{print $1}')\" > ${localWorkspaceFolder}/.devcontainer/.devcontainer.env",
+  // Inject the environment file into the running container
+  "runArgs": [
+    "--env-file",
+    "${localWorkspaceFolder}/.devcontainer/.devcontainer.env"
+  ],
   "features": {
     // gh CLI is handy for release/packaging workflows; kept lean otherwise.
     "ghcr.io/devcontainers/features/github-cli:1": {

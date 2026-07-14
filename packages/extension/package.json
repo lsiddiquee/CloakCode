@@ -135,7 +135,7 @@
           },
           "default": [],
           "scope": "machine-overridable",
-          "markdownDescription": "Extra hosts for `cloakcode.gatewayDiscovery` to probe, in addition to loopback and `host.docker.internal` (which are always tried). Use this to reach a gateway across a network namespace the extension can't guess — e.g. a WSL host IP from a container. Ignored unless discovery is enabled and `cloakcode.gatewayUrl` is empty."
+          "markdownDescription": "Extra hosts for `cloakcode.gatewayDiscovery` to probe, in addition to loopback and `host.docker.internal` (which are always tried). Use this to reach a gateway across a network namespace the extension can't guess — e.g. a WSL host IP from a container. Extra hosts may also arrive via the `CLOAKCODE_GATEWAY_HOSTS` env var (comma-separated), which additionally **enables** discovery for that window — the dev-container F5 flow maps the host's `HOST_IP` into it. Ignored unless discovery is enabled (by the setting or env hosts) and `cloakcode.gatewayUrl` is empty."
         }
       }
     }
