@@ -53,7 +53,9 @@ describe("Relay", () => {
 
   it("ignores an unknown id and non-JSON", () => {
     const relay = new Relay();
-    expect(relay.routeProviderFrame(JSON.stringify({ id: "nope" }))).toBe(false);
+    expect(relay.routeProviderFrame(JSON.stringify({ id: "nope" }))).toBe(
+      false,
+    );
     expect(relay.routeProviderFrame("not json")).toBe(false);
   });
 

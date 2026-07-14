@@ -36,7 +36,9 @@ export interface Gateway {
  * M-slice: aggregates `sessions.list` across providers (de-duped). The streaming
  * `session.subscribe` + actuator relay land in the next slice.
  */
-export async function startGateway(opts: GatewayOptions = {}): Promise<Gateway> {
+export async function startGateway(
+  opts: GatewayOptions = {},
+): Promise<Gateway> {
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
   const serveDir = opts.serveDir;
@@ -127,7 +129,10 @@ export async function startGateway(opts: GatewayOptions = {}): Promise<Gateway> 
 /** Parse a first frame as a connection hello, or `undefined` if it isn't one. */
 function parseHello(
   text: string,
-): { role: "operator" } | { role: "provider"; provider: { instanceId: string } } | undefined {
+):
+  | { role: "operator" }
+  | { role: "provider"; provider: { instanceId: string } }
+  | undefined {
   let json: unknown;
   try {
     json = JSON.parse(text);

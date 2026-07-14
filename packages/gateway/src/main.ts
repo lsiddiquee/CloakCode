@@ -35,8 +35,10 @@ console.log(
 if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
   const seed = process.env["CLOAKCODE_INSTANCE_ID"] || "gateway";
   try {
-    const tunnel = await startDevTunnel(gateway.port, devTunnelName(seed), (l) =>
-      console.log(`[devtunnel] ${l}`),
+    const tunnel = await startDevTunnel(
+      gateway.port,
+      devTunnelName(seed),
+      (l) => console.log(`[devtunnel] ${l}`),
     );
     console.log(`[cloakcode-gateway] phone URL: ${tunnel.url}`);
   } catch (err) {

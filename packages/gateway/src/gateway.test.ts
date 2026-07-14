@@ -57,7 +57,11 @@ function fakeProvider(
   sessions: SessionSummary[],
 ): void {
   ws.send(
-    JSON.stringify({ type: "hello", role: "provider", provider: { instanceId } }),
+    JSON.stringify({
+      type: "hello",
+      role: "provider",
+      provider: { instanceId },
+    }),
   );
   ws.on("message", (raw) => {
     const req = JSON.parse(raw.toString());
@@ -80,10 +84,7 @@ describe("startGateway", () => {
     const url = `ws://127.0.0.1:${gw.port}`;
 
     const a = await open(url);
-    fakeProvider(a, "i1", [
-      summary("i1", "s1", true),
-      summary("i1", "s2"),
-    ]);
+    fakeProvider(a, "i1", [summary("i1", "s1", true), summary("i1", "s2")]);
     const b = await open(url);
     fakeProvider(b, "i1", [summary("i1", "s1", false)]); // dup of s1, read-only
 
