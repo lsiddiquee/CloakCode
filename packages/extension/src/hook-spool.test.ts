@@ -611,7 +611,7 @@ describe("buildCarouselAnswers", () => {
     expect(rec[`${RAW_QUESTION}:0`]).toEqual({
       selectedValue: "tool-call-demo.txt",
     });
-    expect(rec[`${RAW_QUESTION}:1`]).toEqual({ freeformValue: "555" });
+    expect(rec[`${RAW_QUESTION}:1`]).toBe("555");
     expect(rec[`${RAW_QUESTION}:2`]).toEqual({
       selectedValues: ["Unit", "E2E"],
     });
@@ -626,5 +626,14 @@ describe("buildCarouselAnswers", () => {
     expect(rec[`${RAW_QUESTION}:0`]).toEqual({
       selectedValues: ["Integration"],
     });
+  });
+
+  it("delivers a free-text-only answer as a bare string (the [object Object] bug)", () => {
+    // A no-options ('text') question renders its answer via String(answer) in
+    // VS Code's carousel, so an OBJECT shows "[object Object]". Deliver a string.
+    const rec = buildCarouselAnswers(RAW_QUESTION, [
+      { selected: [], freeText: "this is from our cloakcode ui" },
+    ]);
+    expect(rec[`${RAW_QUESTION}:0`]).toBe("this is from our cloakcode ui");
   });
 });

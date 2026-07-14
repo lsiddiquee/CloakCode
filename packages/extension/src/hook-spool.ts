@@ -106,31 +106,34 @@ export interface CarouselAnswerValue {
 /**
  * Build the core carousel answer record for `_chat.notifyQuestionCarouselAnswer`
  * from CloakCode's per-question `answers` (docs/02 §4.16), keyed by the internal
- * question id `${resolveId}:${index}`. Picks the value shape by intent so VS
- * Code renders it: a typed freeform value → `freeformValue`; a single chosen
- * option → `selectedValue` (singular = single-select); multiple →
- * `selectedValues`. Pure.
+ * question id `${resolveId}:${index}`. The value shape MUST match the question
+ * TYPE or VS Code mis-renders it: a `multiSelect` → `selectedValues` (+ optional
+ * `freeformValue`); a chosen option → `selectedValue`; a free-text (`text`)
+ * question with no options → a **bare string** (the text carousel restores it via
+ * `String(answer)`, so an object would show "[object Object]"). Pure.
  */
 export function buildCarouselAnswers(
   resolveId: string,
   answers: readonly QuestionAnswer[],
-): Record<string, CarouselAnswerValue> {
-  const record: Record<string, CarouselAnswerValue> = {};
+): Record<string, CarouselAnswerValue | string> {
+  const record: Record<string, CarouselAnswerValue | string> = {};
   answers.forEach((a, i) => {
     const key = `${resolveId}:${i}`;
+    const only = a.selected[0];
     if (a.multiSelect) {
+      // multiSelect question → selectedValues (+ any custom freeform).
       record[key] = {
         selectedValues: a.selected,
         ...(a.freeText ? { freeformValue: a.freeText } : {}),
       };
-    } else if (a.freeText) {
-      record[key] = { freeformValue: a.freeText };
+    } else if (only !== undefined) {
+      // singleSelect question with a chosen option.
+      record[key] = { selectedValue: only };
     } else {
-      const only = a.selected[0];
-      record[key] =
-        only !== undefined
-          ? { selectedValue: only }
-          : { selectedValues: a.selected };
+      // No option selected → a free-text ('text') question: deliver a BARE
+      // STRING (VS Code's text carousel restores it via `String(answer)`, so an
+      // object shows "[object Object]"). Covers a custom freeform answer too.
+      record[key] = a.freeText ?? "";
     }
   });
   return record;
