@@ -10,11 +10,11 @@
 #   - Run against everything on demand:  pre-commit run --all-files
 #   - Bump pinned revisions with:        pre-commit autoupdate
 #
-# RESILIENCE: every hook is scoped by file pattern, so a hook only fires when
-# matching files are staged. The TypeScript packages are still stubs (no ESLint
-# config / node_modules yet), so the ESLint/Prettier LOCAL hooks NO-OP cleanly
-# until their toolchain exists. Hygiene, secret-scan, ruff (Python), markdownlint,
-# and commit-msg hooks work today.
+# Every hook is scoped by file pattern, so it only fires when matching files are
+# staged. ESLint + Prettier run for real against the installed toolchain
+# (eslint.config.mjs / .prettierrc), failing loudly if it's missing — no silent
+# skipping. Hygiene, secret-scan, ruff (Python), markdownlint, and commit-msg
+# hooks round it out.
 # =============================================================================
 
 minimum_pre_commit_version: "3.5.0"
@@ -82,32 +82,24 @@ repos:
         stages: [commit-msg]
 
   # ---------------------------------------------------------------------------
-  # Local toolchain hooks (language: system). These call tools that only exist
-  # once the pnpm workspace is installed, and NO-OP gracefully before then, so
-  # they are safe on a fresh clone / while packages are still stubs.
+  # Local toolchain hooks (language: system) — ESLint + Prettier from the repo's
+  # node_modules, run repo-wide on staged files. They fail loudly if the tool is
+  # missing (run `pnpm install`) — by design, no silent skipping.
   # ---------------------------------------------------------------------------
   - repo: local
     hooks:
-      # ESLint — lint + auto-fix staged TS/JS across packages/. Skips cleanly
-      # until the root node_modules (with eslint) are installed.
+      # ESLint — lint + auto-fix staged TS/JS/MJS repo-wide (eslint.config.mjs).
       - id: eslint
-        name: ESLint (packages)
+        name: ESLint
         language: system
         stages: [pre-commit]
-        files: '^packages/.*\.(ts|tsx|js|jsx)$'
-        entry: >-
-          bash -c 'command -v node >/dev/null 2>&1 || { echo "eslint: node not found — skipping"; exit 0; };
-          [ -x node_modules/.bin/eslint ] || { echo "eslint: not installed yet — skipping"; exit 0; };
-          node_modules/.bin/eslint --fix "$@"' --
+        files: '\.(ts|tsx|js|jsx|mjs|cjs)$'
+        entry: node_modules/.bin/eslint --fix
 
-      # Prettier — auto-format staged front-end/source files across packages/.
-      # Skips cleanly until node_modules (with prettier) are installed.
+      # Prettier — auto-format staged files repo-wide (respects .prettierignore).
       - id: prettier
-        name: Prettier (packages)
+        name: Prettier
         language: system
         stages: [pre-commit]
-        files: '^packages/.*\.(ts|tsx|js|jsx|json|css|scss|html)$'
-        entry: >-
-          bash -c 'command -v node >/dev/null 2>&1 || { echo "prettier: node not found — skipping"; exit 0; };
-          [ -x node_modules/.bin/prettier ] || { echo "prettier: not installed yet — skipping"; exit 0; };
-          node_modules/.bin/prettier --write "$@"' --
+        files: '\.(ts|tsx|js|jsx|mjs|cjs|json|css|scss|html)$'
+        entry: node_modules/.bin/prettier --write --ignore-unknown

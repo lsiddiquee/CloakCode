@@ -1,0 +1,22 @@
+# Dependencies & build output
+**/node_modules/
+**/dist/
+**/coverage/
+
+# Local scratch, Python venv, vendored research clones
+.local/
+**/.venv/
+research/
+mockups/
+
+# Managed / non-source
+pnpm-lock.yaml
+
+# Owned by other tooling or left as-is (avoid editor↔hook contradictions):
+#   Markdown → markdownlint;  YAML / JSONC-with-comments → leave untouched.
+**/*.md
+**/*.yaml
+**/*.yml
+.devcontainer/devcontainer.json
+**/tsconfig*.json
+.vscode/

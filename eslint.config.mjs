@@ -6,6 +6,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
+import eslintConfigPrettier from "eslint-config-prettier";
 
 export default tseslint.config(
   {
@@ -14,6 +15,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/coverage/**",
       ".local/**",
+      "**/.venv/**",
       "**/*.config.{js,mjs,cjs,ts}",
       "research/**",
       "mockups/**",
@@ -24,6 +26,11 @@ export default tseslint.config(
   {
     // Node-side packages: the extension host, the protocol contract, the agent.
     files: ["packages/{extension,protocol,agent}/**/*.ts"],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
+    // Plain JS/MJS/CJS files are all Node-side build/packaging scripts.
+    files: ["**/*.{js,mjs,cjs}"],
     languageOptions: { globals: { ...globals.node } },
   },
   {
@@ -50,4 +57,6 @@ export default tseslint.config(
       ],
     },
   },
+  // Keep ESLint out of formatting — Prettier owns that (avoids contradictions).
+  eslintConfigPrettier,
 );
