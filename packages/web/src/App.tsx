@@ -2,43 +2,13 @@ import { useEffect, useState } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { bridgeUrl, fetchSessions } from "./bridge";
 import { dotClass, statusLabel } from "./format";
+import { groupByWorkspace } from "./grouping";
 import { SessionView } from "./SessionView";
 
 type LoadState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "ready"; sessions: SessionSummary[] };
-
-function groupByWorkspace(sessions: SessionSummary[]): Array<{
-  instanceId: string;
-  workspace: string;
-  workspaceHash: string;
-  rows: SessionSummary[];
-}> {
-  const map = new Map<
-    string,
-    {
-      instanceId: string;
-      workspace: string;
-      workspaceHash: string;
-      rows: SessionSummary[];
-    }
-  >();
-  for (const s of sessions) {
-    // Group by the stable hash, not the display name (two folders can share a
-    // basename); the label comes from the first row.
-    const key = `${s.instanceId}|${s.workspaceHash}`;
-    const g = map.get(key) ?? {
-      instanceId: s.instanceId,
-      workspace: s.workspace,
-      workspaceHash: s.workspaceHash,
-      rows: [],
-    };
-    g.rows.push(s);
-    map.set(key, g);
-  }
-  return [...map.values()];
-}
 
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
@@ -117,16 +87,14 @@ export function App(): JSX.Element {
           groupByWorkspace(state.sessions).map((group) => {
             const owned = group.rows.every((s) => s.owned);
             return (
-              <section key={`${group.instanceId}|${group.workspaceHash}`}>
+              <section key={group.workspaceHash}>
                 <div className="group-label">
                   workspace {group.workspace}
-                  {owned
-                    ? ` · instance ${group.instanceId}`
-                    : " · read-only (no extension here)"}
+                  {owned ? "" : " · read-only (no extension here)"}
                 </div>
                 {group.rows.map((s) => (
                   <div
-                    key={`${s.instanceId}:${s.sessionId}`}
+                    key={s.sessionId}
                     className={`row ${s.status === "blocked" ? "blocked" : ""}${
                       s.owned ? "" : " locked"
                     }`}

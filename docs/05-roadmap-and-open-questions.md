@@ -236,6 +236,12 @@ the critical path.
   _under-surfaced session identity_ (workspace + session id are now labeled in the list rows
   and the session header); and _list grouping + instance label_ (the list now groups by
   **workspace** and labels the instance).
+- **REFINED (2026-07-14): list grouping keyed purely on `workspaceHash`.** It previously grouped on
+  `instanceId|workspaceHash`, which split one workspace into two groups when two windows of the same
+  environment (different instanceIds — a per-reporter label) reported it. Grouping now keys on
+  `workspaceHash` alone (`packages/web/src/grouping.ts`), collapsing those into one group; the group
+  header no longer prints the now-ambiguous instance label. instanceId stays a display-only field
+  (session detail) — moving routing off it (so it becomes a pure label) is a separate open slice.
 - **Cross-window actuation opens a NEW session by mistake (2026-07-11, deferred — not a
   blocker).** Sending an answer/decision (`session.respond` / `.decide` / `.answer`) to a
   session the bridge's window does **not** own creates a **brand-new chat** in the bridge's
