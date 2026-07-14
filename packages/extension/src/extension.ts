@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
 import { connectGateway, type GatewayClient } from "./gateway-client.js";
 import { discoverGateway } from "./discover.js";
+import { resolveConnectionPlan } from "./connection-plan.js";
 import {
   defaultWorkspaceStorageRoot,
   scanSessions,
@@ -313,24 +314,22 @@ export async function activate(
     const cfgNow = vscode.workspace.getConfiguration("cloakcode");
     port =
       Number(process.env["CLOAKCODE_PORT"]) || cfgNow.get<number>("port") || 0;
-    let gatewayUrl = cfgNow.get<string>("gatewayUrl")?.trim();
-    // Extra discovery hosts can also arrive via env (`CLOAKCODE_GATEWAY_HOSTS`,
-    // comma-separated) — e.g. F5 maps the devcontainer's `HOST_IP` so a gateway
-    // on the WSL/host is probed. Supplying env hosts also opts THIS window into
-    // discovery (an explicit dev/deploy signal), even when the setting is off.
-    const envHosts = (process.env["CLOAKCODE_GATEWAY_HOSTS"] ?? "")
-      .split(",")
-      .map((h) => h.trim())
-      .filter(Boolean);
-    const discoveryOn =
-      (cfgNow.get<boolean>("gatewayDiscovery") ?? false) || envHosts.length > 0;
-    if (!gatewayUrl && discoveryOn) {
-      const gatewayPort = cfgNow.get<number>("gatewayPort") || 7900;
-      const gatewayHosts = [
-        ...(cfgNow.get<string[]>("gatewayHosts") ?? []),
-        ...envHosts,
-      ];
-      gatewayUrl = await discoverGateway(gatewayPort, gatewayHosts, 500, (m) =>
+    // Pure decision (tested in connection-plan.test.ts): explicit url → gateway;
+    // discovery (enabled by the setting OR by env hosts) → probe; else embedded.
+    // The env var also opts THIS window into discovery — e.g. F5 maps the
+    // devcontainer's `HOST_IP` into `CLOAKCODE_GATEWAY_HOSTS`.
+    const plan = resolveConnectionPlan({
+      gatewayUrl: cfgNow.get<string>("gatewayUrl"),
+      gatewayDiscovery: cfgNow.get<boolean>("gatewayDiscovery") ?? false,
+      gatewayPort: cfgNow.get<number>("gatewayPort") || 7900,
+      gatewayHosts: cfgNow.get<string[]>("gatewayHosts") ?? [],
+      envHosts: process.env["CLOAKCODE_GATEWAY_HOSTS"],
+    });
+    let gatewayUrl: string | undefined;
+    if (plan.kind === "gateway") {
+      gatewayUrl = plan.url;
+    } else if (plan.kind === "discover") {
+      gatewayUrl = await discoverGateway(plan.port, plan.hosts, 500, (m) =>
         out.appendLine(m),
       );
       out.appendLine(
