@@ -473,6 +473,7 @@ function PendingCard({
 }): JSX.Element {
   const confirmations = blocker.confirmations ?? [];
   const isQuestion = confirmations.length > 0;
+  const total = confirmations.length;
   const approval = approvalSummary(blocker.toolName, blocker.input);
 
   // Per-question answer: chosen option labels (more than one for multi-select)
@@ -480,6 +481,10 @@ function PendingCard({
   const [answers, setAnswers] = useState<
     Array<{ selected: string[]; freeText: string }>
   >([]);
+  // One-question-at-a-time stepper index (docs/05 “one-question-at-a-time”): a
+  // multi-question `vscode_askQuestions` blocker steps through its questions
+  // instead of stacking them, mirroring the VS Code picker.
+  const [step, setStep] = useState(0);
   const { sending, error, sent, answer } = useAnswer(session);
   const decision = useDecide(session);
 
@@ -522,6 +527,9 @@ function PendingCard({
     }) &&
     !sending &&
     !sent;
+  // Whether the CURRENT question has an answer (gates “Next”).
+  const curAnswered =
+    getAns(step).selected.length > 0 || getAns(step).freeText.trim() !== "";
 
   return (
     <div className="blocker pending">
@@ -530,51 +538,86 @@ function PendingCard({
       </span>
       {isQuestion ? (
         <>
-          {confirmations.map((c, qi) => (
-            <div key={c.id} className="pending-q">
-              <div className="blocker-q">{c.prompt}</div>
-              {c.options.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  className={`choice choice-btn ${o.recommended ? "reco" : ""} ${
-                    getAns(qi).selected.includes(o.label) ? "chosen" : ""
-                  }`}
-                  onClick={() => toggle(qi, o.label, c.multiSelect ?? false)}
-                  disabled={sending}
-                >
-                  <div className="choice-label">
-                    <span>{o.label}</span>
-                    {o.recommended && <span className="reco-badge">REC</span>}
-                  </div>
-                  {o.detail && <div className="choice-detail">{o.detail}</div>}
-                </button>
-              ))}
-              {c.allowFreeform && (
-                <input
-                  className="pending-freeform"
-                  type="text"
-                  placeholder="Type a custom answer…"
-                  disabled={sending}
-                  onChange={(e) => patch(qi, { freeText: e.target.value })}
-                />
-              )}
+          {total > 1 && (
+            <div className="pending-progress">
+              Question {step + 1} of {total}
             </div>
-          ))}
+          )}
+          {confirmations
+            .filter((_, qi) => qi === step)
+            .map((c) => (
+              <div key={c.id} className="pending-q">
+                <div className="blocker-q">{c.prompt}</div>
+                {c.options.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className={`choice choice-btn ${o.recommended ? "reco" : ""} ${
+                      getAns(step).selected.includes(o.label) ? "chosen" : ""
+                    }`}
+                    onClick={() =>
+                      toggle(step, o.label, c.multiSelect ?? false)
+                    }
+                    disabled={sending}
+                  >
+                    <div className="choice-label">
+                      <span>{o.label}</span>
+                      {o.recommended && <span className="reco-badge">REC</span>}
+                    </div>
+                    {o.detail && (
+                      <div className="choice-detail">{o.detail}</div>
+                    )}
+                  </button>
+                ))}
+                {c.allowFreeform && (
+                  <input
+                    className="pending-freeform"
+                    type="text"
+                    placeholder="Type a custom answer…"
+                    value={getAns(step).freeText}
+                    disabled={sending}
+                    onChange={(e) => patch(step, { freeText: e.target.value })}
+                  />
+                )}
+              </div>
+            ))}
           {error && <div className="pending-error">send failed: {error}</div>}
-          <button
-            type="button"
-            className="pending-send"
-            onClick={() =>
-              void answer(
-                blocker.resolveId ?? blocker.toolCallId,
-                structuredAnswers,
-              )
-            }
-            disabled={!canSend}
-          >
-            {sent ? "Answer sent ✓" : sending ? "Sending…" : "Send answer"}
-          </button>
+          <div className="pending-nav">
+            {step > 0 && (
+              <button
+                type="button"
+                className="pending-back"
+                onClick={() => setStep((s) => s - 1)}
+                disabled={sending}
+              >
+                Back
+              </button>
+            )}
+            {step < total - 1 ? (
+              <button
+                type="button"
+                className="pending-next"
+                onClick={() => setStep((s) => s + 1)}
+                disabled={!curAnswered || sending}
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pending-send"
+                onClick={() =>
+                  void answer(
+                    blocker.resolveId ?? blocker.toolCallId,
+                    structuredAnswers,
+                  )
+                }
+                disabled={!canSend}
+              >
+                {sent ? "Answer sent ✓" : sending ? "Sending…" : "Send answer"}
+              </button>
+            )}
+          </div>
           <div className="blocker-note">
             {sent
               ? "Answer delivered. If VS Code already auto-answered, this had no effect."

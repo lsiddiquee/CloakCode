@@ -169,10 +169,11 @@ the critical path.
 
 ## Explicitly deferred
 
-- **One-question-at-a-time blocker UI (polish).** `vscode_askQuestions` can carry multiple
-  questions in one tool call (e.g. file name + write mode). The overlay currently shows them
-  stacked; a nicer UX steps through them one by one with "1/2" progress (mirroring the VS Code
-  picker). Polish, not feature completeness — revisit after the actuator.
+- **One-question-at-a-time blocker UI — SHIPPED 2026-07-14.** A multi-question
+  `vscode_askQuestions` blocker now **steps through one question at a time** with "N of M" progress +
+  Back/Next (mirroring the VS Code picker), instead of stacking them. Web-only (the `PendingCard`
+  stepper in `SessionView.tsx`); a single-question blocker shows no stepper chrome; answers are still
+  delivered structurally via `session.answer`.
 - Native VS Code chat-UI mirroring via proposed `chatSessionsProvider` (sideload-only).
 - Multi-remote "command centre" for non-Copilot tools (the extensibility groundwork exists
   in the bridge, but no second controller is built yet).

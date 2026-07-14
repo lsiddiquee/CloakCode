@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { SessionSummary } from "@cloakcode/protocol";
+import { render, screen, fireEvent } from "@testing-library/react";
+import type { PendingBlocker, SessionSummary } from "@cloakcode/protocol";
 import { SessionView } from "./SessionView";
 
-// Controls the connection status the stubbed bridge reports (see the mock).
-const h = vi.hoisted(() => ({ status: "open" as string }));
+// Controls the connection status + pending blockers the stubbed bridge reports.
+const h = vi.hoisted(() => ({
+  status: "open" as string,
+  pending: [] as PendingBlocker[],
+}));
 
 // Stub the bridge so mounting SessionView never opens a real WebSocket and the
 // action functions are inert no-ops (we only assert what renders).
@@ -12,11 +15,12 @@ vi.mock("./bridge", () => ({
   subscribeSession: (
     _params: unknown,
     _onEvent: unknown,
-    _onPending: unknown,
+    onPending: (b: PendingBlocker[]) => void,
     _onError: unknown,
     onStatus: (s: string) => void = () => {},
   ) => {
     onStatus(h.status);
+    onPending(h.pending);
     return () => {};
   },
   respondSession: async () => {},
@@ -26,6 +30,7 @@ vi.mock("./bridge", () => ({
 
 beforeEach(() => {
   h.status = "open";
+  h.pending = [];
 });
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -72,5 +77,102 @@ describe("SessionView connection state", () => {
   it("shows no connection banner when open", () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     expect(screen.queryByText(/Reconnecting|Disconnected/i)).toBeNull();
+  });
+});
+
+function askBlocker(): PendingBlocker {
+  return {
+    toolCallId: "tc1",
+    toolName: "vscode_askQuestions",
+    createdAt: new Date().toISOString(),
+    resolveId: "tc1__vscode-0",
+    confirmations: [
+      {
+        kind: "confirmation",
+        id: "q1",
+        prompt: "Pick a name",
+        options: [
+          { id: "a", label: "Alpha" },
+          { id: "b", label: "Beta" },
+        ],
+      },
+      {
+        kind: "confirmation",
+        id: "q2",
+        prompt: "Overwrite?",
+        options: [
+          { id: "y", label: "Yes" },
+          { id: "n", label: "No" },
+        ],
+      },
+    ],
+  };
+}
+
+describe("PendingCard question stepper", () => {
+  it("steps through multiple questions one at a time", () => {
+    h.pending = [askBlocker()];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    // Q1 with progress; Q2 not yet shown.
+    expect(screen.getByText("Question 1 of 2")).toBeTruthy();
+    expect(screen.getByText("Pick a name")).toBeTruthy();
+    expect(screen.queryByText("Overwrite?")).toBeNull();
+
+    // Next is gated until Q1 is answered.
+    expect(
+      (screen.getByRole("button", { name: "Next" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+    expect(
+      (screen.getByRole("button", { name: "Next" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    // Advance to Q2.
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Question 2 of 2")).toBeTruthy();
+    expect(screen.getByText("Overwrite?")).toBeTruthy();
+
+    // The last question shows Send (gated until answered).
+    expect(
+      (screen.getByRole("button", { name: /Send answer/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Yes/ }));
+    expect(
+      (screen.getByRole("button", { name: /Send answer/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    // Back returns to Q1 with its answer preserved.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Question 1 of 2")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Alpha/ }).className).toContain(
+      "chosen",
+    );
+  });
+
+  it("a single-question blocker shows no stepper chrome", () => {
+    h.pending = [
+      {
+        toolCallId: "tc2",
+        toolName: "vscode_askQuestions",
+        createdAt: new Date().toISOString(),
+        confirmations: [
+          {
+            kind: "confirmation",
+            id: "q1",
+            prompt: "Proceed?",
+            options: [{ id: "y", label: "Yes" }],
+          },
+        ],
+      },
+    ];
+    render(<SessionView session={session()} onBack={() => {}} />);
+    expect(screen.queryByText(/Question 1 of/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Send answer/ })).toBeTruthy();
   });
 });
