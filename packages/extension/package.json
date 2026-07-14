@@ -49,6 +49,16 @@
         "command": "cloakcode.setupTunnel",
         "title": "Set Up Phone Tunnel",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.reinstallHook",
+        "title": "Install / Repair Copilot Hook",
+        "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.removeHook",
+        "title": "Remove Copilot Hook (all workspaces)",
+        "category": "CloakCode"
       }
     ],
     "configuration": {

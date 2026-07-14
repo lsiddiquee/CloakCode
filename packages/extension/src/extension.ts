@@ -21,7 +21,9 @@ import {
   buildCarouselAnswers,
   buildHookConfig,
   defaultSpoolDir,
+  hookConfigPath,
   localChatSessionUri,
+  stableHookPath,
 } from "./hook-spool.js";
 import { phoneLinkHtml, isLoopback } from "./phone-link.js";
 import {
@@ -59,22 +61,24 @@ async function installHook(
   out: vscode.OutputChannel,
 ): Promise<void> {
   try {
-    const hookBin = vscode.Uri.joinPath(
+    const extHookBin = vscode.Uri.joinPath(
       context.extensionUri,
       "dist",
       "hook.cjs",
     ).fsPath;
+    // Point the config at a STABLE copy so an orphaned hook degrades to a no-op
+    // (not a missing-file error) if the extension is later uninstalled/updated.
+    const hookBin = await ensureStableHook(extHookBin);
     const config = buildHookConfig({
       runtime: process.execPath,
       hookBin,
       spoolDir,
     });
-    const hookDir = path.join(os.homedir(), ".copilot", "hooks");
-    const hookFile = path.join(hookDir, "cloakcode.json");
+    const hookFile = hookConfigPath();
     const next = JSON.stringify(config, null, 2) + "\n";
     const current = await fs.readFile(hookFile, "utf8").catch(() => "");
     if (current !== next) {
-      await fs.mkdir(hookDir, { recursive: true });
+      await fs.mkdir(path.dirname(hookFile), { recursive: true });
       await fs.writeFile(hookFile, next);
       out.appendLine(`installed hook -> ${hookFile}`);
     }
@@ -83,6 +87,44 @@ async function installHook(
       `hook install skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+}
+
+/**
+ * Copy the bundled hook to the STABLE per-environment path so Copilot keeps a
+ * working command even after the versioned extension dir is gone — the orphan
+ * then no-ops instead of erroring on every tool call. Atomic (temp + rename) so a
+ * concurrent hook invocation from another window never reads a half-written file.
+ * Returns the path to point the config at: the stable copy on success, else the
+ * extension's own bundle (still valid while installed).
+ */
+async function ensureStableHook(extHookBin: string): Promise<string> {
+  const stable = stableHookPath();
+  try {
+    const bundle = await fs.readFile(extHookBin);
+    const current = await fs.readFile(stable).catch(() => null);
+    if (!current || !current.equals(bundle)) {
+      await fs.mkdir(path.dirname(stable), { recursive: true });
+      const tmp = `${stable}.tmp-${process.pid}`;
+      await fs.writeFile(tmp, bundle);
+      await fs.rename(tmp, stable);
+    }
+    return stable;
+  } catch {
+    return extHookBin; // fall back to the ext-dir path (works while installed)
+  }
+}
+
+/**
+ * Remove the CloakCode Copilot hook for the WHOLE environment: the user-global
+ * config + the stable hook copy. Only ever run from the explicit `removeHook`
+ * command — NEVER on deactivation (the config is shared by every window, so a
+ * lifecycle-driven removal would break the others). Best effort.
+ */
+async function uninstallHook(out: vscode.OutputChannel): Promise<void> {
+  for (const p of [hookConfigPath(), stableHookPath()]) {
+    await fs.rm(p, { force: true }).catch(() => undefined);
+  }
+  out.appendLine("removed CloakCode hook (config + stable copy)");
 }
 
 /**
@@ -404,6 +446,31 @@ export async function activate(
       out.appendLine("");
       out.appendLine(formatDiagnostics(await gatherDiagnostics()));
       out.show(true);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.reinstallHook", async () => {
+      await installHook(context, spoolDir, out);
+      void vscode.window.showInformationMessage(
+        "CloakCode: Copilot hook installed / repaired.",
+      );
+    }),
+    vscode.commands.registerCommand("cloakcode.removeHook", async () => {
+      // Env-wide + shared by every window — confirm before removing, and only
+      // ever from this explicit command (never on deactivation).
+      const pick = await vscode.window.showWarningMessage(
+        "Remove the CloakCode Copilot hook for this whole environment (every " +
+          "workspace and window)? Copilot keeps working; CloakCode stops " +
+          "observing tool calls until you reinstall it.",
+        { modal: true },
+        "Remove hook",
+      );
+      if (pick !== "Remove hook") return;
+      await uninstallHook(out);
+      void vscode.window.showInformationMessage(
+        "CloakCode: Copilot hook removed.",
+      );
     }),
   );
 

@@ -16,6 +16,8 @@ import {
   eventToolCallId,
   buildHookConfig,
   defaultSpoolDir,
+  stableHookPath,
+  hookConfigPath,
   SpoolFollower,
   localChatSessionUri,
   buildCarouselAnswers,
@@ -372,6 +374,24 @@ describe("buildHookConfig", () => {
     }) as { hooks: Record<string, Array<{ timeout?: number }>> };
     expect(cfg.hooks["PreToolUse"]?.[0]?.timeout).toBe(30);
     expect(cfg.hooks["PostToolUse"]?.[0]?.timeout).toBe(30);
+  });
+});
+
+describe("hook paths", () => {
+  it("puts the stable hook copy under ~/.cloakcode (survives uninstall)", () => {
+    expect(stableHookPath()).toBe(
+      path.join(os.homedir(), ".cloakcode", "hook.cjs"),
+    );
+    // Shares the per-env dir with the spool so a whole `~/.cloakcode` wipe cleans both.
+    expect(path.dirname(stableHookPath())).toBe(
+      path.dirname(defaultSpoolDir()),
+    );
+  });
+
+  it("puts the user-global config under ~/.copilot/hooks", () => {
+    expect(hookConfigPath()).toBe(
+      path.join(os.homedir(), ".copilot", "hooks", "cloakcode.json"),
+    );
   });
 });
 
