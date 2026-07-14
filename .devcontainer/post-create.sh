@@ -32,14 +32,14 @@ echo "==> git: init (if needed) + safe.directory + editor"
 git config --global --add safe.directory "${REPO_ROOT}" || true
 git config --global core.editor "code --wait" || true
 
-# 3. pnpm via corepack -------------------------------------------------------
-# `corepack enable` writes shim symlinks into /usr/local/bin (root-owned), so it
-# needs sudo when this script runs as the unprivileged `node` user. The pnpm
-# version is pinned by the repo's package.json "packageManager" field, so we
-# activate THAT version (not @latest) — corepack always honours the field anyway.
-echo "==> pnpm: enabling via corepack"
-sudo corepack enable || corepack enable || true
-corepack prepare --activate || true
+# 3. pnpm --------------------------------------------------------------------
+# Use the pnpm that ships in the base image (a real install that sits ahead of
+# any corepack shim on PATH). We deliberately do NOT corepack-provision the pinned
+# `packageManager` version: the Microsoft package-feed proxy (.npmrc) is a
+# whole-package-metadata mirror that 404s the per-version manifest and redirects
+# tarballs, so corepack/pnpm self-provisioning can't fetch pnpm from it. Instead
+# `pmOnFail: ignore` (pnpm-workspace.yaml) makes pnpm use the installed version.
+echo "==> pnpm: using base-image pnpm ($(pnpm --version 2>/dev/null || echo '?'))"
 pnpm config set store-dir "${CACHE_DIR}/pnpm-store" || true
 
 # 4. Global VS Code extension tooling (guarded) ------------------------------

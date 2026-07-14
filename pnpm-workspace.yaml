@@ -3,12 +3,13 @@
 packages:
   - packages/*
 
-# Skip pnpm's `packageManager` self-provisioning. package.json pins pnpm@11.10.0,
-# but the Microsoft package-feed proxy doesn't serve pnpm's own tarball in the
-# integrity-only form pnpm requires, so the default `download` behavior fails
-# every command once the registry points at the proxy (see .npmrc). `ignore` uses
-# the installed pnpm instead (like asdf/Volta). This is the pnpm-v11 replacement
-# for the removed `managePackageManagerVersions: false`.
+# Use the installed pnpm instead of downloading the version pinned in
+# package.json's `packageManager` field. The Microsoft package-feed proxy (.npmrc)
+# is a whole-package-metadata mirror — it 404s the per-version manifest and
+# redirects tarballs — so pnpm/corepack self-provisioning can't work against it.
+# The pin matches the base-image pnpm today, but keep `ignore` so any drift (a
+# base-image bump, a dev's machine) never breaks every pnpm command. pnpm-v11
+# replacement for the removed `managePackageManagerVersions: false`.
 pmOnFail: ignore
 
 allowBuilds:
