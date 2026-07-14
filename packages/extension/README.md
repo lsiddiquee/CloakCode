@@ -17,3 +17,37 @@ Contents (to build):
 
 Runs with proposed API disabled (Marketplace-publishable). The optional native-VS-Code
 chat-UI mirroring (proposed `chatSessionsProvider`) is a later, sideloaded-only layer.
+
+## Dev flow (build · install · run)
+
+Package a `.vsix` (this bundles the extension **and** the PWA first):
+
+```bash
+pnpm --filter @cloakcode/extension package
+# → packages/extension/cloakcode-0.0.0.vsix
+```
+
+Install / uninstall it (extension id `rexwel.cloakcode`), then reload the window:
+
+```bash
+code --install-extension packages/extension/cloakcode-0.0.0.vsix
+code --uninstall-extension rexwel.cloakcode
+```
+
+Run the bridge in one of two modes:
+
+- **Embedded (default).** No separate process — the extension starts its own `127.0.0.1`
+  bridge and serves the PWA. Set `cloakcode.tunnel` to `devtunnel` (or fill `cloakcode.publicUrl`)
+  and run **CloakCode: Show Phone Link** for the QR code.
+- **Explicit gateway.** Run the standalone hub (see [`@cloakcode/gateway`](../gateway/README.md))
+  and point the extension at it — multiple windows can share one gateway:
+
+  ```json
+  "cloakcode.gatewayUrl": "ws://<gateway-host>:7900"
+  ```
+
+  If the URL is unreachable the extension logs a warning and falls back to the embedded bridge.
+  For a gateway on another machine or container, start it with `--host 0.0.0.0` and use that
+  host's IP.
+
+Logs live in **Output → CloakCode**.

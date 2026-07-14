@@ -10,8 +10,49 @@ Holds **no `vscode`** — it's the `vscode`-free server core (it also owns `tunn
 
 ## Run it standalone
 
+**Quickest — assemble a copy-ready folder, then run it:**
+
 ```bash
-# from the repo root — build the pieces, then run:
+# from the repo root: builds protocol + gateway + PWA and stages dist/gateway/
+pnpm --filter @cloakcode/gateway assemble
+
+# run it — serves the PWA + hub; --tunnel prints a phone URL
+cd dist/gateway
+./run.sh --tunnel
+```
+
+`dist/gateway/` (`main.mjs` + `web/` + `run.sh`) is self-contained: copy it to any host with
+Node ≥ 20 and run `./run.sh` there.
+
+### `run.sh` options
+
+| flag                 | default        | meaning                                                               |
+| -------------------- | -------------- | --------------------------------------------------------------------- |
+| `--host <addr>`      | `127.0.0.1`    | bind address; use `0.0.0.0` to accept LAN / container / WSL clients   |
+| `--port <n>`         | `7900`         | listen port (also the port segment of the Dev Tunnel URL)             |
+| `--web-dir <path>`   | bundled `web/` | directory of the built PWA to serve                                   |
+| `--instance-id <id>` | `gateway`      | tunnel-name seed → a **stable** phone URL, distinct per machine       |
+| `--tunnel`           | off            | expose via a **private** Microsoft Dev Tunnel and print the phone URL |
+| `--no-tunnel`        | _(default)_    | local only                                                            |
+| `-h`, `--help`       |                | print usage and exit                                                  |
+
+Each flag maps to a `CLOAKCODE_*` [environment variable](#environment-variables) (the flag wins when
+both are set). `run.sh` also preflights Node ≥ 20 and, for `--tunnel`, that `devtunnel` is installed
+and signed in — degrading to local-only with the exact fix if not.
+
+**Reachable from another machine or container?** Bind all interfaces — loopback (`127.0.0.1`)
+only accepts same-host clients, so a separate container/VM connecting to the host IP is refused:
+
+```bash
+./run.sh --host 0.0.0.0 --tunnel      # clients use ws://<this-host-ip>:7900
+```
+
+There is no app-layer auth yet, so only bind `0.0.0.0` on a trusted network (otherwise keep it
+on loopback + a private tunnel).
+
+**Or run straight from the workspace, without assembling:**
+
+```bash
 pnpm --filter @cloakcode/protocol build
 pnpm --filter @cloakcode/web build
 pnpm --filter @cloakcode/gateway build
@@ -21,15 +62,18 @@ CLOAKCODE_TUNNEL=devtunnel \
   pnpm --filter @cloakcode/gateway start
 ```
 
-Environment:
+### Environment variables
 
-| var | default | meaning |
-| --- | --- | --- |
-| `CLOAKCODE_GATEWAY_HOST` | `127.0.0.1` | bind address (`0.0.0.0` in Docker) |
-| `CLOAKCODE_GATEWAY_PORT` | `7900` | port |
-| `CLOAKCODE_WEB_DIR` | _(unset)_ | directory of the built PWA to serve (WS-only if unset) |
-| `CLOAKCODE_TUNNEL` | _(unset)_ | `devtunnel` → auto-host a private tunnel and print the phone URL |
-| `CLOAKCODE_INSTANCE_ID` | `gateway` | tunnel-name seed |
+These drive the runner directly (`pnpm start`, Docker, or `main.mjs`); `run.sh` sets them from its
+flags.
+
+| var                      | default     | meaning                                                          |
+| ------------------------ | ----------- | ---------------------------------------------------------------- |
+| `CLOAKCODE_GATEWAY_HOST` | `127.0.0.1` | bind address (`0.0.0.0` in Docker)                               |
+| `CLOAKCODE_GATEWAY_PORT` | `7900`      | port                                                             |
+| `CLOAKCODE_WEB_DIR`      | _(unset)_   | directory of the built PWA to serve (WS-only if unset)           |
+| `CLOAKCODE_TUNNEL`       | _(unset)_   | `devtunnel` → auto-host a private tunnel and print the phone URL |
+| `CLOAKCODE_INSTANCE_ID`  | `gateway`   | tunnel-name seed                                                 |
 
 ## Docker
 
