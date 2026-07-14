@@ -13,8 +13,10 @@
  * Run via `pnpm --filter @cloakcode/extension package` (bundles + builds web first).
  */
 import {
+  chmodSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -78,8 +80,14 @@ try {
   // Staging is already clean; keep source maps out of the .vsix.
   writeFileSync(join(stage, ".vscodeignore"), "**/*.map\n.vscodeignore\n");
 
-  const out = join(EXT, `cloakcode-${manifest.version}.vsix`);
-  rmSync(out, { force: true });
+  // Deployable output under <repo>/dist/extension — the .vsix plus simplified
+  // install/uninstall scripts — mirroring the gateway's dist/gateway.
+  const outDir = join(resolve(EXT, "..", ".."), "dist", "extension");
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(outDir, { recursive: true });
+
+  const vsixName = `cloakcode-${manifest.version}.vsix`;
+  const out = join(outDir, vsixName);
 
   const vsce = [
     join(EXT, "node_modules/.bin/vsce"),
@@ -94,11 +102,80 @@ try {
     cwd: stage,
     stdio: "inherit",
   });
-  console.log(`\n[cloakcode] packaged → ${out}`);
-  console.log("  install:   code --install-extension " + out);
+
+  // Ship simplified (un)install helpers next to the .vsix. uninstall.sh also
+  // removes the per-environment Copilot hook (a global the extension can't clean
+  // up itself — VS Code has no uninstall hook), so a full removal is one command.
+  const extId = `${manifest.publisher}.${manifest.name}`;
+  writeFileSync(join(outDir, "install.sh"), installScript(vsixName, extId));
+  writeFileSync(join(outDir, "uninstall.sh"), uninstallScript(extId));
+  chmodSync(join(outDir, "install.sh"), 0o755);
+  chmodSync(join(outDir, "uninstall.sh"), 0o755);
+
+  console.log(`\n[cloakcode] packaged → ${outDir}`);
+  console.log(`  ${vsixName}  +  install.sh / uninstall.sh`);
+  console.log(`  install:   (cd "${outDir}" && ./install.sh)`);
   console.log(
-    `  uninstall: code --uninstall-extension ${manifest.publisher}.${manifest.name}`,
+    `  uninstall: (cd "${outDir}" && ./uninstall.sh)   # extension + Copilot hook`,
   );
 } finally {
   rmSync(stage, { recursive: true, force: true });
+}
+
+/**
+ * Bash to install the .vsix (editor CLI overridable via CODE_BIN).
+ * @param {string} vsix @param {string} extId
+ */
+function installScript(vsix, extId) {
+  return `#!/usr/bin/env bash
+#
+# Install the CloakCode VS Code extension from the .vsix in this folder.
+#
+# Usage: ./install.sh                     # uses \`code\`
+#        CODE_BIN=code-insiders ./install.sh   # or codium / cursor / …
+#
+set -eo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+CODE="$CODE_BIN"; [ -n "$CODE" ] || CODE=code
+
+if ! command -v "$CODE" >/dev/null 2>&1; then
+  echo "error: '$CODE' not on PATH — set CODE_BIN to your editor CLI (e.g. CODE_BIN=code-insiders)." >&2
+  exit 1
+fi
+
+"$CODE" --install-extension "$DIR/${vsix}" --force
+echo "Installed CloakCode (${extId}). Reload the window if VS Code was running."
+`;
+}
+
+/**
+ * Bash to uninstall the extension + remove the per-env Copilot hook.
+ * @param {string} extId
+ */
+function uninstallScript(extId) {
+  return `#!/usr/bin/env bash
+#
+# Uninstall the CloakCode extension AND remove its Copilot hook for THIS
+# environment. The hook is a per-environment global the extension can't remove on
+# its own (VS Code has no uninstall hook), so this cleans it up for you.
+#
+# Usage: ./uninstall.sh                    # uses \`code\`
+#        CODE_BIN=code-insiders ./uninstall.sh
+#        ./uninstall.sh --keep-hook        # leave the Copilot hook in place
+#
+set -eo pipefail
+CODE="$CODE_BIN"; [ -n "$CODE" ] || CODE=code
+
+if command -v "$CODE" >/dev/null 2>&1; then
+  "$CODE" --uninstall-extension ${extId} || echo "  ('${extId}' was not installed for '$CODE')"
+else
+  echo "  ('$CODE' not on PATH — skipping the extension uninstall)"
+fi
+
+if [ "$1" != "--keep-hook" ]; then
+  rm -f "$HOME/.copilot/hooks/cloakcode.json" "$HOME/.cloakcode/hook.cjs"
+  echo "Removed the Copilot hook (~/.copilot/hooks/cloakcode.json, ~/.cloakcode/hook.cjs)."
+fi
+echo "Done. Reload the window if VS Code was running."
+`;
 }

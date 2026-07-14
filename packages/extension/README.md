@@ -20,18 +20,22 @@ chat-UI mirroring (proposed `chatSessionsProvider`) is a later, sideloaded-only 
 
 ## Dev flow (build · install · run)
 
-Package a `.vsix` (this bundles the extension **and** the PWA first):
+Package a `.vsix` (this bundles the extension **and** the PWA first) into
+`dist/extension/` at the repo root — mirroring the gateway's `dist/gateway/`:
 
 ```bash
 pnpm --filter @cloakcode/extension package
-# → packages/extension/cloakcode-0.0.0.vsix
+# → dist/extension/  (cloakcode-<version>.vsix + install.sh + uninstall.sh)
 ```
 
-Install / uninstall it (extension id `rexwel.cloakcode`), then reload the window:
+Install / uninstall it (extension id `rexwel.cloakcode`) with the bundled scripts —
+copy the `dist/extension/` folder anywhere and run them (set `CODE_BIN` for a
+non-`code` CLI). Reload the window afterwards:
 
 ```bash
-code --install-extension packages/extension/cloakcode-0.0.0.vsix
-code --uninstall-extension rexwel.cloakcode
+cd dist/extension
+./install.sh                 # or: code --install-extension cloakcode-<version>.vsix
+./uninstall.sh               # removes the extension AND its per-env Copilot hook
 ```
 
 Run the bridge in one of two modes:

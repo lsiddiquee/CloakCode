@@ -137,7 +137,7 @@
   },
   "scripts": {
     "dev": "tsx src/dev-server.ts",
-    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.cjs --sourcemap && esbuild src/hook.ts --bundle --platform=node --format=cjs --outfile=dist/hook.cjs --sourcemap",
+    "bundle": "node scripts/bundle.mjs",
     "build:web": "pnpm --filter @cloakcode/web build && node scripts/bundle-web.mjs",
     "package": "pnpm bundle && pnpm build:web && node scripts/package-vsix.mjs",
     "build": "tsc -p tsconfig.json --noEmit",
