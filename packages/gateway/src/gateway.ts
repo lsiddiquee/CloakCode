@@ -21,6 +21,13 @@ export interface GatewayOptions {
   port?: number;
   /** Directory of the built PWA to serve; omit to run WS-only (`426` on GET). */
   serveDir?: string;
+  /**
+   * Sink for human-readable lifecycle lines (provider/operator connect + drop).
+   * The runner wires this to `console.log`; omit to stay silent (tests/embeds).
+   */
+  log?: (line: string) => void;
+  /** Also emit per-RPC detail (relay routing, sessions.list counts). */
+  verbose?: boolean;
 }
 
 export interface Gateway {
@@ -51,6 +58,8 @@ export async function startGateway(
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
   const serveDir = opts.serveDir;
+  const log = opts.log ?? (() => undefined);
+  const verbose = opts.verbose ?? false;
   const registry = new ProviderRegistry();
   // The hub's phone-reachable URL (its tunnel), pushed to providers as gateway.info.
   // Set by the runner once the tunnel is up (setPhoneUrl); absent until then.
@@ -91,11 +100,14 @@ export async function startGateway(
   const addProvider = (text: string, socket: WebSocket): void => {
     const hello = parseHello(text);
     if (hello?.role !== "provider") {
+      if (verbose) log("dropped a provider: no valid hello after the knock");
       socket.close(); // knocked as a provider but didn't complete the hello
       return;
     }
-    const provider = new WsProvider(hello.provider.instanceId, socket);
+    const instanceId = hello.provider.instanceId;
+    const provider = new WsProvider(instanceId, socket);
     registry.add(provider);
+    log(`provider connected: ${instanceId} (${registry.all().length} now)`);
     // Tell the provider the hub's phone URL so its “Show Phone Link” reflects the
     // gateway's tunnel, not a local bridge it doesn't run (docs/03).
     send(socket, gatewayInfo(phoneUrl));
@@ -108,6 +120,9 @@ export async function startGateway(
     socket.on("close", () => {
       registry.remove(provider);
       provider.dispose();
+      log(
+        `provider disconnected: ${instanceId} (${registry.all().length} now)`,
+      );
     });
   };
 
@@ -126,15 +141,27 @@ export async function startGateway(
         return;
       }
       // Operator path: ack an operator knock, else treat the first frame as RPC.
+      log("operator connected");
       socket.on(
         "message",
-        (m) => void handleOperator(socket, registry, relay, m.toString()),
+        (m) =>
+          void handleOperator(
+            socket,
+            registry,
+            relay,
+            m.toString(),
+            log,
+            verbose,
+          ),
       );
-      socket.on("close", () => relay.dropOperator(socket));
+      socket.on("close", () => {
+        relay.dropOperator(socket);
+        log("operator disconnected");
+      });
       if (knock?.role === "operator") {
         send(socket, cloakcodeHello("gateway"));
       } else {
-        void handleOperator(socket, registry, relay, first);
+        void handleOperator(socket, registry, relay, first, log, verbose);
       }
     });
   });
@@ -209,6 +236,8 @@ async function handleOperator(
   registry: ProviderRegistry,
   relay: Relay,
   text: string,
+  log: (line: string) => void,
+  verbose: boolean,
 ): Promise<void> {
   let json: unknown;
   try {
@@ -227,6 +256,7 @@ async function handleOperator(
       result = [];
     }
     send(socket, { id, ok: true, op: "sessions.list", result });
+    if (verbose) log(`sessions.list → ${result.length} session(s)`);
     return;
   }
   const instanceId = (req.data.params as { instanceId?: string }).instanceId;
@@ -243,8 +273,10 @@ async function handleOperator(
         message: `gateway: no provider for instance '${instanceId ?? "?"}'`,
       },
     });
+    if (verbose) log(`no provider for '${instanceId ?? "?"}' (op ${op})`);
     return;
   }
+  if (verbose) log(`relay ${op} → instance ${instanceId}`);
   relay.forward(socket, { id, op, params: req.data.params }, (t) =>
     provider.send(t),
   );

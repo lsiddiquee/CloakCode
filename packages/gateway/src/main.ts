@@ -23,10 +23,16 @@ import { devTunnelName, startDevTunnel } from "./tunnel.js";
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
 const port = Number(process.env["CLOAKCODE_GATEWAY_PORT"]) || 7900;
 const serveDir = process.env["CLOAKCODE_WEB_DIR"];
+const verbose =
+  process.env["CLOAKCODE_VERBOSE"] === "1" ||
+  process.env["CLOAKCODE_VERBOSE"] === "true";
+const log = (line: string): void => console.log(`[cloakcode-gateway] ${line}`);
 
 const gateway = await startGateway({
   host,
   port,
+  log,
+  verbose,
   ...(serveDir ? { serveDir } : {}),
 });
 console.log(

@@ -234,4 +234,17 @@ describe("startGateway", () => {
     expect(outcome).toBe("silence");
     ws.close();
   });
+
+  it("logs provider connect + disconnect via the log callback", async () => {
+    const lines: string[] = [];
+    gw = await startGateway({ port: 0, log: (l) => lines.push(l) });
+    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i7");
+    await waitFor(() =>
+      lines.some((l) => l.includes("provider connected: i7")),
+    );
+    p.close();
+    await waitFor(() =>
+      lines.some((l) => l.includes("provider disconnected: i7")),
+    );
+  });
 });

@@ -37,6 +37,7 @@ PORT="${CLOAKCODE_GATEWAY_PORT:-7900}"
 WEB_DIR="${CLOAKCODE_WEB_DIR:-$WEB_DEFAULT}"
 INSTANCE_ID="${CLOAKCODE_INSTANCE_ID:-gateway}"
 TUNNEL="${CLOAKCODE_TUNNEL:-}"   # "devtunnel" to enable
+VERBOSE="${CLOAKCODE_VERBOSE:-}" # "1" to also log per-RPC detail
 
 install_hint() {
   case "$(uname -s)" in
@@ -60,11 +61,12 @@ Options:
   --instance-id <id>   tunnel-name seed for a STABLE phone URL (default "gateway")
   --tunnel             expose via a PRIVATE Microsoft Dev Tunnel
   --no-tunnel          local only (default)
+  --verbose            also log per-RPC detail (relay routing, sessions.list)
   -h, --help           show this help
 
 Env equivalents:
   CLOAKCODE_GATEWAY_HOST  CLOAKCODE_GATEWAY_PORT  CLOAKCODE_WEB_DIR
-  CLOAKCODE_INSTANCE_ID   CLOAKCODE_TUNNEL=devtunnel
+  CLOAKCODE_INSTANCE_ID   CLOAKCODE_TUNNEL=devtunnel  CLOAKCODE_VERBOSE=1
 
 Examples:
   ./run.sh --tunnel                      # phone-ready via a private tunnel
@@ -98,6 +100,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-tunnel)
       TUNNEL=""
+      shift
+      ;;
+    --verbose)
+      VERBOSE="1"
       shift
       ;;
     -h | --help)
@@ -144,6 +150,7 @@ echo "  host   : $HOST"
 echo "  port   : $PORT"
 echo "  web    : $WEB_DIR"
 echo "  tunnel : ${TUNNEL:-off}  (instance-id: $INSTANCE_ID)"
+[[ -n "$VERBOSE" ]] && echo "  verbose: on"
 if [[ "$HOST" == "0.0.0.0" ]]; then
   echo "  note   : binding 0.0.0.0 exposes the gateway on your network; there is no" >&2
   echo "           app-auth yet, so only do this on a trusted LAN." >&2
@@ -154,5 +161,6 @@ export CLOAKCODE_GATEWAY_PORT="$PORT"
 export CLOAKCODE_WEB_DIR="$WEB_DIR"
 export CLOAKCODE_INSTANCE_ID="$INSTANCE_ID"
 export CLOAKCODE_TUNNEL="$TUNNEL"
+export CLOAKCODE_VERBOSE="$VERBOSE"
 
 exec node "$MAIN"

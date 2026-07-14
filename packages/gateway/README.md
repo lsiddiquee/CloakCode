@@ -34,11 +34,15 @@ Node ≥ 20 and run `./run.sh` there.
 | `--instance-id <id>` | `gateway`      | tunnel-name seed → a **stable** phone URL, distinct per machine       |
 | `--tunnel`           | off            | expose via a **private** Microsoft Dev Tunnel and print the phone URL |
 | `--no-tunnel`        | _(default)_    | local only                                                            |
+| `--verbose`          | off            | also log per-RPC detail (relay routing, `sessions.list` counts)       |
 | `-h`, `--help`       |                | print usage and exit                                                  |
 
 Each flag maps to a `CLOAKCODE_*` [environment variable](#environment-variables) (the flag wins when
 both are set). `run.sh` also preflights Node ≥ 20 and, for `--tunnel`, that `devtunnel` is installed
 and signed in — degrading to local-only with the exact fix if not.
+
+The gateway logs **provider / operator connect + disconnect** by default (so you can watch extensions
+and phones attach and drop); `--verbose` adds per-RPC detail (relay routing + `sessions.list` counts).
 
 **Reachable from another machine or container?** Bind all interfaces — loopback (`127.0.0.1`)
 only accepts same-host clients, so a separate container/VM connecting to the host IP is refused:
