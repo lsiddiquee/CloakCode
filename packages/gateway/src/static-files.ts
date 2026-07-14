@@ -45,7 +45,10 @@ export function resolveStaticPath(
   if (decoded.includes("\0")) return null; // null byte
   const rel = decoded.endsWith("/") ? decoded + "index.html" : decoded;
   const root = path.resolve(rootDir);
-  const full = path.resolve(root, "." + (rel.startsWith("/") ? rel : "/" + rel));
+  const full = path.resolve(
+    root,
+    "." + (rel.startsWith("/") ? rel : "/" + rel),
+  );
   if (full !== root && !full.startsWith(root + path.sep)) return null;
   return full;
 }

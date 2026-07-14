@@ -345,8 +345,7 @@ describe("startBridge", () => {
 
   it("routes session.respond to the respond dep and acks", async () => {
     let got:
-      | { sessionId: string; toolCallId: string; text: string }
-      | undefined;
+      { sessionId: string; toolCallId: string; text: string } | undefined;
     const bridge = await startBridge(
       deps({
         respond: async (p) => {
@@ -401,8 +400,7 @@ describe("startBridge", () => {
 
   it("routes session.decide to the decide dep and acks", async () => {
     let got:
-      | { sessionId: string; toolCallId: string; decision: string }
-      | undefined;
+      { sessionId: string; toolCallId: string; decision: string } | undefined;
     const bridge = await startBridge(
       deps({
         decide: async (p) => {
@@ -457,8 +455,7 @@ describe("startBridge", () => {
 
   it("routes session.answer to the answer dep and acks", async () => {
     let got:
-      | { sessionId: string; toolCallId: string; answers: unknown }
-      | undefined;
+      { sessionId: string; toolCallId: string; answers: unknown } | undefined;
     const bridge = await startBridge(
       deps({
         answer: async (p) => {
@@ -502,7 +499,9 @@ describe("startBridge static gateway", () => {
       expect(index.headers.get("content-type")).toContain("text/html");
       expect(await index.text()).toContain("CloakCode");
 
-      const asset = await fetch(`http://127.0.0.1:${bridge.port}/assets/app.js`);
+      const asset = await fetch(
+        `http://127.0.0.1:${bridge.port}/assets/app.js`,
+      );
       expect(asset.status).toBe(200);
       expect(asset.headers.get("content-type")).toContain("javascript");
 

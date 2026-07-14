@@ -5,5 +5,5 @@
   // H1 heading, so the first-line-heading rule does not apply here. The root
   // conventions (MD013/MD060 disabled) are inherited via "extends".
   "extends": "../.markdownlint.jsonc",
-  "MD041": false
+  "MD041": false,
 }
