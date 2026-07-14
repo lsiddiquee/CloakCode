@@ -112,13 +112,25 @@ assumption and nothing in the workspace**:
 
 | Piece                    | Location                          | Source                                                                                |
 | ------------------------ | --------------------------------- | ------------------------------------------------------------------------------------- |
-| Hook binary (bundled)    | `<extensionUri>/dist/hook.cjs`    | `context.extensionUri` (ships in the `.vsix`)                                         |
+| Hook binary (bundled)    | `<extensionUri>/dist/hook.cjs`    | ships in the `.vsix`; copied to the stable path on `activate()`                       |
+| Hook binary (stable)     | `~/.cloakcode/hook.cjs`           | atomic copy of the bundle — the config points HERE so it survives uninstall as a no-op |
 | Spool (hook writes here) | `~/.cloakcode/spool/`             | fixed per-environment dir, computed identically by hook + follower                    |
 | Node runtime             | `process.execPath`                | the node running the extension host — always present                                  |
-| Hook config              | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent), `command = "<execPath>" "<hookBin>" PreToolUse` |
+| Hook config              | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent), `command = "<execPath>" "~/.cloakcode/hook.cjs" PreToolUse` |
 
 `~` in the hook config is **per-environment** (container/WSL/host each have their own
 `~/.copilot/hooks`), so the extension installs once per environment where it runs.
+
+**Uninstall resilience + explicit management.** The config points at the **stable copy**
+`~/.cloakcode/hook.cjs` (an atomic copy of the bundled hook written on `activate()`), _not_ the
+versioned `<extensionUri>/dist/hook.cjs`. So when the extension is uninstalled or updated, Copilot
+still finds a runnable command — the orphaned hook simply returns `{}` (a **no-op**) instead of
+erroring on every tool call. Because the config is a **shared per-environment global**, it is
+**never** removed on extension deactivation (that would rip the hook out from under other live
+windows) — removal is **explicit only**: **CloakCode: Remove Copilot Hook** deletes the config +
+stable copy (env-wide, modal-confirmed), **CloakCode: Install / Repair Copilot Hook** rewrites them,
+and the `uninstall.sh` shipped in `dist/extension/` beside the `.vsix` removes both as part of a
+full uninstall.
 
 **The spool location is a fixed convention, not a handoff.** It is `~/.cloakcode/spool` —
 _not_ `globalStorageUri`. The hook config is a single **user-global** file that fires for every

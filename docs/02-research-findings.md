@@ -450,7 +450,13 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   multi-select renders **`[object Object]`**. (3) **`multiSelect` must be threaded through** (input
   → `toConfirmations` → protocol `confirmation`/`answer` → client multi-toggle → `selectedValues`).
   Live-verified: single-select, multi-select, freeform, and freeform-alongside-options all render +
-  resolve. **No take-control needed for questions.**
+  resolve. **No take-control needed for questions.** **Correction (2026-07-14):** point (2)'s
+  "freeform → `{freeformValue}`" holds only for a question that **has options** (the single/multi
+  carousel reads a custom value from `freeformValue`). A question with **no options** is a
+  **`text`-type** carousel whose answer VS Code restores via `String(answer)`
+  (`chatQuestionCarouselPart.ts` `renderText`) — so it needs a **bare string**; an object there
+  renders **`[object Object]`** (the free-text-only bug). `buildCarouselAnswers` now emits a bare
+  string whenever no option is selected, and objects only for `selectedValue`/`selectedValues`.
 - **4.18** _On-disk state resets on restart, not on a timer_ (2026-07-10). **⚠ SUPERSEDED by §4.19 (2026-07-10):** the blind reset-on-activate was removed — it could drop a still-valid blocker after a window reload; orphans are now cleared **causally** (a later turn supersedes them), no restart or timer. Stale take-control
   policies and blockers from a window closed mid-question (`PostToolUse` never fired) are cleared on
   extension `activate()` — deliberately **not** TTL-based, so a long-running session keeps its state
