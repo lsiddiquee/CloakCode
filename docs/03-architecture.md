@@ -497,8 +497,10 @@ one environment all register with the one gateway** and it de-dupes. If the conf
 the webapp locally is always available.
 
 **Routing + de-dup.** The gateway keeps a `Map<instanceId, provider>`. `sessions.list` fans out
-to every provider and returns the **union, de-duped by `(instanceId, sessionId)`** (preferring the
-`owned` provider); session-addressed RPCs (`subscribe/respond/decide/answer`, which already carry
+to every provider and returns the **union, de-duped by `sessionId`** (a globally-unique UUID,
+preferring the `owned` provider) — this collapses the read-only twin every _other_ window's foreign
+scan of the shared storage reports, plus the same session surfacing under two `workspaceStorage`
+hash dirs. Session-addressed RPCs (`subscribe/respond/decide/answer`, which already carry
 `instanceId`) route to that instance's provider and relay its frames. The protocol needs nothing
 new for addressing — only the `provider.hello` registration envelope.
 

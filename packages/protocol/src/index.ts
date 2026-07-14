@@ -8,9 +8,11 @@ export const sessionStatusSchema = z.enum(["active", "blocked", "idle"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
 /**
- * One row in the remote session picker. Addressed by `(instanceId, sessionId)`
- * so multiple environments (dev containers / WSL / host) never collide — see
- * docs/03 "Multi-instance topology".
+ * One row in the remote session picker. The `sessionId` (a globally-unique UUID)
+ * is the session's **identity** — the list de-dupes on it so the same session
+ * reported by several windows / hash dirs shows **once**. It is still **routed**
+ * by `(instanceId, sessionId)` so RPCs reach the owning environment (dev
+ * containers / WSL / host) — see docs/03 "Multi-instance topology".
  *
  * `owned` = a live CloakCode extension serves this session's workspace, so it is
  * actuatable (respond/decide/answer). Sessions in a workspace with no running
@@ -313,8 +315,9 @@ export type SessionSubscribeEvent = z.infer<typeof sessionSubscribeEventSchema>;
 /**
  * Info a **provider** (an extension in client mode) announces to a standalone
  * gateway (docs/03 “Explicit gateway”). `instanceId` is how the gateway routes
- * session-addressed RPCs back to this provider and de-dupes `(instanceId,
- * sessionId)` across providers; `version` / `workspaceHashes` are diagnostics.
+ * session-addressed RPCs back to this provider; the fanned-out session list is
+ * de-duped by `sessionId` (preferring the owned copy) so one session reported by
+ * several providers shows once. `version` / `workspaceHashes` are diagnostics.
  */
 export const providerInfoSchema = z.object({
   instanceId: z.string().min(1),

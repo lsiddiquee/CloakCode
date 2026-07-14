@@ -13,16 +13,22 @@ export interface SessionProvider {
   listSessions(): Promise<SessionSummary[]>;
 }
 
-/** Unique key for a session across every provider. */
+/**
+ * Identity key for de-dup: the `sessionId` alone. A Copilot session id is a
+ * globally-unique UUID, so the SAME id reported by several providers (its owner +
+ * other windows' foreign scans of the shared storage) is one session — keying on
+ * `instanceId` too would leak a read-only duplicate per foreign scanner.
+ */
 function sessionKey(s: SessionSummary): string {
-  return `${s.instanceId}\u0000${s.sessionId}`;
+  return s.sessionId;
 }
 
 /**
- * Merge session lists from multiple providers, de-duped by
- * `(instanceId, sessionId)` and preferring the **owned** row so the actuatable
- * copy wins when several providers (e.g. multiple windows of one environment)
- * report the same session. Order-independent. Pure.
+ * Merge session lists from multiple providers, de-duped by **`sessionId`** and
+ * preferring the **owned** row so the actuatable copy (carrying the owning
+ * instance, for routing) wins. This collapses the read-only duplicate that every
+ * other window's foreign scan of the shared storage produces. Order-independent.
+ * Pure.
  */
 export function mergeSessions(
   lists: readonly (readonly SessionSummary[])[],

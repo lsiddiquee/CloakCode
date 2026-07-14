@@ -351,5 +351,24 @@ export async function scanSessions(
     }
   }
 
-  return rows.sort((a, b) => b.mtimeMs - a.mtimeMs).map((row) => row.summary);
+  // De-dup by sessionId (a globally-unique UUID): one session can land under
+  // several <hash> dirs (VS Code workspaceStorage hash instability, docs/05) —
+  // list it ONCE, preferring the OWNED (actuatable) copy, then the freshest.
+  const bySession = new Map<
+    string,
+    { summary: SessionSummary; mtimeMs: number }
+  >();
+  for (const row of rows) {
+    const prev = bySession.get(row.summary.sessionId);
+    if (
+      !prev ||
+      (row.summary.owned && !prev.summary.owned) ||
+      (row.summary.owned === prev.summary.owned && row.mtimeMs > prev.mtimeMs)
+    ) {
+      bySession.set(row.summary.sessionId, row);
+    }
+  }
+  return [...bySession.values()]
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .map((row) => row.summary);
 }

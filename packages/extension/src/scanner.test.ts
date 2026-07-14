@@ -263,6 +263,46 @@ describe("scanSessions", () => {
     expect(unscoped.every((s) => s.owned)).toBe(true); // no scope => all owned
   });
 
+  it("collapses a session under multiple hash dirs into one owned row", async () => {
+    // VS Code workspaceStorage hash instability (docs/05): the same sessionId
+    // lands under two <hash> dirs — one the window owns, one a bare twin.
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-dedup-"));
+    const write = async (
+      hashDir: string,
+      ageSeconds: number,
+    ): Promise<void> => {
+      const txDir = path.join(r, hashDir, "GitHub.copilot-chat", "transcripts");
+      await fs.mkdir(txDir, { recursive: true });
+      await fs.writeFile(
+        path.join(r, hashDir, "workspace.json"),
+        JSON.stringify({ folder: "file:///home/u/dup" }),
+      );
+      const file = path.join(txDir, "dupsess.jsonl");
+      await fs.writeFile(
+        file,
+        JSON.stringify({ type: "user.message", data: { content: "dup task" } }),
+      );
+      const when = new Date(NOW - ageSeconds * 1000);
+      await fs.utimes(file, when, when);
+    };
+    await write("hashOwned", 30);
+    await write("hashTwin", 5); // the twin is FRESHER, but foreign
+    try {
+      const sessions = await scanSessions({
+        instanceId: "i1",
+        root: r,
+        now: () => NOW,
+        ownedWorkspaceHashes: new Set(["hashOwned"]),
+      });
+      const dup = sessions.filter((s) => s.sessionId === "dupsess");
+      expect(dup).toHaveLength(1);
+      expect(dup[0]?.owned).toBe(true); // owned wins even though the twin is fresher
+      expect(dup[0]?.workspaceHash).toBe("hashOwned");
+    } finally {
+      await fs.rm(r, { recursive: true, force: true });
+    }
+  });
+
   it("returns [] when the root does not exist", async () => {
     expect(
       await scanSessions({ instanceId: "x", root: "/no/such/dir" }),

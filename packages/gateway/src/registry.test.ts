@@ -30,7 +30,7 @@ function provider(
 }
 
 describe("mergeSessions", () => {
-  it("dedupes by (instanceId, sessionId)", () => {
+  it("dedupes by sessionId", () => {
     const a = summary({ instanceId: "i1", sessionId: "s1" });
     expect(mergeSessions([[a], [a]])).toHaveLength(1);
   });
@@ -42,10 +42,22 @@ describe("mergeSessions", () => {
     expect(mergeSessions([[owned], [ro]])[0]?.owned).toBe(true);
   });
 
-  it("keeps the same sessionId under different instances", () => {
-    const x = summary({ instanceId: "i1", sessionId: "s1" });
-    const y = summary({ instanceId: "i2", sessionId: "s1" });
-    expect(mergeSessions([[x, y]])).toHaveLength(2);
+  it("dedupes the same sessionId across instances, preferring the owned copy", () => {
+    // The same session reported by its owner AND by another window's foreign
+    // scan of the shared storage → ONE row, the owned/actuatable one (so
+    // respond/decide/answer still route to the owning instance).
+    const owned = summary({ instanceId: "i1", sessionId: "s1", owned: true });
+    const foreign = summary({
+      instanceId: "i2",
+      sessionId: "s1",
+      owned: false,
+    });
+    const a = mergeSessions([[owned], [foreign]]);
+    expect(a).toHaveLength(1);
+    expect(a[0]?.instanceId).toBe("i1");
+    const b = mergeSessions([[foreign], [owned]]);
+    expect(b).toHaveLength(1);
+    expect(b[0]?.instanceId).toBe("i1");
   });
 
   it("returns [] for no providers", () => {
