@@ -1,0 +1,92 @@
+name: CI
+
+# Build · typecheck · lint · test the whole monorepo (TS + Python) on every push
+# to main and every PR. No publishing here — that lives in release.yml (tags).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node — build · typecheck · lint · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm BEFORE setup-node so the pnpm cache can be wired. Version comes from
+      # the `packageManager` pin in package.json (pnpm@11.9.0).
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Topological order builds @cloakcode/protocol first, so the downstream
+      # typechecks (which resolve its dist) pass.
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - run: pnpm -r lint
+      - run: pnpm -r test
+
+  python:
+    name: Python — ruff · mypy · pytest (research/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install deps (in-project venv)
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction
+
+      - run: poetry run ruff check .
+      - run: poetry run ruff format --check .
+      - run: poetry run mypy research
+
+      - name: pytest (tolerate "no tests collected" = exit 5)
+        run: |
+          set +e
+          poetry run pytest research -q
+          code=$?
+          set -e
+          if [ "$code" -eq 5 ]; then echo "no tests collected — ok"; exit 0; fi
+          exit "$code"
+
+  hooks:
+    name: pre-commit (gitleaks · markdownlint · prettier · ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      # The local eslint/prettier hooks need node_modules present.
+      - run: pnpm install --frozen-lockfile
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pre-commit/action@v3.0.1

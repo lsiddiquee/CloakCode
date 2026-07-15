@@ -145,7 +145,24 @@ _Follow-up:_ `inTurn` rides the `sessions.list` snapshot today; streaming it liv
 
 ### M5 — Packaging
 
-- Private `.vsix` via `@vscode/vsce`; PWA deploy behind the tunnel.
+Repo is **private until MVP, then public**. CI/CD lives in `.github/workflows/` (`ci.yml` =
+build+test on push/PR; `release.yml` = publish on a `v*` tag). Distribution targets:
+
+- **Extension → VS Code Marketplace** via `@vscode/vsce publish` (publisher `rexwel`; the
+  packaged `.vsix` is also attached to every GitHub Release). Gated on `VSCE_PAT`. Consider Open
+  VSX (`ovsx`) too for non-Marketplace VS Code forks.
+- **Gateway image → Docker Hub + GHCR** from `packages/gateway/Dockerfile` (self-contained build
+  from repo root). Gated on `DOCKERHUB_TOKEN`/`DOCKERHUB_USERNAME`. _(Dockerfile bug to fix first:
+  it copies `main.mjs` but `CMD` runs `main.cjs`.)_
+- **Gateway → npm** (`@cloakcode/gateway`) as the low-effort minimum: `npx @cloakcode/gateway`
+  just works cross-platform. Needs the package made publishable (drop `"private": true` / add
+  `publishConfig`, own the `@cloakcode` scope, `--access public`). Gated on `NPM_TOKEN`.
+- **Gateway → self-contained executables (win/linux/mac).** Feasible but a follow-up because the
+  gateway serves the PWA from a dir, so an executable must **embed the web assets**. Recommended:
+  `@yao-pkg/pkg` (one job cross-compiles all targets from a CJS bundle; `assets` embeds the web
+  build) or Node **SEA** with an OS matrix (bundle CJS → inject blob via `postject`; note macOS
+  needs re-signing). Attach the binaries to the GitHub Release. npm/Docker cover the same need with
+  far less machinery, so ship those first.
 
 ## Future / post-MVP capabilities
 

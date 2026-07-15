@@ -165,6 +165,14 @@ apply **no matter the reason for a switch or deep dive**.
   of every in-flight issue (`pending` / `in-progress` / `blocked` / `done` + next step), open
   threads (deferred items), and key findings. Create it before the first edit of any non-trivial
   task.
+- **Keep it LEAN — roll off DONE work.** `task-state.md` is the _live_ file: only in-flight work,
+  open threads, and unresolved findings. When it grows past a threshold (**~200 lines or several
+  fully-DONE focus blocks**), run a cleanup: **move the completed sections to
+  `.local/scratch/task-state-completed.md`** (create it if missing; newest-first archive) and leave
+  only live/open items behind. Migrate any durable finding to `docs/` in the same pass (the archive
+  is history, not the home for reusable knowledge). Also keep a consolidated
+  `.local/scratch/mvp-remaining.md` (or equivalent goal checklist) current so "what's left" is one
+  glance away. Do the cleanup proactively when you notice the bloat, not only when asked.
 - **Checkpoint as you work** — before switching focus or deep-diving, the moment you spot a new
   sub-issue, after completing meaningful steps or learning key facts, and before any long/branching
   operation. Re-read and reconcile it when resuming or whenever you're unsure you still hold earlier

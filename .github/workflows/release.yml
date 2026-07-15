@@ -1,0 +1,111 @@
+name: Release
+
+# Fires on a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`).
+# Builds + tests, then packages and PUBLISHES to the MVP targets:
+#   • extension .vsix  → GitHub Release  (+ VS Code Marketplace when VSCE_PAT is set)
+#   • gateway          → GitHub Release tarball (+ npm when NPM_TOKEN is set)
+#   • gateway image    → Docker Hub + GHCR (when DOCKERHUB_TOKEN is set)
+#
+# Every external publish is GATED on its secret, so on the private pre-MVP repo a
+# tag still produces a clean GitHub Release with the artifacts; the marketplace /
+# npm / Docker Hub pushes light up once you add the secrets (see docs/05 M5).
+#
+# Self-contained gateway executables (win/linux/mac) are NOT built here yet — the
+# gateway serves a PWA dir, so an exe must embed the web assets. Plan + recommended
+# approach (npm `npx` minimum, then @yao-pkg/pkg or Node SEA with bundled assets)
+# are in docs/05 "M5 — Packaging & deploy".
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub Release + upload assets
+  packages: write # push the image to GHCR
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build · test · package · publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm -r test # never cut a release on red
+
+      - name: Package extension (.vsix)
+        run: pnpm --filter @cloakcode/extension package
+
+      - name: Assemble gateway (bundle + PWA)
+        run: pnpm --filter @cloakcode/gateway assemble
+
+      - name: Tar the gateway bundle
+        run: tar -C dist -czf "cloakcode-gateway-${GITHUB_REF_NAME}.tgz" gateway
+
+      # --- Always: a GitHub Release with the artifacts (no external secrets) ---
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/extension/*.vsix
+            cloakcode-gateway-*.tgz
+          generate_release_notes: true
+
+      # --- Gated: VS Code Marketplace (needs VSCE_PAT; consider OVSX_TOKEN too) ---
+      - name: Publish extension → VS Code Marketplace
+        if: ${{ secrets.VSCE_PAT != '' }}
+        run: npx @vscode/vsce publish --packagePath "$(ls dist/extension/*.vsix | head -1)"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      # --- Gated: npm (gateway). Needs @cloakcode/gateway made publishable:
+      #     drop `"private": true` (or add publishConfig) + own the @cloakcode
+      #     scope on npm. Scoped public package → --access public. ---
+      - name: Publish gateway → npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: pnpm --filter @cloakcode/gateway publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- Gated: Docker Hub + GHCR (self-contained build from repo root) ---
+      - name: Set up Buildx
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GHCR
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push gateway image
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/cloakcode-gateway:${{ github.ref_name }}
