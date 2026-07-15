@@ -85,28 +85,15 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
      PIN + lockout + device-approval pattern) so a non-CloakCode client — including anything that
      discovers the tunnel URL — cannot drive it. See docs/05 M4.
 
-## Gateway discovery trust (opt-in, local-only)
+## Gateway selection (explicit only)
 
-Auto-discovery (`cloakcode.gatewayDiscovery`, or hosts supplied via the `CLOAKCODE_GATEWAY_HOSTS`
-env var) makes the extension **connect out** to whatever answers the minimal **knock**
-(`cloakcode.hello`) on the probed local candidates (loopback, `host.docker.internal`, configured
-`cloakcode.gatewayHosts`, and any env hosts). The **probe itself is low-risk**: candidates are
-local-only and the knock reveals **only** that we speak CloakCode — no `instanceId`, workspace, or
-other payload reaches a peer until it has answered as a gateway. What makes it a **trust decision**
-is what happens _after_ a successful knock: the extension registers as a **provider** and serves that
-hub's forwarded RPCs (session list, transcripts, actuation). Until the gateway gains client/hub auth
-(M4) the knock is not a secret, so a hostile **local** process squatting on the gateway port could
-complete it and harvest session data. That precondition — a hostile process already running on your
-machine — keeps the risk bounded; discovery is therefore:
-
-- **Off by default (setting), opt-in by env.** `cloakcode.gatewayDiscovery` defaults off; supplying
-  `CLOAKCODE_GATEWAY_HOSTS` (e.g. the dev-container F5 flow mapping `HOST_IP`) is an explicit
-  “I trust this machine” signal that also enables it.
-- **Local-only** — candidates are limited to loopback + `host.docker.internal` + hosts you list;
-  it never scans the network and never crosses a tunnel.
-- **Non-authenticating** — the gateway's knock ack proves the peer speaks the protocol, **not**
-  that it is trustworthy. Enable it where every local process is trusted (a dev box / the F5 loop
-  normally is).
+Gateway mode is entered **only** when `cloakcode.gatewayUrl` (or the `CLOAKCODE_GATEWAY_URL` env var)
+explicitly names a hub. The earlier opt-in local **auto-discovery** (knock-probe) was **removed
+2026-07-15**: it auto-connected the extension as a provider to whatever answered a known-local port,
+which — until gateway auth (M4) — meant a hostile local process squatting on that port could pose as
+the gateway and harvest session data. Requiring an explicit URL removes that trust surface entirely:
+the extension never connects out unless you name the endpoint. (Provider registration binds localhost
+and the tunnel goes through your own infra, never GitHub — the zero-code-sync rule is unchanged.)
 
 When M4 lands, discovery must additionally verify the hub's identity (shared operator secret /
 mTLS) before a provider hands over any session data.

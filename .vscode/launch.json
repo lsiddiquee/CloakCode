@@ -15,10 +15,10 @@
         "CLOAKCODE_PORT": "7803",
         "CLOAKCODE_DIAG_FILE": "${workspaceFolder}/.local/cloakcode-diagnostics.txt",
         // The devcontainer's initializeCommand writes HOST_IP (the WSL/host IP)
-        // into the container env; pass it as an extra gateway-discovery candidate
-        // so F5 finds a gateway running on the host at ws://<HOST_IP>:7900.
-        // Empty when unset (e.g. non-WSL) — safely ignored.
-        "CLOAKCODE_GATEWAY_HOSTS": "${env:HOST_IP}"
+        // into the container env; connect F5 straight to a gateway on the host at
+        // ws://<HOST_IP>:7900. A hostless URL (unset HOST_IP -> `ws://:7900`) is
+        // ignored, falling back to the embedded bridge.
+        "CLOAKCODE_GATEWAY_URL": "ws://${env:HOST_IP}:7900"
       },
       "preLaunchTask": "bundle-extension"
     }

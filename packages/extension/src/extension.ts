@@ -4,7 +4,6 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
 import { connectGateway, type GatewayClient } from "./gateway-client.js";
-import { discoverGateway } from "./discover.js";
 import { resolveConnectionPlan } from "./connection-plan.js";
 import {
   defaultWorkspaceStorageRoot,
@@ -306,39 +305,20 @@ export async function activate(
   context.subscriptions.push(status);
 
   // (Re)establish the connection from the CURRENT settings: an explicit
-  // `cloakcode.gatewayUrl` wins; else, if discovery is opted-in
-  // (`cloakcode.gatewayDiscovery`) OR extra hosts arrive via env, probe the
-  // known-local candidates; else run the embedded bridge. Discovery is local-only
-  // + off by default until gateway auth (M4) — docs/04. Re-run by the reconnect
-  // command / a relevant settings change.
+  // `cloakcode.gatewayUrl` connects OUT to that standalone gateway; otherwise run
+  // the embedded bridge. Re-run by the reconnect command / a relevant settings
+  // change.
   const establishConnection = async (): Promise<string> => {
     const cfgNow = vscode.workspace.getConfiguration("cloakcode");
     port =
       Number(process.env["CLOAKCODE_PORT"]) || cfgNow.get<number>("port") || 0;
     // Pure decision (tested in connection-plan.test.ts): explicit url → gateway;
-    // discovery (enabled by the setting OR by env hosts) → probe; else embedded.
-    // The env var also opts THIS window into discovery — e.g. F5 maps the
-    // devcontainer's `HOST_IP` into `CLOAKCODE_GATEWAY_HOSTS`.
+    // else embedded.
     const plan = resolveConnectionPlan({
       gatewayUrl: cfgNow.get<string>("gatewayUrl"),
-      gatewayDiscovery: cfgNow.get<boolean>("gatewayDiscovery") ?? false,
-      gatewayPort: cfgNow.get<number>("gatewayPort") || 7900,
-      gatewayHosts: cfgNow.get<string[]>("gatewayHosts") ?? [],
-      envHosts: process.env["CLOAKCODE_GATEWAY_HOSTS"],
+      envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
     });
-    let gatewayUrl: string | undefined;
-    if (plan.kind === "gateway") {
-      gatewayUrl = plan.url;
-    } else if (plan.kind === "discover") {
-      gatewayUrl = await discoverGateway(plan.port, plan.hosts, 500, (m) =>
-        out.appendLine(m),
-      );
-      out.appendLine(
-        gatewayUrl
-          ? `auto-discovered gateway at ${gatewayUrl}`
-          : "gateway discovery found none on the local candidates; using the embedded bridge",
-      );
-    }
+    const gatewayUrl = plan.kind === "gateway" ? plan.url : undefined;
     if (gatewayUrl) {
       // Client mode (docs/03 "Explicit gateway"): connect OUT as a provider; the
       // gateway serves the PWA + owns the phone link. Unreachable → embedded.
@@ -402,13 +382,7 @@ export async function activate(
   // A change to any of these connection settings hot-applies via reconnect (no
   // reload). instanceId / tunnel / publicUrl still need a reload — they reshape
   // this window's identity or the tunnel it owns.
-  const reconnectKeys = [
-    "cloakcode.gatewayUrl",
-    "cloakcode.gatewayDiscovery",
-    "cloakcode.gatewayPort",
-    "cloakcode.gatewayHosts",
-    "cloakcode.port",
-  ];
+  const reconnectKeys = ["cloakcode.gatewayUrl", "cloakcode.port"];
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.reconnect", () =>
       reconnect("command"),

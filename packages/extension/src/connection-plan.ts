@@ -1,48 +1,31 @@
 /**
- * The pre-connect DECISION, computed purely from settings + env so it is testable
- * without an extension host. The async connect/probe I/O stays in the extension
+ * The pre-connect DECISION, computed purely from settings so it is testable
+ * without an extension host. The async connect I/O stays in the extension
  * adapter (`extension.ts`); this only decides WHAT to do.
  */
 export type ConnectionPlan =
-  | { kind: "gateway"; url: string }
-  | { kind: "discover"; port: number; hosts: string[] }
-  | { kind: "embedded" };
+  { kind: "gateway"; url: string } | { kind: "embedded" };
 
 /**
- * Resolve the connection plan from the current settings + env. Pure.
+ * Resolve the connection plan from the setting + env. Pure.
  *
- * - An explicit, non-empty `gatewayUrl` (trimmed) → connect to it directly.
- * - Otherwise discovery runs when `gatewayDiscovery` is on **or** `envHosts`
- *   (`CLOAKCODE_GATEWAY_HOSTS`, comma-separated) supplies any host — the env var
- *   is an explicit "I trust this machine" opt-in (e.g. the dev-container F5 flow
- *   mapping `HOST_IP`). It probes `gatewayHosts` + env hosts (loopback +
- *   `host.docker.internal` are added later by `discoveryProbeUrls`).
- * - Else embedded.
- *
- * An empty/blank env value (e.g. an unset `HOST_IP`) contributes no hosts and
- * does not enable discovery.
+ * - `CLOAKCODE_GATEWAY_URL` (env) then `gatewayUrl` (setting), first usable wins
+ *   → connect OUT to that standalone gateway. A hostless `ws://:port` is skipped
+ *   (an unfilled `${env:HOST_IP}`), so F5 on a non-WSL host still goes embedded.
+ * - Else embedded (serve our own PWA + `/bridge`).
  */
 export function resolveConnectionPlan(input: {
   gatewayUrl: string | undefined;
-  gatewayDiscovery: boolean;
-  gatewayPort: number;
-  gatewayHosts: string[];
-  envHosts: string | undefined;
+  envGatewayUrl?: string | undefined;
 }): ConnectionPlan {
-  const url = input.gatewayUrl?.trim();
-  if (url) return { kind: "gateway", url };
+  const url =
+    usableGatewayUrl(input.envGatewayUrl) ?? usableGatewayUrl(input.gatewayUrl);
+  return url ? { kind: "gateway", url } : { kind: "embedded" };
+}
 
-  const envHosts = (input.envHosts ?? "")
-    .split(",")
-    .map((h) => h.trim())
-    .filter(Boolean);
-
-  if (input.gatewayDiscovery || envHosts.length > 0) {
-    return {
-      kind: "discover",
-      port: input.gatewayPort,
-      hosts: [...input.gatewayHosts, ...envHosts],
-    };
-  }
-  return { kind: "embedded" };
+/** A trimmed, non-empty `ws(s)://host…` URL (rejects a hostless `ws://:port`). */
+function usableGatewayUrl(raw: string | undefined): string | undefined {
+  const url = raw?.trim();
+  if (!url) return undefined;
+  return /^wss?:\/\/[^/:?#]/i.test(url) ? url : undefined;
 }

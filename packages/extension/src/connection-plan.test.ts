@@ -1,64 +1,47 @@
 import { describe, it, expect } from "vitest";
 import { resolveConnectionPlan } from "./connection-plan.js";
 
-const base = {
-  gatewayUrl: undefined as string | undefined,
-  gatewayDiscovery: false,
-  gatewayPort: 7900,
-  gatewayHosts: [] as string[],
-  envHosts: undefined as string | undefined,
-};
-
 describe("resolveConnectionPlan", () => {
-  it("uses an explicit gatewayUrl (trimmed) — highest priority, even with discovery on", () => {
-    expect(
-      resolveConnectionPlan({
-        ...base,
-        gatewayUrl: "  ws://hub:7900 ",
-        gatewayDiscovery: true,
-        envHosts: "10.0.0.5",
-      }),
-    ).toEqual({ kind: "gateway", url: "ws://hub:7900" });
+  it("uses an explicit gatewayUrl, trimmed", () => {
+    expect(resolveConnectionPlan({ gatewayUrl: "  ws://hub:7900 " })).toEqual({
+      kind: "gateway",
+      url: "ws://hub:7900",
+    });
   });
 
-  it("is embedded when no url, discovery off, and no env hosts", () => {
-    expect(resolveConnectionPlan(base)).toEqual({ kind: "embedded" });
-  });
-
-  it("treats a whitespace-only url as unset", () => {
-    expect(resolveConnectionPlan({ ...base, gatewayUrl: "   " })).toEqual({
+  it("is embedded when no gatewayUrl is set", () => {
+    expect(resolveConnectionPlan({ gatewayUrl: undefined })).toEqual({
       kind: "embedded",
     });
   });
 
-  it("discovers when gatewayDiscovery is on (setting)", () => {
-    expect(
-      resolveConnectionPlan({
-        ...base,
-        gatewayDiscovery: true,
-        gatewayPort: 7901,
-        gatewayHosts: ["10.0.0.5"],
-      }),
-    ).toEqual({ kind: "discover", port: 7901, hosts: ["10.0.0.5"] });
-  });
-
-  it("env hosts ENABLE discovery even when the setting is off, appended after configured hosts", () => {
-    expect(
-      resolveConnectionPlan({
-        ...base,
-        gatewayHosts: ["10.0.0.5"],
-        envHosts: "172.20.0.1, 192.168.1.9 ,",
-      }),
-    ).toEqual({
-      kind: "discover",
-      port: 7900,
-      hosts: ["10.0.0.5", "172.20.0.1", "192.168.1.9"],
-    });
-  });
-
-  it("ignores a blank env value (an unset HOST_IP must not enable discovery)", () => {
-    expect(resolveConnectionPlan({ ...base, envHosts: "  , ," })).toEqual({
+  it("treats a whitespace-only url as unset (embedded)", () => {
+    expect(resolveConnectionPlan({ gatewayUrl: "   " })).toEqual({
       kind: "embedded",
     });
+  });
+
+  it("CLOAKCODE_GATEWAY_URL (env) overrides the setting", () => {
+    expect(
+      resolveConnectionPlan({
+        gatewayUrl: "ws://setting:7900",
+        envGatewayUrl: "  ws://env-host:7900 ",
+      }),
+    ).toEqual({ kind: "gateway", url: "ws://env-host:7900" });
+  });
+
+  it("ignores a hostless env url (unfilled HOST_IP) and falls back", () => {
+    expect(
+      resolveConnectionPlan({
+        gatewayUrl: "ws://setting:7900",
+        envGatewayUrl: "ws://:7900",
+      }),
+    ).toEqual({ kind: "gateway", url: "ws://setting:7900" });
+    expect(
+      resolveConnectionPlan({
+        gatewayUrl: undefined,
+        envGatewayUrl: "ws://:7900",
+      }),
+    ).toEqual({ kind: "embedded" });
   });
 });
