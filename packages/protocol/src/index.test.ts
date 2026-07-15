@@ -29,6 +29,7 @@ const validSummary: SessionSummary = {
   status: "blocked",
   idleSeconds: 3,
   owned: true,
+  inTurn: false,
 };
 
 describe("sessionStatusSchema", () => {

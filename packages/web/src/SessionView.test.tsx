@@ -46,6 +46,7 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
     status: "idle",
     idleSeconds: 5,
     owned: true,
+    inTurn: false,
     ...over,
   };
 }

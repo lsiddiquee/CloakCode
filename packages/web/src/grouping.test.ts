@@ -13,6 +13,7 @@ function summary(over: Partial<SessionSummary>): SessionSummary {
     status: "idle",
     idleSeconds: 0,
     owned: true,
+    inTurn: false,
     ...over,
   };
 }

@@ -373,6 +373,19 @@ extra egress:
 The returned `awaiting` bit drives the amber indicator; every phrase is derived
 purely from data the observer already streams (no new `SessionPart`, no new RPC).
 
+### Mid-turn flag (`SessionSummary.inTurn`) — precondition for steer/queue/stop
+
+`sessions.list` also stamps each row with **`inTurn: boolean`** — the model is
+generating (an open `assistant.turn_start` with no matching `assistant.turn_end`,
+**and** the row is live by mtime). It is orthogonal to `status`: a live session can
+be `inTurn` (generating) or waiting for the user. This is the gate for offering the
+three panel actions — **steer** / **stop-and-send** while `inTurn`, plain **queue**
+otherwise — with a **force-send** fallback for when the flag is stale (editor-hosted
+sessions never flush `turn_end`, so the flag self-heals on the next `turn_start` but
+can lag). Derivation, the self-heal rule, and the fact that the action _type_ is not
+observable on disk are in docs/02 §4.28. The actions themselves (the `remote-operator`
+actuator commands) are a later slice.
+
 ## Data flows
 
 ### List sessions

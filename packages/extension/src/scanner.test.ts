@@ -94,7 +94,50 @@ describe("parseTranscript", () => {
       title: "",
       turns: 0,
       openInteractiveTools: [],
+      inTurn: false,
     });
+  });
+
+  it("flags an open assistant turn (turn_start, no turn_end) as inTurn", () => {
+    const content = [
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      JSON.stringify({
+        type: "assistant.turn_start",
+        data: { turnId: "T1" },
+      }),
+    ].join("\n");
+    expect(parseTranscript(content).inTurn).toBe(true);
+  });
+
+  it("clears inTurn once the turn ends", () => {
+    const content = [
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T1" } }),
+      JSON.stringify({ type: "assistant.turn_end", data: { turnId: "T1" } }),
+    ].join("\n");
+    expect(parseTranscript(content).inTurn).toBe(false);
+  });
+
+  it("resets a dangling turn_start when a new turn starts and ends (self-heal)", () => {
+    // T1's turn_end was never flushed (editor-hosted, §4.10); a later turn that
+    // does close must NOT leave the session reading mid-turn forever.
+    const content = [
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T1" } }),
+      JSON.stringify({ type: "user.message", data: { content: "next" } }),
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T2" } }),
+      JSON.stringify({ type: "assistant.turn_end", data: { turnId: "T2" } }),
+    ].join("\n");
+    expect(parseTranscript(content).inTurn).toBe(false);
+  });
+
+  it("keeps inTurn true through a mid-turn steer user.message", () => {
+    // A steer is recorded as an ordinary user.message INSIDE the running turn
+    // (§3.1) — it must not clear the in-flight turn (reset is turn_start-only).
+    const content = [
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T1" } }),
+      JSON.stringify({ type: "user.message", data: { content: "actually…" } }),
+    ].join("\n");
+    expect(parseTranscript(content).inTurn).toBe(true);
   });
 });
 
@@ -228,6 +271,39 @@ describe("scanSessions", () => {
       workspaceHash: "hashB",
       status: "idle",
     });
+  });
+
+  it("sets inTurn only for a LIVE session mid-turn (open turn_start)", async () => {
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-inturn-"));
+    const mk = async (hash: string, id: string, ageSeconds: number) => {
+      const txDir = path.join(r, hash, "GitHub.copilot-chat", "transcripts");
+      await fs.mkdir(txDir, { recursive: true });
+      const file = path.join(txDir, `${id}.jsonl`);
+      await fs.writeFile(
+        file,
+        [
+          { type: "user.message", data: { content: "go" } },
+          { type: "assistant.turn_start", data: { turnId: "T1" } },
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n"),
+      );
+      const when = new Date(NOW - ageSeconds * 1000);
+      await fs.utimes(file, when, when);
+    };
+    await mk("live", "sLive", 5); // live + open turn -> mid-turn
+    await mk("old", "sOld", 3 * 86400); // dormant open turn -> NOT mid-turn
+    const sessions = await scanSessions({
+      instanceId: "x",
+      root: r,
+      now: () => NOW,
+    });
+    const byId = Object.fromEntries(
+      sessions.map((s) => [s.sessionId, s.inTurn]),
+    );
+    expect(byId["sLive"]).toBe(true);
+    expect(byId["sOld"]).toBe(false);
+    await fs.rm(r, { recursive: true, force: true });
   });
 
   it("uses an extension-supplied workspace name over workspace.json", async () => {

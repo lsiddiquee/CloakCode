@@ -18,6 +18,7 @@ function summary(
     status: "idle",
     idleSeconds: 0,
     owned: false,
+    inTurn: false,
     ...over,
   };
 }

@@ -78,6 +78,8 @@ interface ParsedTranscript {
   title: string;
   turns: number;
   openInteractiveTools: string[];
+  /** An assistant turn is in flight: a `turn_start` with no later `turn_end`. */
+  inTurn: boolean;
 }
 
 function isInteractive(toolName: unknown): boolean {
@@ -89,6 +91,7 @@ function isInteractive(toolName: unknown): boolean {
 export function parseTranscript(content: string): ParsedTranscript {
   let title = "";
   let turns = 0;
+  let openTurnId: string | undefined; // the in-flight assistant turn, if any
   const openTools = new Map<string, string>(); // toolCallId -> toolName
 
   // A new turn (a user message, or the assistant starting to speak) abandons any
@@ -107,7 +110,12 @@ export function parseTranscript(content: string): ParsedTranscript {
     if (!trimmed) continue;
     let event: {
       type?: string;
-      data?: { content?: unknown; toolCallId?: unknown; toolName?: unknown };
+      data?: {
+        content?: unknown;
+        toolCallId?: unknown;
+        toolName?: unknown;
+        turnId?: unknown;
+      };
     };
     try {
       event = JSON.parse(trimmed);
@@ -129,6 +137,17 @@ export function parseTranscript(content: string): ParsedTranscript {
       }
       case "assistant.turn_start": {
         supersedeOpenInteractive();
+        // A new turn RESETS any still-open turn: editor-hosted sessions omit
+        // `assistant.turn_end` (§4.10), so a dangling `turn_start` would read
+        // "mid-turn" forever — the latest start is the one in flight. Mirrors
+        // the interactive-tool self-heal above. Reset on `turn_start` ONLY, not
+        // `user.message` (a steer injects a mid-turn `user.message`, §3.1, which
+        // must NOT clear the in-flight turn).
+        openTurnId = String(data.turnId ?? "");
+        break;
+      }
+      case "assistant.turn_end": {
+        openTurnId = undefined;
         break;
       }
       case "tool.execution_start": {
@@ -148,6 +167,7 @@ export function parseTranscript(content: string): ParsedTranscript {
     title,
     turns,
     openInteractiveTools: [...openTools.values()].filter(isInteractive),
+    inTurn: openTurnId !== undefined,
   };
 }
 
@@ -323,11 +343,13 @@ export async function scanSessions(
         continue;
       }
       const sessionId = file.slice(0, -".jsonl".length);
-      const { title, turns, openInteractiveTools } = parseTranscript(content);
+      const { title, turns, openInteractiveTools, inTurn } =
+        parseTranscript(content);
       // Prefer VS Code's own LLM-generated title (from the debug-log) over the
       // first user message; fall back when there's no debug-log.
       const generatedTitle = await debugLogTitle(debugLogsDir, sessionId);
       const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
+      const live = idleSeconds < liveWindow;
       rows.push({
         mtimeMs,
         summary: {
@@ -343,6 +365,9 @@ export async function scanSessions(
             liveWindow,
           ),
           idleSeconds,
+          // Mid-turn only counts while live — a dormant transcript that ends at
+          // `turn_start` (never flushed `turn_end`, §4.10) must read idle.
+          inTurn: live && inTurn,
           owned: opts.ownedWorkspaceHashes
             ? opts.ownedWorkspaceHashes.has(hashDir)
             : true,

@@ -18,6 +18,7 @@ const sample: SessionSummary[] = [
     status: "blocked",
     idleSeconds: 3,
     owned: true,
+    inTurn: false,
   },
 ];
 

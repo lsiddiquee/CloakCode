@@ -33,6 +33,16 @@ export const sessionSummarySchema = z.object({
   status: sessionStatusSchema,
   idleSeconds: z.number().int().nonnegative(),
   owned: z.boolean(),
+  /**
+   * The session is **mid-turn**: the model is generating — an open
+   * `assistant.turn_start` with no matching `assistant.turn_end`, and the
+   * session is live (mtime). Precondition for offering the mid-turn actions
+   * (steer / stop-and-send); when false a plain send just queues. Derived from
+   * the transcript like `status`, self-healed by the next `turn_start` (docs/02
+   * §3.3/§4.10). It never labels a message's action type — steer/queue/stop
+   * leave no on-disk marker (docs/02 §4.28), so we track only in-flight-ness.
+   */
+  inTurn: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 

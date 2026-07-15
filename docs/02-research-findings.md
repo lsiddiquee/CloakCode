@@ -580,6 +580,28 @@ install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
   later) vs. **never** created (always shares the parent) — i.e. is the transcript truly not "live"
   for forks. Re-run the mtime / lines / has-transcript sweep after reload and update this entry.
 
+- **4.28** _Mid-turn (in-flight) tracking, and why steer/queue/stop leave **no on-disk marker**._
+  To offer the three panel actions (steer / queue / stop-and-send) the observer must know whether a
+  session is **mid-turn** — the model is generating. Signal: an open `assistant.turn_start` with **no
+  matching `assistant.turn_end`** at EOF, mirroring the blocker signature but for the whole turn. Two
+  guards against false positives (both live-validated in the scanner): (1) **self-heal** — a new
+  `assistant.turn_start` **resets** the prior open turn, because **editor-hosted** sessions omit
+  `turn_end` (§4.10/§3.3) and a dangling start would otherwise read "mid-turn" forever; the reset is
+  on `turn_start` **only**, not `user.message`, since a **steer is recorded as an ordinary mid-turn
+  `user.message`** (§3.1) and must not clear the in-flight turn. (2) **Live-gate** — like `blocked`,
+  mid-turn counts only while the transcript is live by mtime, so a dormant `turn_start`-ended
+  transcript reads idle. Surfaced as `SessionSummary.inTurn` (docs/03). **Crucially, the action TYPE
+  is not observable:** a steered message lands in the transcript as a **plain `user.message`** (normal
+  `parentId`, no steer/queue tag) and a stopped/force-stopped turn ends with an ordinary
+  `assistant.turn_end` (no `reason`/`aborted`/`cancelled` field) — both LIVE-CONFIRMED 2026-07-15 via
+  `steerWithMessage` / `chat.cancel`. So CloakCode tracks only **in-flight-ness**, never labels a
+  message as steer/queue/stop — matching Copilot's own persisted history, which shows no such marker
+  either (the "Steering" divider and stop button are transient/live-only). Full command mechanics
+  (which `workbench.action.chat.*` drives each action) live in `.local/research/`; fold them into §3
+  when the actuator slice ships. **Force-stop nuance:** a force-stop **mid-tool** orphans a
+  `tool.execution_start` (blocker-shaped) but is followed by `assistant.turn_end`; the existing
+  "a new turn supersedes an open interactive tool" rule already prevents a phantom blocker.
+
 ---
 
 ## 5. Capability matrix (current)
