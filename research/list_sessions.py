@@ -29,7 +29,7 @@ def workspace_name(hash_dir: str) -> str:
     p = os.path.join(ROOT, hash_dir, "workspace.json")
     if os.path.exists(p):
         try:
-            folder = json.load(open(p)).get("folder", "")
+            folder: str = json.load(open(p)).get("folder", "")
             return os.path.basename(folder.rstrip("/")) or folder[:16]
         except Exception:
             pass
