@@ -108,7 +108,7 @@
           "type": "string",
           "default": "",
           "scope": "window",
-          "markdownDescription": "Identifier for this environment + workspace, shown in the client and used to key multi-instance routing (and the Dev Tunnel name). Empty = auto: `<local|wsl|devcontainer|ssh|codespaces|tunnel>:<workspace-folder>` (using the dev container's `name` when available). This is **workspace-specific** — override it in workspace settings."
+          "markdownDescription": "A **human-readable label** for this environment + workspace — shown in the client and used as the Dev Tunnel name. Display only: sessions route by `sessionId` and group by workspace, so it is **never** used for routing or identity. Empty = auto: `<local|wsl|devcontainer|ssh|codespaces|tunnel>:<workspace-folder>` (using the dev container's `name` when available). **Workspace-specific** — set it in Workspace settings; the User/Remote entries are just fallback defaults (VS Code has no workspace-only scope)."
         },
         "cloakcode.gatewayUrl": {
           "type": "string",
