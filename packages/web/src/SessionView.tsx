@@ -680,12 +680,22 @@ function PendingCard({
 function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
   const [msg, setMsg] = useState("");
   const { sending, error, send } = useRemoteSend(session);
+  const ref = useRef<HTMLTextAreaElement>(null);
 
   const submit = async (): Promise<void> => {
     const text = msg.trim();
     if (text.length === 0 || sending) return;
     if (await send(text)) setMsg("");
   };
+
+  // Grow the textarea with its content (capped) so multi-line messages are
+  // visible. Enter inserts a newline; Ctrl/⌘+Enter sends.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [msg]);
 
   return (
     <form
@@ -697,12 +707,19 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
     >
       {error && <div className="pending-error">send failed: {error}</div>}
       <div className="chat-composer-row">
-        <input
+        <textarea
+          ref={ref}
           className="chat-input"
-          type="text"
-          placeholder="Message the active chat…"
+          rows={1}
+          placeholder="Message the active chat…  (⏎ newline · ⌘/Ctrl+⏎ send)"
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void submit();
+            }
+          }}
           disabled={sending}
         />
         <button

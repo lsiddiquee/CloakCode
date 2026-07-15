@@ -7,6 +7,7 @@ import { SessionView } from "./SessionView";
 const h = vi.hoisted(() => ({
   status: "open" as string,
   pending: [] as PendingBlocker[],
+  respond: vi.fn(async (_params: unknown) => {}),
 }));
 
 // Stub the bridge so mounting SessionView never opens a real WebSocket and the
@@ -23,7 +24,7 @@ vi.mock("./bridge", () => ({
     onPending(h.pending);
     return () => {};
   },
-  respondSession: async () => {},
+  respondSession: h.respond,
   decideSession: async () => {},
   answerSession: async () => {},
 }));
@@ -31,6 +32,7 @@ vi.mock("./bridge", () => ({
 beforeEach(() => {
   h.status = "open";
   h.pending = [];
+  h.respond.mockClear();
 });
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -64,6 +66,27 @@ describe("SessionView read-only gating", () => {
     );
     expect(screen.queryByText(/no CloakCode extension is running/i)).toBeNull();
     expect(screen.getByRole("textbox")).toBeTruthy();
+  });
+});
+
+describe("SessionView composer", () => {
+  it("is a multi-line textarea; Ctrl/Cmd+Enter sends, plain Enter does not", () => {
+    render(
+      <SessionView session={session({ owned: true })} onBack={() => {}} />,
+    );
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(box.tagName).toBe("TEXTAREA");
+    fireEvent.change(box, { target: { value: "line1" } });
+    // Plain Enter inserts a newline in a textarea — it must NOT send.
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(h.respond).not.toHaveBeenCalled();
+    // Ctrl/Cmd+Enter sends the message.
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(h.respond).toHaveBeenCalledTimes(1);
+    expect(h.respond.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "sess-1",
+      text: "line1",
+    });
   });
 });
 

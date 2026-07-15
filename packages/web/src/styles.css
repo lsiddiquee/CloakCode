@@ -670,6 +670,7 @@ body {
 }
 .chat-composer-row {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
 }
 .chat-input {
@@ -677,10 +678,14 @@ body {
   min-width: 0;
   padding: 11px 12px;
   font: inherit;
+  line-height: 1.4;
   color: inherit;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 11px;
+  resize: none;
+  max-height: 160px;
+  overflow-y: auto;
 }
 .chat-input:focus {
   outline: none;
