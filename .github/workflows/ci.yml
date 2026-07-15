@@ -29,7 +29,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       # NOTE: the committed .npmrc + pnpm-lock.yaml resolve against an internal
@@ -59,7 +59,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       # The local eslint/prettier hooks need node_modules present. Public npm
       # (see the node job) — the committed feed is internal-only.
