@@ -157,7 +157,7 @@ describe("SessionView composer — mid-turn actions", () => {
     expect(h.stop.mock.calls[0]?.[0]).toEqual({ sessionId: "sess-1" });
   });
 
-  it("mid-turn: “Send anyway” force-queues via respond (stale-tracking escape hatch)", () => {
+  it("mid-turn: Queue sends via respond (queued after the current step / stale-tracking escape hatch)", () => {
     render(
       <SessionView
         session={session({ owned: true, inTurn: true })}
@@ -166,7 +166,7 @@ describe("SessionView composer — mid-turn actions", () => {
     );
     const box = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: "just queue it" } });
-    fireEvent.click(screen.getByRole("button", { name: /Send anyway/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Queue$/ }));
     expect(h.respond).toHaveBeenCalledTimes(1);
     expect(h.respond.mock.calls[0]?.[0]).toMatchObject({
       sessionId: "sess-1",

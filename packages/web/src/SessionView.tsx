@@ -768,6 +768,15 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
         <div className="chat-actions">
           <button
             type="button"
+            className="chat-send secondary"
+            onClick={() => void doQueue()}
+            disabled={sending || !hasText}
+            title="Send after the current step completes (or immediately if the turn has already ended)"
+          >
+            Queue
+          </button>
+          <button
+            type="button"
             className="chat-send danger"
             onClick={() => void doStopSend()}
             disabled={sending || !hasText}
@@ -782,20 +791,11 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
           >
             Stop
           </button>
-          <button
-            type="button"
-            className="chat-send secondary"
-            onClick={() => void doQueue()}
-            disabled={sending || !hasText}
-            title="Queue as a normal message — use if this turn has actually ended (stale tracking)"
-          >
-            Send anyway
-          </button>
         </div>
       )}
       <div className="blocker-note">
         {inTurn
-          ? "Mid-turn: Steer redirects it · Stop & send cancels then sends · “Send anyway” just queues (use if tracking is stale). remote-operator."
+          ? "Mid-turn: Steer redirects now · Queue sends after this step · Stop & send cancels then sends. remote-operator."
           : "Sends to the active chat in VS Code (remote-operator)."}
       </div>
     </form>

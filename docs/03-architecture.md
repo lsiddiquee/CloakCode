@@ -379,10 +379,13 @@ purely from data the observer already streams (no new `SessionPart`, no new RPC)
 `sessions.list` also stamps each row with **`inTurn: boolean`** — the model is
 generating (an open `assistant.turn_start` with no matching `assistant.turn_end`,
 **and** the row is live by mtime). It is orthogonal to `status`: a live session can
-be `inTurn` (generating) or waiting for the user. This gates the three panel
-actions the composer offers. All are `remote-operator` actions (docs/04), driven by
-public `workbench.action.chat.*` commands after focusing the session URI, and none
-leaves a distinct on-disk marker (docs/02 §4.28):
+be `inTurn` (generating) or waiting for the user. This gates the panel actions the
+composer offers. While `inTurn` the composer shows **Steer** (the default, ⌘/Ctrl+⏎)
+**and Queue side by side** — steer folds into the running turn when the agent next
+yields; queue waits for the whole step to finish — plus **Stop & send** and **Stop**.
+When not `inTurn` it's a plain **Send** (which is queue). All are `remote-operator`
+actions (docs/04), driven by public `workbench.action.chat.*` commands after focusing
+the session URI, and none leaves a distinct on-disk marker (docs/02 §4.28):
 
 | Action           | RPC                                  | Extension command sequence                                        |
 | ---------------- | ------------------------------------ | ----------------------------------------------------------------- |
@@ -390,14 +393,14 @@ leaves a distinct on-disk marker (docs/02 §4.28):
 | **Steer**        | `session.steer {text}`               | `chat.open {query, isPartialQuery:true}` → `steerWithMessage`     |
 | **Stop & send**  | `session.stop {text}`                | `chat.cancel` → `chat.open {query}`                               |
 | **Stop**         | `session.stop {}`                    | `chat.cancel` (no-arg)                                            |
-| **Force-send**   | `session.respond {text}`             | same as Queue — the UI offers it **while `inTurn`** as the escape |
 
-**Force-send** exists because `inTurn` can lag: editor-hosted sessions never flush
-`turn_end`, so the flag self-heals only on the next `turn_start`. When `inTurn` is
-stale the operator can still "Send anyway" (a plain queued `session.respond`). The
-flag is derived from the `sessions.list` snapshot today; streaming it live over
-`session.subscribe` is a deferred refinement (docs/05). The derivation + self-heal
-rule are in docs/02 §4.28.
+**Queue doubles as the stale-`inTurn` escape hatch:** `inTurn` can lag (editor-hosted
+sessions never flush `turn_end`, and Copilot's post-`turn_end` placeholder start is
+guarded against in docs/02 §4.28), and it rides the `sessions.list` snapshot today.
+Because Queue is `chat.open {query}` it works either way — it queues while a turn
+runs and just sends if the turn has already ended — so a stale `inTurn` never traps
+the operator. Streaming the flag live over `session.subscribe` is a deferred
+refinement (docs/05). The derivation + self-heal rules are in docs/02 §4.28.
 
 ## Data flows
 

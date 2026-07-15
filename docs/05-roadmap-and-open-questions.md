@@ -121,12 +121,13 @@ native-suppression / permission-replication apparatus:
 
 **Built** — the composer now offers the three panel actions, gated by the new
 `SessionSummary.inTurn` (an open `assistant.turn_start` with no `turn_end`, live-gated; docs/02
-§4.28, docs/03 “Mid-turn flag”): **steer** (`session.steer` → `chat.open {isPartialQuery:true}` +
-`steerWithMessage`) redirects the running turn; **stop-and-send** (`session.stop {text}` →
-`chat.cancel` + `chat.open`) and a pure **stop** (`session.stop {}` → `chat.cancel`); plain
-**queue** and a **force-send** ("Send anyway", `session.respond`) escape hatch for when `inTurn`
-lags (editor-hosted sessions never flush `turn_end`; the flag self-heals on the next `turn_start`).
-All `remote-operator`, command-only, window-local/focus-dependent (docs/04). None leaves an on-disk
+§4.28, docs/03 “Mid-turn flag”): while `inTurn` the composer shows **steer** (default, `session.steer`
+→ `chat.open {isPartialQuery:true}` + `steerWithMessage`, folds into the running turn) **and queue**
+(`session.respond` → `chat.open {query}`, waits for the whole step) side by side, plus **stop-and-send**
+(`session.stop {text}` → `chat.cancel` + `chat.open`) and a pure **stop** (`session.stop {}` →
+`chat.cancel`). Queue also doubles as the escape hatch when `inTurn` lags (editor-hosted sessions never
+flush `turn_end`; Copilot's post-`turn_end` placeholder `turn_start` is guarded in §4.28) — it queues or
+sends either way. All `remote-operator`, command-only, window-local/focus-dependent (docs/04). None leaves an on-disk
 marker — a steer reads as a plain `user.message`, a stop as a normal `turn_end` (LIVE-CONFIRMED).
 _Follow-up:_ `inTurn` rides the `sessions.list` snapshot today; streaming it live over
 `session.subscribe` would make the composer switch modes without a list refresh (deferred, YAGNI).
