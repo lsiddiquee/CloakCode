@@ -22,4 +22,4 @@ ENV CLOAKCODE_GATEWAY_HOST=0.0.0.0 \
     CLOAKCODE_GATEWAY_PORT=7900 \
     CLOAKCODE_WEB_DIR=/app/web
 EXPOSE 7900
-CMD ["node", "main.cjs"]
+CMD ["node", "main.mjs"]
