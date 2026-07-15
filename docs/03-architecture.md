@@ -496,13 +496,14 @@ one environment all register with the one gateway** and it de-dupes. If the conf
 **unreachable**, the extension **falls back to embedded** so you're never locked out — surfacing
 the webapp locally is always available.
 
-**Routing + de-dup.** The gateway keeps a `Map<instanceId, provider>`. `sessions.list` fans out
-to every provider and returns the **union, de-duped by `sessionId`** (a globally-unique UUID,
-preferring the `owned` provider) — this collapses the read-only twin every _other_ window's foreign
-scan of the shared storage reports, plus the same session surfacing under two `workspaceStorage`
-hash dirs. Session-addressed RPCs (`subscribe/respond/decide/answer`, which already carry
-`instanceId`) route to that instance's provider and relay its frames. The protocol needs nothing
-new for addressing — only the `provider.hello` registration envelope.
+**Routing + de-dup.** `sessions.list` fans out to every connected provider and returns the
+**union, de-duped by `sessionId`** (a globally-unique UUID, preferring the `owned` provider) — this
+collapses the read-only twin every _other_ window's foreign scan of the shared storage reports, plus
+the same session surfacing under two `workspaceStorage` hash dirs. Building that list also teaches
+the gateway each session's **owning provider**, so session-addressed RPCs
+(`subscribe/respond/decide/answer`) carry only the `sessionId` and route by it; `instanceId` is a
+**display label only**, never a routing key (a per-reporter string that can collide). The protocol
+needs nothing new for addressing — only the `provider.hello` registration envelope.
 
 **Phone link + connect URLs.** The gateway owns the phone tunnel, so it **pushes its phone URL to
 each provider** as a `gateway.info` control frame (once the provider completes the knock + hello,
@@ -560,12 +561,13 @@ Every registration and every `sessions.list` row is namespaced by a stable **ins
 composed from what VS Code already exposes: `vscode.env.machineId`,
 `vscode.env.remoteName` (`dev-container` / `wsl` / `ssh-remote` / local), the
 hostname/distro/container name, and a persisted UUID in that environment's `globalStorage`.
-A session is addressed as **`(instanceId, workspaceHash, sessionId)`**, and the phone shows
-a labeled list — e.g. `myrepo (dev-container) · fix-auth`, `Ubuntu (wsl) · refactor`.
+A session is **identified** by its `sessionId` (a globally-unique UUID); the phone **groups** by
+`workspaceHash` and shows `instanceId` as a human-readable environment **label** — e.g.
+`myrepo (dev-container) · fix-auth`, `Ubuntu (wsl) · refactor`.
 
 The relay/tunnel itself is **M4** (YAGNI — not built early), but two cheap decisions land
-in **M1** so nothing is repainted later: (1) `sessions.list` returns instance-scoped rows
-and `session.subscribe` keys on `(instanceId, sessionId)`; (2) the bridge port is
+in **M1** so nothing is repainted later: (1) `sessions.list` returns the de-duped rows and
+every session-addressed RPC keys on `sessionId`; (2) the bridge port is
 configurable with an **ephemeral fallback** (`port: 0`), a fixed port being only an optional
 same-host convenience.
 

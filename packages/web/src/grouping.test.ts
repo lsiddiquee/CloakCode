@@ -55,5 +55,6 @@ describe("groupByWorkspace", () => {
     ]);
     expect(groups.map((g) => g.workspaceHash)).toEqual(["H2", "H1"]);
     expect(groups[0]?.workspace).toBe("beta");
+    expect(groups[0]?.instanceId).toBe("i1"); // display-only label (first row)
   });
 });

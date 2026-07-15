@@ -88,7 +88,7 @@ export type ConnState = "connecting" | "open" | "reconnecting" | "closed";
  * reconnecting and closes the socket.
  */
 export function subscribeSession(
-  params: { instanceId: string; sessionId: string; sinceSeq?: number },
+  params: { sessionId: string; sinceSeq?: number },
   onEvent: (event: SessionEvent) => void,
   onPending: (blockers: PendingBlocker[]) => void = () => {},
   onError: (message: string) => void = () => {},
@@ -116,7 +116,6 @@ export function subscribeSession(
           id,
           op: "session.subscribe",
           params: {
-            instanceId: params.instanceId,
             sessionId: params.sessionId,
             sinceSeq: lastSeq,
           },
@@ -230,7 +229,6 @@ function oneShotRpc(
  */
 export function respondSession(
   params: {
-    instanceId: string;
     sessionId: string;
     toolCallId?: string;
     text: string;
@@ -253,7 +251,6 @@ export function respondSession(
  */
 export function decideSession(
   params: {
-    instanceId: string;
     sessionId: string;
     toolCallId: string;
     decision: Decision;
@@ -277,7 +274,6 @@ export function decideSession(
  */
 export function answerSession(
   params: {
-    instanceId: string;
     sessionId: string;
     toolCallId: string;
     answers: QuestionAnswer[];

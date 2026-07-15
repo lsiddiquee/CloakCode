@@ -85,12 +85,29 @@ describe("ProviderRegistry", () => {
     expect(list.find((s) => s.sessionId === "s1")?.owned).toBe(true);
   });
 
-  it("routes by instanceId", () => {
+  it("forInstance returns the providers registered under an instanceId", () => {
     const reg = new ProviderRegistry();
     reg.add(provider("i1", []));
     reg.add(provider("i1", []));
     expect(reg.forInstance("i1")).toHaveLength(2);
     expect(reg.forInstance("nope")).toEqual([]);
+  });
+
+  it("maps a session to its owning provider (owned wins), after listSessions", async () => {
+    const reg = new ProviderRegistry();
+    const foreign = provider("i1", [
+      summary({ instanceId: "i1", sessionId: "s1", owned: false }),
+    ]);
+    const owner = provider("i2", [
+      summary({ instanceId: "i2", sessionId: "s1", owned: true }),
+      summary({ instanceId: "i2", sessionId: "s2", owned: true }),
+    ]);
+    reg.add(foreign);
+    reg.add(owner);
+    await reg.listSessions(); // builds the sessionId -> owning provider map
+    expect(reg.providerForSession("s1")).toBe(owner); // owned wins over foreign
+    expect(reg.providerForSession("s2")).toBe(owner);
+    expect(reg.providerForSession("nope")).toBeUndefined();
   });
 
   it("removes a provider and cleans up its empty instance bucket", () => {

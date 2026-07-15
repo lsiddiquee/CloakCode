@@ -47,12 +47,14 @@ export function mergeSessions(
 /**
  * In-memory registry of connected providers, keyed by `instanceId` (several can
  * share one — e.g. multiple windows of the same environment). Aggregates
- * `sessions.list` with de-dup and exposes the providers for an `instanceId` so
- * the gateway can route session-addressed RPCs. Transport-agnostic (pure); the
+ * `sessions.list` with de-dup and maps each `sessionId` to its owning provider
+ * so the gateway can route session-addressed RPCs (instanceId is a display label
+ * only). Transport-agnostic (pure); the
  * WebSocket layer adds/removes providers as connections come and go.
  */
 export class ProviderRegistry {
   private readonly byInstance = new Map<string, Set<SessionProvider>>();
+  private sessionOwner = new Map<string, SessionProvider>();
 
   add(provider: SessionProvider): void {
     const set = this.byInstance.get(provider.instanceId) ?? new Set();
@@ -83,9 +85,31 @@ export class ProviderRegistry {
    * can't sink the whole list.
    */
   async listSessions(): Promise<SessionSummary[]> {
+    const providers = this.all();
     const lists = await Promise.all(
-      this.all().map((p) => p.listSessions().catch(() => [])),
+      providers.map((p) => p.listSessions().catch(() => [])),
     );
+    // Remember which provider owns each session so the gateway can route
+    // session-addressed RPCs by `sessionId` — instanceId is a display label
+    // only, never a routing key. Prefer the owning provider on a duplicate.
+    const owner = new Map<string, SessionProvider>();
+    lists.forEach((list, i) => {
+      const p = providers[i];
+      if (!p) return;
+      for (const s of list) {
+        if (!owner.has(s.sessionId) || s.owned) owner.set(s.sessionId, p);
+      }
+    });
+    this.sessionOwner = owner;
     return mergeSessions(lists);
+  }
+
+  /**
+   * The provider that owns `sessionId` (for routing a session-addressed RPC).
+   * Populated by {@link listSessions}; the owning provider wins over a foreign
+   * scan. Undefined when no listed provider reports the session.
+   */
+  providerForSession(sessionId: string): SessionProvider | undefined {
+    return this.sessionOwner.get(sessionId);
   }
 }

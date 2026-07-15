@@ -115,7 +115,7 @@ export function SessionView({
         dispatch({ type: "batch", events: buffer.splice(0) });
     };
     const unsubscribe = subscribeSession(
-      { instanceId: session.instanceId, sessionId: session.sessionId },
+      { sessionId: session.sessionId },
       (event) => {
         buffer.push(event);
         if (raf === null) raf = requestAnimationFrame(flush);
@@ -128,7 +128,7 @@ export function SessionView({
       unsubscribe();
       if (raf !== null) cancelAnimationFrame(raf);
     };
-  }, [session.instanceId, session.sessionId]);
+  }, [session.sessionId]);
 
   // Stick-to-bottom: follow the latest message unless the user scrolled up.
   // A ResizeObserver on the inner content re-pins on any growth — including the
@@ -372,7 +372,6 @@ function useRemoteSend(session: SessionSummary): {
     setError(null);
     try {
       await respondSession({
-        instanceId: session.instanceId,
         sessionId: session.sessionId,
         text,
         ...(toolCallId ? { toolCallId } : {}),
@@ -411,7 +410,6 @@ function useDecide(session: SessionSummary): {
     setError(null);
     try {
       await decideSession({
-        instanceId: session.instanceId,
         sessionId: session.sessionId,
         toolCallId,
         decision,
@@ -449,7 +447,6 @@ function useAnswer(session: SessionSummary): {
     setError(null);
     try {
       await answerSession({
-        instanceId: session.instanceId,
         sessionId: session.sessionId,
         toolCallId,
         answers,

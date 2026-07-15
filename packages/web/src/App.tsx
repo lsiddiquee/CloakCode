@@ -90,7 +90,9 @@ export function App(): JSX.Element {
               <section key={group.workspaceHash}>
                 <div className="group-label">
                   workspace {group.workspace}
-                  {owned ? "" : " · read-only (no extension here)"}
+                  {owned
+                    ? ` · ${group.instanceId}`
+                    : " · read-only (no extension here)"}
                 </div>
                 {group.rows.map((s) => (
                   <div

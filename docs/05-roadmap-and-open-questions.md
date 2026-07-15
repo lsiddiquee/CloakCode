@@ -242,6 +242,13 @@ the critical path.
   `workspaceHash` alone (`packages/web/src/grouping.ts`), collapsing those into one group; the group
   header no longer prints the now-ambiguous instance label. instanceId stays a display-only field
   (session detail) — moving routing off it (so it becomes a pure label) is a separate open slice.
+- **REFINED (2026-07-15): `instanceId` demoted to a pure display label; RPCs route by `sessionId`.**
+  Session-addressed RPCs (`subscribe/respond/decide/answer`) no longer carry `instanceId` — the
+  gateway learns each session's owning provider while building the aggregated `sessions.list` and
+  routes by `sessionId` (`ProviderRegistry.providerForSession`, cold-refreshing once on a miss).
+  `instanceId` is now used for NOTHING but the environment label on each workspace group + the
+  session detail, closing the misroute risk (a shared `instanceId` can no longer pick the wrong
+  provider). Contract change across protocol (session-RPC params drop `instanceId`) + gateway + web.
 - **Cross-window actuation opens a NEW session by mistake (2026-07-11, deferred — not a
   blocker).** Sending an answer/decision (`session.respond` / `.decide` / `.answer`) to a
   session the bridge's window does **not** own creates a **brand-new chat** in the bridge's

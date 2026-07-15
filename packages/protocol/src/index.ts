@@ -9,10 +9,11 @@ export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
 /**
  * One row in the remote session picker. The `sessionId` (a globally-unique UUID)
- * is the session's **identity** — the list de-dupes on it so the same session
- * reported by several windows / hash dirs shows **once**. It is still **routed**
- * by `(instanceId, sessionId)` so RPCs reach the owning environment (dev
- * containers / WSL / host) — see docs/03 "Multi-instance topology".
+ * is the session's **identity**: the list de-dupes on it, and the gateway
+ * **routes** session-addressed RPCs by it to the owning provider. `instanceId`
+ * is a human-readable **display label only** (which environment) — never used
+ * for routing, grouping, or identity; the list groups by `workspaceHash`. See
+ * docs/03 "Multi-instance topology".
  *
  * `owned` = a live CloakCode extension serves this session's workspace, so it is
  * actuatable (respond/decide/answer). Sessions in a workspace with no running
@@ -185,7 +186,6 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     id: z.string(),
     op: z.literal("session.subscribe"),
     params: z.object({
-      instanceId: z.string(),
       sessionId: z.string(),
       sinceSeq: z.number().int().nonnegative().default(0),
     }),
@@ -194,7 +194,6 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     id: z.string(),
     op: z.literal("session.respond"),
     params: z.object({
-      instanceId: z.string(),
       sessionId: z.string(),
       // Present when answering a specific pending blocker; omitted for a
       // free-form chat message. Either way it's injected into the active chat.
@@ -206,7 +205,6 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     id: z.string(),
     op: z.literal("session.decide"),
     params: z.object({
-      instanceId: z.string(),
       sessionId: z.string(),
       // The pending tool call being approved/denied (the base toolCallId).
       toolCallId: z.string(),
@@ -217,7 +215,6 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     id: z.string(),
     op: z.literal("session.answer"),
     params: z.object({
-      instanceId: z.string(),
       sessionId: z.string(),
       // The carousel `resolveId` (the pending blocker's `resolveId` — the RAW
       // suffixed tool_use_id), NOT the base toolCallId.

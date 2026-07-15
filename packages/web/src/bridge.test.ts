@@ -38,7 +38,7 @@ class MockWebSocket {
   }
 
   /** Decoded `params` of the last frame this socket sent. */
-  lastParams(): { instanceId: string; sessionId: string; sinceSeq: number } {
+  lastParams(): { sessionId: string; sinceSeq: number } {
     return JSON.parse(this.sent.at(-1) ?? "{}").params;
   }
 
@@ -81,7 +81,7 @@ describe("subscribeSession", () => {
   it("subscribes from the requested seq and reports the lifecycle", () => {
     const status: ConnState[] = [];
     subscribeSession(
-      { instanceId: "i1", sessionId: "s1", sinceSeq: 3 },
+      { sessionId: "s1", sinceSeq: 3 },
       () => {},
       () => {},
       () => {},
@@ -93,7 +93,6 @@ describe("subscribeSession", () => {
     socket(0).open();
     expect(status).toEqual(["connecting", "open"]);
     expect(socket(0).lastParams()).toEqual({
-      instanceId: "i1",
       sessionId: "s1",
       sinceSeq: 3,
     });
@@ -102,7 +101,7 @@ describe("subscribeSession", () => {
   it("resumes from the last seq it saw after a dropped connection", () => {
     const seen: number[] = [];
     subscribeSession(
-      { instanceId: "i1", sessionId: "s1" },
+      { sessionId: "s1" },
       (e) => seen.push(e.seq),
       undefined,
       undefined,
@@ -126,7 +125,7 @@ describe("subscribeSession", () => {
 
   it("backs off exponentially while reconnects keep failing", () => {
     subscribeSession(
-      { instanceId: "i1", sessionId: "s1" },
+      { sessionId: "s1" },
       () => {},
       undefined,
       undefined,
@@ -152,7 +151,7 @@ describe("subscribeSession", () => {
   it("stops reconnecting once unsubscribed", () => {
     const status: ConnState[] = [];
     const unsubscribe = subscribeSession(
-      { instanceId: "i1", sessionId: "s1" },
+      { sessionId: "s1" },
       () => {},
       undefined,
       undefined,

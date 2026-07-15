@@ -128,13 +128,23 @@ describe("startGateway", () => {
     expect(gw!.registry.all()).toHaveLength(0);
   });
 
-  it("relays session.subscribe to the owning provider and pipes frames back", async () => {
+  it("relays session.subscribe to the owning provider (routed by sessionId)", async () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
     const p = await openProvider(url, "i1");
     p.on("message", (raw) => {
       const req = JSON.parse(raw.toString());
-      if (req.op === "session.subscribe") {
+      if (req.op === "sessions.list") {
+        // The gateway learns ownership from the list, then routes RPCs by id.
+        p.send(
+          JSON.stringify({
+            id: req.id,
+            ok: true,
+            op: "sessions.list",
+            result: [summary("i1", "s1", true)],
+          }),
+        );
+      } else if (req.op === "session.subscribe") {
         // Echo one event frame back with the SAME (relay) id the gateway sent.
         p.send(
           JSON.stringify({
@@ -157,7 +167,7 @@ describe("startGateway", () => {
       JSON.stringify({
         id: "op-1",
         op: "session.subscribe",
-        params: { instanceId: "i1", sessionId: "s1", sinceSeq: 0 },
+        params: { sessionId: "s1", sinceSeq: 0 },
       }),
     );
     const frame = await nextMessage(operator);
@@ -168,14 +178,14 @@ describe("startGateway", () => {
     operator.close();
   });
 
-  it("errors when no provider serves the requested instance", async () => {
+  it("errors when no provider serves the requested session", async () => {
     gw = await startGateway({ port: 0 });
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
     operator.send(
       JSON.stringify({
         id: "9",
         op: "session.subscribe",
-        params: { instanceId: "ghost", sessionId: "s1", sinceSeq: 0 },
+        params: { sessionId: "ghost", sinceSeq: 0 },
       }),
     );
     const res = await nextMessage(operator);

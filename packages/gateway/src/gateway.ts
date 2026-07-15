@@ -229,7 +229,8 @@ function cloakcodeHello(role: CloakcodeHello["role"]): CloakcodeHello {
 /**
  * Handle one operator RPC frame: `sessions.list` is aggregated across providers;
  * every other (session-addressed) op is relayed to the owning provider by
- * `instanceId`, with its frames piped back through {@link Relay}.
+ * `sessionId` (learned from the aggregated list), with its frames piped back
+ * through {@link Relay}.
  */
 async function handleOperator(
   socket: WebSocket,
@@ -259,24 +260,29 @@ async function handleOperator(
     if (verbose) log(`sessions.list → ${result.length} session(s)`);
     return;
   }
-  const instanceId = (req.data.params as { instanceId?: string }).instanceId;
-  const provider = instanceId
-    ? registry
-        .forInstance(instanceId)
-        .find((p): p is WsProvider => p instanceof WsProvider)
-    : undefined;
+  // Route by sessionId: the gateway learned each session's owning provider from
+  // the aggregated list. instanceId is a display label only and is NOT used here.
+  const sessionId = (req.data.params as { sessionId?: string }).sessionId;
+  let owner = sessionId ? registry.providerForSession(sessionId) : undefined;
+  if (!owner && sessionId) {
+    // Cold start / a session created since the last list: refresh ownership once.
+    await registry.listSessions().catch(() => []);
+    owner = registry.providerForSession(sessionId);
+  }
+  const provider = owner instanceof WsProvider ? owner : undefined;
   if (!provider) {
     send(socket, {
       id,
       ok: false,
       error: {
-        message: `gateway: no provider for instance '${instanceId ?? "?"}'`,
+        message: `gateway: no provider for session '${sessionId ?? "?"}'`,
       },
     });
-    if (verbose) log(`no provider for '${instanceId ?? "?"}' (op ${op})`);
+    if (verbose)
+      log(`no provider for session '${sessionId ?? "?"}' (op ${op})`);
     return;
   }
-  if (verbose) log(`relay ${op} → instance ${instanceId}`);
+  if (verbose) log(`relay ${op} → session ${sessionId}`);
   relay.forward(socket, { id, op, params: req.data.params }, (t) =>
     provider.send(t),
   );

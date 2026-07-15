@@ -72,12 +72,12 @@ describe("rpcRequestSchema", () => {
     const parsed = rpcRequestSchema.parse({
       id: "2",
       op: "session.subscribe",
-      params: { instanceId: "inst", sessionId: "sessA" },
+      params: { sessionId: "sessA" },
     });
     expect(parsed).toEqual({
       id: "2",
       op: "session.subscribe",
-      params: { instanceId: "inst", sessionId: "sessA", sinceSeq: 0 },
+      params: { sessionId: "sessA", sinceSeq: 0 },
     });
   });
 
@@ -92,7 +92,6 @@ describe("rpcRequestSchema", () => {
       id: "3",
       op: "session.respond",
       params: {
-        instanceId: "inst",
         sessionId: "sessA",
         toolCallId: "toolu_017o4WdwEJb2ruJ2PawLoPyH",
         text: "1. scratch.txt\n2. Overwrite",
@@ -108,7 +107,7 @@ describe("rpcRequestSchema", () => {
     const parsed = rpcRequestSchema.parse({
       id: "4",
       op: "session.respond",
-      params: { instanceId: "inst", sessionId: "sessA", text: "run the tests" },
+      params: { sessionId: "sessA", text: "run the tests" },
     });
     expect(parsed.op).toBe("session.respond");
     if (parsed.op === "session.respond") {
@@ -123,7 +122,6 @@ describe("rpcRequestSchema", () => {
         id: "3",
         op: "session.respond",
         params: {
-          instanceId: "inst",
           sessionId: "sessA",
           toolCallId: "t1",
           text: "",
@@ -137,7 +135,6 @@ describe("rpcRequestSchema", () => {
       id: "6",
       op: "session.decide",
       params: {
-        instanceId: "inst",
         sessionId: "sessA",
         toolCallId: "toolu_014s9ftYke93xQX364HyyaVo",
         decision: "allow",
@@ -155,7 +152,6 @@ describe("rpcRequestSchema", () => {
         id: "6",
         op: "session.decide",
         params: {
-          instanceId: "inst",
           sessionId: "sessA",
           toolCallId: "t1",
           decision: "maybe",
@@ -169,7 +165,6 @@ describe("rpcRequestSchema", () => {
       id: "7",
       op: "session.answer",
       params: {
-        instanceId: "inst",
         sessionId: "sessA",
         toolCallId: "toolu_016e9uTUd8Cid5XYn9FYHUKG__vscode-1783582363189",
         answers: [

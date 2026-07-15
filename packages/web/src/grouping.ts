@@ -1,6 +1,12 @@
 import type { SessionSummary } from "@cloakcode/protocol";
 
 export interface WorkspaceGroup {
+  /**
+   * A representative instanceId (the first row's) for a display-only environment
+   * label — NEVER a key. Grouping is by `workspaceHash`; a group is virtually
+   * always single-instance after the sessionId de-dup.
+   */
+  instanceId: string;
   workspace: string;
   workspaceHash: string;
   rows: SessionSummary[];
@@ -19,6 +25,7 @@ export function groupByWorkspace(sessions: SessionSummary[]): WorkspaceGroup[] {
   const map = new Map<string, WorkspaceGroup>();
   for (const s of sessions) {
     const g = map.get(s.workspaceHash) ?? {
+      instanceId: s.instanceId,
       workspace: s.workspace,
       workspaceHash: s.workspaceHash,
       rows: [],
