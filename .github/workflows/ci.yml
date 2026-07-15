@@ -1,7 +1,9 @@
 name: CI
 
-# Build · typecheck · lint · test the whole monorepo (TS + Python) on every push
-# to main and every PR. No publishing here — that lives in release.yml (tags).
+# Build · typecheck · lint · test the TypeScript monorepo (the shipped product)
+# on every push to main and every PR. The research/ Python is stdlib-only spikes,
+# not product — no Poetry/mypy/pytest gate; ruff still lints it via the `hooks`
+# (pre-commit) job. No publishing here — that lives in release.yml (tags).
 on:
   push:
     branches: [main]
@@ -46,38 +48,6 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r lint
       - run: pnpm -r test
-
-  python:
-    name: Python — ruff · mypy · pytest (research/)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Poetry
-        run: pipx install poetry
-
-      - name: Install deps (in-project venv)
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry install --no-interaction
-
-      - run: poetry run ruff check .
-      - run: poetry run ruff format --check .
-      - run: poetry run mypy research
-
-      - name: pytest (tolerate "no tests collected" = exit 5)
-        run: |
-          set +e
-          poetry run pytest research -q
-          code=$?
-          set -e
-          if [ "$code" -eq 5 ]; then echo "no tests collected — ok"; exit 0; fi
-          exit "$code"
 
   hooks:
     name: pre-commit (gitleaks · markdownlint · prettier · ruff)
