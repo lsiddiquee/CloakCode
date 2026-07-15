@@ -179,8 +179,18 @@ export async function activate(
   context.subscriptions.push(out);
 
   const cfg = vscode.workspace.getConfiguration("cloakcode");
-  const instanceId =
-    cfg.get<string>("instanceId")?.trim() || (await defaultInstanceId());
+  // The instanceId is a DISPLAY LABEL only (never routing/identity). It lives in
+  // this workspace's `workspaceState`, changed via the `CloakCode: Set Instance
+  // ID` command — NOT a setting (a setting confused the User/Remote/Workspace
+  // scopes). Empty override => auto: `<env-kind>:<workspace-or-devcontainer>`.
+  const INSTANCE_ID_KEY = "cloakcode.instanceId";
+  const resolveInstanceId = async (): Promise<string> =>
+    (context.workspaceState.get<string>(INSTANCE_ID_KEY) ?? "").trim() ||
+    (await defaultInstanceId());
+  let instanceId = await resolveInstanceId();
+  out.appendLine(
+    `instanceId: "${instanceId}" (run “CloakCode: Set Instance ID” to change)`,
+  );
   // `0` = an ephemeral free port (avoids collisions across windows/instances); a
   // fixed `cloakcode.port` locks it (stable phone/tunnel URL). `CLOAKCODE_PORT`
   // overrides for the dev launch so Vite's proxy target stays fixed.
@@ -411,13 +421,32 @@ export async function activate(
   };
 
   // A change to any of these connection settings hot-applies via reconnect (no
-  // reload). instanceId / tunnel / publicUrl still need a reload — they reshape
-  // this window's identity or the tunnel it owns.
+  // reload). The `cloakcode.tunnel` mode still needs a reload; the instanceId is
+  // changed via the `CloakCode: Set Instance ID` command (which reconnects).
   const reconnectKeys = ["cloakcode.gatewayUrl", "cloakcode.port"];
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.reconnect", () =>
       reconnect("command"),
     ),
+    vscode.commands.registerCommand("cloakcode.setInstanceId", async () => {
+      const input = await vscode.window.showInputBox({
+        title: "CloakCode: Instance ID",
+        prompt:
+          "Display label for this environment + workspace (empty = auto). " +
+          "Never used for routing or identity.",
+        value: instanceId,
+        ignoreFocusOut: true,
+      });
+      if (input === undefined) return; // cancelled
+      // Empty => clear the override (revert to the auto label).
+      await context.workspaceState.update(
+        INSTANCE_ID_KEY,
+        input.trim() || undefined,
+      );
+      instanceId = await resolveInstanceId();
+      out.appendLine(`instanceId set → "${instanceId}"`);
+      await reconnect("instanceId changed");
+    }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (reconnectKeys.some((k) => e.affectsConfiguration(k))) {
         void reconnect("settings changed");
@@ -693,9 +722,9 @@ async function resolvePhoneUrl(
   log: TunnelLog = () => {},
 ): Promise<string> {
   const cfg = vscode.workspace.getConfiguration("cloakcode");
-  const configured =
-    cfg.get<string>("publicUrl")?.trim() ||
-    process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
+  // Advanced bring-your-own-tunnel escape hatch (no UI setting): CLOAKCODE_PUBLIC_URL
+  // forces the phone URL for a tunnel you run yourself.
+  const configured = process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
   if (configured) return configured;
   if (tunnel) return tunnel.url;
   if (cfg.get<string>("tunnel") === "devtunnel") {
@@ -810,7 +839,7 @@ function showLinkPanel(url: string): void {
     void vscode.window.showWarningMessage(
       `CloakCode phone link is loopback (${url}) — a phone can't reach it. ` +
         `Set "cloakcode.tunnel": "devtunnel" (run “Set Up Phone Tunnel”) or ` +
-        `set "cloakcode.publicUrl".`,
+        `set the CLOAKCODE_PUBLIC_URL env var to your own tunnel URL.`,
     );
   }
   const panel = vscode.window.createWebviewPanel(

@@ -174,8 +174,9 @@ sufficient; the `session_id` in the record is the correlation key the follower r
 
 The per-window **ephemeral bridge port** is now the default (`cloakcode.port: 0` picks a free
 port; set a fixed port to lock the phone/tunnel URL), and `instanceId` defaults to
-`<env-kind>:<workspace>` (dev-container name when available; `cloakcode.instanceId` overrides
-per workspace). _Deferred (Q6/M4):_ a per-environment **leader** (lock in globalStorage) so one
+`<env-kind>:<workspace>` (dev-container name when available). It is a **display label only** and
+is overridden per workspace via the **`CloakCode: Set Instance ID`** command (stored in
+`workspaceState`, not a setting — which had confused the User/Remote/Workspace scopes). _Deferred (Q6/M4):_ a per-environment **leader** (lock in globalStorage) so one
 observer owns the environment, and a **rendezvous relay** to unify _different_ environments
 (container ↔ WSL ↔ host) for the phone. Not built until the tunnel.
 
@@ -242,14 +243,14 @@ changes for the dev-server or the bridge tests. The single path-safety check (tr
 null-byte / percent-decode) lives in the pure `resolveStaticPath` (`static-files.ts`),
 unit-tested without a filesystem. Reaching the phone is a separate concern (`asExternalUri` + QR
 in cloud remotes; your Dev Tunnel locally) — the gateway itself only binds loopback.
-The `CloakCode: Show Phone Link` command resolves the URL in priority order —
-`cloakcode.publicUrl` → an **auto-hosted private Dev Tunnel** (`cloakcode.tunnel:
-devtunnel`, which spawns `devtunnel host` and scrapes the URL, no manual step) →
-`asExternalUri` — and shows a scannable **QR** (a tiny zero-dep encoder → inline SVG in a
-webview, so there's no rasterization and ~0 runtime weight beyond the encoder). In a
+The `CloakCode: Show Phone Link` command resolves the URL in priority order — the
+`CLOAKCODE_PUBLIC_URL` env var (advanced bring-your-own-tunnel) → an **auto-hosted private Dev
+Tunnel** (`cloakcode.tunnel: devtunnel`, which spawns `devtunnel host` and scrapes the URL, no
+manual step) → `asExternalUri` — and shows a scannable **QR** (a tiny zero-dep encoder → inline
+SVG in a webview, so there's no rasterization and ~0 runtime weight beyond the encoder). In a
 **local dev container** `asExternalUri` returns a desktop-loopback URL (VS Code forwards
 to the desktop, not a public tunnel); use `cloakcode.tunnel: devtunnel`, or forward the
-port **Public** (Ports view) / run a tunnel and set `cloakcode.publicUrl`. The command
+port **Public** (Ports view) / run a tunnel and set the `CLOAKCODE_PUBLIC_URL` env var. The command
 warns when the resolved URL is still loopback. **`CloakCode: Set Up Phone Tunnel`**
 (re)establishes the Dev Tunnel and, on failure, offers a confirmation-based CLI install
 or a sign-in flow picker (GitHub / Microsoft × browser / device-code) — device-code for

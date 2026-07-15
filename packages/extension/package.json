@@ -64,6 +64,11 @@
         "command": "cloakcode.reconnect",
         "title": "Reconnect",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.setInstanceId",
+        "title": "Set Instance ID",
+        "category": "CloakCode"
       }
     ],
     "configuration": {
@@ -82,12 +87,6 @@
           "scope": "machine",
           "markdownDescription": "Milliseconds to wait before surfacing a pending tool call to the CloakCode client. VS Code often auto-approves or auto-answers a call within this window; debouncing lets those resolve first so they never flicker a card on the phone. Raise it if fast auto-approved calls still flash a card; set it to `0` to surface immediately."
         },
-        "cloakcode.publicUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "markdownDescription": "Public URL of your tunnel to the CloakCode gateway, shown by **CloakCode: Show Phone Link** and its QR — e.g. a VS Code **Public** forwarded port or a Dev Tunnel `https://<id>-<port>.<region>.devtunnels.ms`. Leave empty to use VS Code's automatic forwarding (`asExternalUri`): that is phone-reachable in Codespaces/remotes, but returns a **desktop-loopback** URL in local dev containers — set this then."
-        },
         "cloakcode.tunnel": {
           "type": "string",
           "enum": [
@@ -96,19 +95,13 @@
           ],
           "default": "off",
           "scope": "machine",
-          "markdownDescription": "How **CloakCode: Show Phone Link** gets a phone-reachable URL when `cloakcode.publicUrl` is empty. `off`: use VS Code's automatic forwarding (`asExternalUri`). `devtunnel`: auto-host the gateway on a **private** Microsoft Dev Tunnel and parse its public URL for you — no manual tunnel or URL paste. Requires the `devtunnel` CLI installed and `devtunnel user login`. The tunnel is **private** (sign-in required to open the link), never anonymous."
+          "markdownDescription": "How **CloakCode: Show Phone Link** gets a phone-reachable URL. `off`: use VS Code's automatic forwarding (`asExternalUri`) — phone-reachable in Codespaces/remotes, but a **desktop-loopback** URL in local dev containers. `devtunnel`: auto-host the gateway on a **private** Microsoft Dev Tunnel and parse its public URL for you — no manual tunnel or URL paste. Requires the `devtunnel` CLI installed and `devtunnel user login`. The tunnel is **private** (sign-in required to open the link), never anonymous. _Advanced:_ set the `CLOAKCODE_PUBLIC_URL` env var to force your own bring-your-own-tunnel URL."
         },
         "cloakcode.port": {
           "type": "number",
           "default": 0,
           "scope": "window",
           "markdownDescription": "Localhost port for the CloakCode gateway (bound to `127.0.0.1` only). `0` (default) picks a free **ephemeral** port each launch — avoids collisions when several windows/instances run. Set a fixed port (e.g. `7801`) to **lock** it, which also keeps the phone/tunnel URL stable across reloads. (The dev launch overrides this with `CLOAKCODE_PORT`.)"
-        },
-        "cloakcode.instanceId": {
-          "type": "string",
-          "default": "",
-          "scope": "window",
-          "markdownDescription": "A **human-readable label** for this environment + workspace — shown in the client and used as the Dev Tunnel name. Display only: sessions route by `sessionId` and group by workspace, so it is **never** used for routing or identity. Empty = auto: `<local|wsl|devcontainer|ssh|codespaces|tunnel>:<workspace-folder>` (using the dev container's `name` when available). **Set this only in Workspace settings — never User/Remote** (a value there would mislabel every other workspace). VS Code has no workspace-only scope, so those tabs still appear; leave them blank."
         },
         "cloakcode.gatewayUrl": {
           "type": "string",

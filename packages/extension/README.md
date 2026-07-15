@@ -41,8 +41,9 @@ cd dist/extension
 Run the bridge in one of two modes:
 
 - **Embedded (default).** No separate process — the extension starts its own `127.0.0.1`
-  bridge and serves the PWA. Set `cloakcode.tunnel` to `devtunnel` (or fill `cloakcode.publicUrl`)
-  and run **CloakCode: Show Phone Link** for the QR code.
+  bridge and serves the PWA. Set `cloakcode.tunnel` to `devtunnel` (or set the
+  `CLOAKCODE_PUBLIC_URL` env var for your own tunnel) and run **CloakCode: Show Phone Link**
+  for the QR code.
 - **Explicit gateway.** Run the standalone hub (see [`@cloakcode/gateway`](../gateway/README.md))
   and point the extension at it — multiple windows can share one gateway:
 
