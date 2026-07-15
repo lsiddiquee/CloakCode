@@ -137,3 +137,13 @@ Base: `~/.vscode-server/data/User/`
 - **Transcript render must stay O(n)** (docs/03 "Rendering a long backlog"): coalesce events one
   batch per animation frame + `React.memo` on Part/Markdown with hoisted plugins/components. Do not
   reintroduce per-event dispatch or a per-render markdown-components object → silently O(n²).
+- **Protocol schema change ⇒ rebuild + redeploy gateway AND extension together.** Zod objects strip
+  unknown keys but REQUIRE the declared ones, so a stale peer only breaks in ONE direction: a **new**
+  client that OMITS a now-removed param fails a **stale** peer's schema. Symptom (2026-07-15): after
+  dropping `instanceId` from the session-RPC params, a stale deployed **gateway** hit
+  `if (!safeParse.success) return;` and silently dropped `session.subscribe` (no reply) → the phone
+  hung on "Loading transcript…", while `sessions.list` (empty params) still worked. Two fixes: (1)
+  `handleOperator` now **errors** (correlated to the request id) instead of silently dropping an
+  invalid operator RPC, so a version mismatch surfaces; (2) redeploy fresh —
+  `pnpm --filter @cloakcode/gateway assemble` (rebuilds protocol first, then the gateway bundle +
+  web) and `pnpm --filter @cloakcode/extension package` — in the SAME change that alters the protocol.

@@ -193,6 +193,21 @@ describe("startGateway", () => {
     operator.close();
   });
 
+  it("errors (never hangs) on an operator request that fails validation", async () => {
+    gw = await startGateway({ port: 0 });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    // Well-formed JSON, invalid params (session.subscribe with no sessionId) —
+    // e.g. a client built against a different protocol version. It must surface
+    // as an error, not silently drop (which hangs the client on "Loading…").
+    operator.send(
+      JSON.stringify({ id: "bad-1", op: "session.subscribe", params: {} }),
+    );
+    const res = await nextMessage(operator);
+    expect(res["id"]).toBe("bad-1");
+    expect(res["ok"]).toBe(false);
+    operator.close();
+  });
+
   it("sends gateway.info to a provider on connect (no phone URL yet)", async () => {
     gw = await startGateway({ port: 0 });
     const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i1");

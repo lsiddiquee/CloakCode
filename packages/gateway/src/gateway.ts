@@ -244,10 +244,25 @@ async function handleOperator(
   try {
     json = JSON.parse(text);
   } catch {
-    return;
+    return; // not even JSON — nothing to correlate an error to
   }
   const req = rpcRequestSchema.safeParse(json);
-  if (!req.success) return;
+  if (!req.success) {
+    // Never silently drop a well-formed-but-invalid request: a schema mismatch
+    // (e.g. a client built against a different protocol version than this
+    // gateway) must surface as an error, not hang the operator forever on
+    // "Loading…". Correlate it to the request id when the frame carried one.
+    const badId = (json as { id?: unknown } | null)?.id;
+    if (typeof badId === "string") {
+      send(socket, {
+        id: badId,
+        ok: false,
+        error: { message: "gateway: invalid request (protocol mismatch?)" },
+      });
+    }
+    if (verbose) log("invalid operator request dropped");
+    return;
+  }
   const { id, op } = req.data;
   if (op === "sessions.list") {
     let result: SessionSummary[];
