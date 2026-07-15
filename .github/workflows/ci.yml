@@ -30,7 +30,15 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # NOTE: the committed .npmrc + pnpm-lock.yaml resolve against an internal
+      # Microsoft package feed (supply-chain screened) that public GitHub runners
+      # can't reach. Resolve fresh from public npm for CI. TODO(pre-public): ship a
+      # public-registry lockfile + .npmrc, then switch back to --frozen-lockfile.
+      - name: Install deps (public npm)
+        run: |
+          printf 'registry=https://registry.npmjs.org/\n' > .npmrc
+          rm -f pnpm-lock.yaml
+          pnpm install
 
       # Topological order builds @cloakcode/protocol first, so the downstream
       # typechecks (which resolve its dist) pass.
@@ -83,8 +91,13 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      # The local eslint/prettier hooks need node_modules present.
-      - run: pnpm install --frozen-lockfile
+      # The local eslint/prettier hooks need node_modules present. Public npm
+      # (see the node job) — the committed feed is internal-only.
+      - name: Install deps (public npm)
+        run: |
+          printf 'registry=https://registry.npmjs.org/\n' > .npmrc
+          rm -f pnpm-lock.yaml
+          pnpm install
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

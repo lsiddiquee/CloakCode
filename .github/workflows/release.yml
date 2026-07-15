@@ -43,7 +43,13 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # See ci.yml: the committed .npmrc/lockfile target an internal MS feed;
+      # resolve fresh from public npm on the runner.
+      - name: Install deps (public npm)
+        run: |
+          printf 'registry=https://registry.npmjs.org/\n' > .npmrc
+          rm -f pnpm-lock.yaml
+          pnpm install
       - run: pnpm -r build
       - run: pnpm -r test # never cut a release on red
 
