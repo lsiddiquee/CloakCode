@@ -36,6 +36,7 @@ import {
   type TunnelLog,
 } from "@cloakcode/gateway";
 import { classifyRemote, parseDevcontainerName } from "./identity.js";
+import { tunnelFixAction } from "./tunnel-policy.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -609,9 +610,10 @@ export async function activate(
   void recommendDebugLog(context);
   void promptTunnelOnce(context);
 
-  // Tunnel already opted-in on a prior run: silently re-host it on activation so
-  // the phone URL is live again after a reload without re-opening the link.
-  // Best-effort — failures only log (no guided-fix modal on every activation).
+  // Tunnel already opted-in on a prior run: re-host it on activation so the phone
+  // URL is live again after a reload without re-opening the link. Best-effort:
+  // transient failures only log, but an actionable setup error (not signed in /
+  // CLI missing) still prompts the fix so an opted-in tunnel never fails invisibly.
   if (bridge && cfg.get<string>("tunnel") === "devtunnel") {
     const b = bridge;
     void startOrRecoverTunnel(
@@ -716,14 +718,19 @@ async function startOrRecoverTunnel(
     return tunnel.url;
   } catch (err) {
     log(`tunnel failed: ${err instanceof Error ? err.message : String(err)}`);
-    if (silent) return undefined;
-    if (err instanceof TunnelError) {
-      await guideTunnelFix(err);
-    } else {
+    // Even on a silent activation, guide the ACTIONABLE setup errors (sign-in,
+    // install) so an opted-in tunnel that isn't logged in prompts the login
+    // instead of failing invisibly; stay quiet on transient/unknown errors.
+    const kind = err instanceof TunnelError ? err.kind : "unknown";
+    const action = tunnelFixAction(kind, silent);
+    if (action === "ignore") return undefined;
+    if (action === "show-error") {
       void vscode.window.showErrorMessage(
         `CloakCode tunnel: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return undefined;
     }
+    if (err instanceof TunnelError) await guideTunnelFix(err);
     return undefined;
   }
 }

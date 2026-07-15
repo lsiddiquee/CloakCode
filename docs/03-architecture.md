@@ -253,7 +253,10 @@ port **Public** (Ports view) / run a tunnel and set `cloakcode.publicUrl`. The c
 warns when the resolved URL is still loopback. **`CloakCode: Set Up Phone Tunnel`**
 (re)establishes the Dev Tunnel and, on failure, offers a confirmation-based CLI install
 or a sign-in flow picker (GitHub / Microsoft × browser / device-code) — device-code for
-containers/remote where a local browser can't open. In **gateway (client) mode** the extension
+containers/remote where a local browser can't open. With `cloakcode.tunnel: devtunnel` the
+embedded bridge also **auto-hosts the tunnel on activation**; a transient failure only logs, but an
+actionable setup error (not signed in / CLI missing) prompts the same fix so an opted-in tunnel
+never fails invisibly. In **gateway (client) mode** the extension
 runs no bridge of its own — the hub owns the tunnel and **pushes its phone URL down** (a
 `gateway.info` control frame), so **Show Phone Link** renders the gateway's URL and **Set Up Phone
 Tunnel** points you at the hub instead.
