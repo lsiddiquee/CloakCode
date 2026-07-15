@@ -248,6 +248,37 @@ export async function activate(
         query: text,
       });
     },
+    steer: async ({ sessionId, text }) => {
+      // Redirect the IN-FLIGHT turn (docs/02 §4.28 / research §7): focus the
+      // session, PREFILL the composer without sending (`isPartialQuery`), then
+      // fire `steerWithMessage` — VS Code folds the text into the running turn
+      // at the next tool-call boundary. Window-local/focus-dependent, like
+      // respond; a remote-operator action, never genuine-local intent.
+      const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
+      out.appendLine(`steer: open ${uri.toString()} then steerWithMessage`);
+      await vscode.commands.executeCommand("vscode.open", uri);
+      await vscode.commands.executeCommand("workbench.action.chat.open", {
+        query: text,
+        isPartialQuery: true,
+      });
+      await vscode.commands.executeCommand(
+        "workbench.action.chat.steerWithMessage",
+      );
+    },
+    stop: async ({ sessionId, text }) => {
+      // Cancel the in-flight turn (`chat.cancel` is no-arg, acts on the focused
+      // session; research §7). With a follow-up `text`, send it as a fresh
+      // prompt afterwards (stop-and-send). A remote-operator action.
+      const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
+      out.appendLine(`stop${text ? "+send" : ""}: open ${uri.toString()}`);
+      await vscode.commands.executeCommand("vscode.open", uri);
+      await vscode.commands.executeCommand("workbench.action.chat.cancel");
+      if (text) {
+        await vscode.commands.executeCommand("workbench.action.chat.open", {
+          query: text,
+        });
+      }
+    },
     decide: async ({ sessionId, toolCallId, decision }) => {
       // Resolve VS Code's OWN native tool confirmation via command, targeted
       // by the session URI (EXACT-match, so a wrong id is a safe no-op; docs/

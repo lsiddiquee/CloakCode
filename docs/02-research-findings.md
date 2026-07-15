@@ -596,9 +596,9 @@ install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
   `assistant.turn_end` (no `reason`/`aborted`/`cancelled` field) — both LIVE-CONFIRMED 2026-07-15 via
   `steerWithMessage` / `chat.cancel`. So CloakCode tracks only **in-flight-ness**, never labels a
   message as steer/queue/stop — matching Copilot's own persisted history, which shows no such marker
-  either (the "Steering" divider and stop button are transient/live-only). Full command mechanics
-  (which `workbench.action.chat.*` drives each action) live in `.local/research/`; fold them into §3
-  when the actuator slice ships. **Force-stop nuance:** a force-stop **mid-tool** orphans a
+  either (the "Steering" divider and stop button are transient/live-only). The command mechanics
+  (which `workbench.action.chat.*` drives each action) are wired and tabulated in docs/03 "Mid-turn
+  flag" (SHIPPED 2026-07-15). **Force-stop nuance:** a force-stop **mid-tool** orphans a
   `tool.execution_start` (blocker-shaped) but is followed by `assistant.turn_end`; the existing
   "a new turn supersedes an open interactive tool" rule already prevents a phantom blocker.
 

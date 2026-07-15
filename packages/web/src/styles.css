@@ -706,6 +706,21 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+/* Mid-turn action row (steer / stop-and-send / stop / send-anyway). */
+.chat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-send.secondary {
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  font-weight: 600;
+}
+.chat-send.danger {
+  background: var(--red);
+}
 
 /* Approve/deny a pending tool call from the pending overlay. */
 .approve-row {

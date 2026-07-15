@@ -5,6 +5,8 @@ import {
   sessionRespondResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
+  sessionSteerResponseSchema,
+  sessionStopResponseSchema,
   type Decision,
   type PendingBlocker,
   type QuestionAnswer,
@@ -284,6 +286,41 @@ export function answerSession(
     "session.answer",
     params,
     (raw) => sessionAnswerResponseSchema.safeParse(raw).success,
+    url,
+  );
+}
+
+/**
+ * Steer the in-flight turn: inject `text` INTO the running turn to redirect it
+ * (not queued after). Only meaningful while `SessionSummary.inTurn`. The
+ * extension host prefills the composer then fires `steerWithMessage`. A
+ * `remote-operator` action; resolves on the ack, rejects on error/timeout.
+ */
+export function steerSession(
+  params: { sessionId: string; text: string },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return oneShotRpc(
+    "session.steer",
+    params,
+    (raw) => sessionSteerResponseSchema.safeParse(raw).success,
+    url,
+  );
+}
+
+/**
+ * Stop the in-flight turn (`chat.cancel`). With `text` it's STOP-AND-SEND
+ * (cancel, then send `text` as a fresh prompt); without, a pure stop. A
+ * `remote-operator` action; resolves on the ack, rejects on error/timeout.
+ */
+export function stopSession(
+  params: { sessionId: string; text?: string },
+  url: string = bridgeUrl(),
+): Promise<void> {
+  return oneShotRpc(
+    "session.stop",
+    params,
+    (raw) => sessionStopResponseSchema.safeParse(raw).success,
     url,
   );
 }

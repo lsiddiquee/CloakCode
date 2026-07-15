@@ -70,6 +70,18 @@ export interface BridgeDeps {
     toolCallId: string;
     answers: QuestionAnswer[];
   }) => Promise<void>;
+  /**
+   * Steer the in-flight turn with a `remote-operator` redirect (docs/04): the
+   * extension prefills the composer then fires `steerWithMessage` (docs/02
+   * §4.28). Extension-host only; unset → `session.steer` is unsupported.
+   */
+  steer?: (params: { sessionId: string; text: string }) => Promise<void>;
+  /**
+   * Stop the in-flight turn (`chat.cancel`); with `text`, then send it as a
+   * fresh prompt (stop-and-send). A `remote-operator` action (docs/04).
+   * Extension-host only; unset → `session.stop` is unsupported.
+   */
+  stop?: (params: { sessionId: string; text?: string }) => Promise<void>;
 }
 
 export interface BridgeOptions {
@@ -392,6 +404,52 @@ export async function handleMessage(
             ok: true,
             op: "session.answer",
           }),
+        );
+        break;
+      }
+      case "session.steer": {
+        // A remote-operator redirect injected INTO the running turn (docs/04),
+        // via the extension host's `steer`. Never genuine-local intent.
+        if (!deps.steer) {
+          socket.send(
+            JSON.stringify({
+              id: request.id,
+              ok: false,
+              error: { message: "steering not supported on this bridge" },
+            }),
+          );
+          break;
+        }
+        await deps.steer({
+          sessionId: request.params.sessionId,
+          text: request.params.text,
+        });
+        socket.send(
+          JSON.stringify({ id: request.id, ok: true, op: "session.steer" }),
+        );
+        break;
+      }
+      case "session.stop": {
+        // A remote-operator cancel (optionally cancel-then-send), via the
+        // extension host's `stop`. Never genuine-local intent.
+        if (!deps.stop) {
+          socket.send(
+            JSON.stringify({
+              id: request.id,
+              ok: false,
+              error: { message: "stopping not supported on this bridge" },
+            }),
+          );
+          break;
+        }
+        await deps.stop({
+          sessionId: request.params.sessionId,
+          ...(request.params.text !== undefined
+            ? { text: request.params.text }
+            : {}),
+        });
+        socket.send(
+          JSON.stringify({ id: request.id, ok: true, op: "session.stop" }),
         );
         break;
       }

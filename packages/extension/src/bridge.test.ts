@@ -482,6 +482,99 @@ describe("startBridge", () => {
       await bridge.close();
     }
   });
+
+  it("routes session.steer to the steer dep and acks", async () => {
+    let got: { sessionId: string; text: string } | undefined;
+    const bridge = await startBridge(
+      deps({
+        steer: async (p) => {
+          got = p;
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "13",
+        op: "session.steer",
+        params: { sessionId: "sessA", text: "use zod" },
+      });
+      expect(res).toMatchObject({ id: "13", ok: true, op: "session.steer" });
+      expect(got).toEqual({ sessionId: "sessA", text: "use zod" });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("errors session.steer when no steer dep is configured", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await request(bridge.port, {
+        id: "13",
+        op: "session.steer",
+        params: { sessionId: "sessA", text: "x" },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("routes session.stop (stop-and-send and pure stop) to the stop dep", async () => {
+    const seen: Array<{ sessionId: string; text?: string }> = [];
+    const bridge = await startBridge(
+      deps({
+        stop: async (p) => {
+          seen.push(p);
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const withText = await request(bridge.port, {
+        id: "14",
+        op: "session.stop",
+        params: { sessionId: "sessA", text: "start over" },
+      });
+      expect(withText).toMatchObject({
+        id: "14",
+        ok: true,
+        op: "session.stop",
+      });
+      const pure = await request(bridge.port, {
+        id: "15",
+        op: "session.stop",
+        params: { sessionId: "sessA" },
+      });
+      expect(pure).toMatchObject({ id: "15", ok: true, op: "session.stop" });
+      expect(seen).toEqual([
+        { sessionId: "sessA", text: "start over" },
+        { sessionId: "sessA" },
+      ]);
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("errors session.stop when no stop dep is configured", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await request(bridge.port, {
+        id: "14",
+        op: "session.stop",
+        params: { sessionId: "sessA" },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.any(String) },
+      });
+    } finally {
+      await bridge.close();
+    }
+  });
 });
 
 describe("startBridge static gateway", () => {

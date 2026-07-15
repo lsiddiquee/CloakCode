@@ -234,6 +234,29 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       answers: z.array(questionAnswerSchema),
     }),
   }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.steer"),
+    params: z.object({
+      sessionId: z.string(),
+      // Injected INTO the in-flight turn to redirect it, NOT queued after it.
+      // The extension prefills the composer (`chat.open {isPartialQuery}`) then
+      // fires `steerWithMessage` (docs/02 §4.28 / research §7). Only meaningful
+      // while the session is mid-turn (`SessionSummary.inTurn`).
+      text: z.string().min(1),
+    }),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.stop"),
+    params: z.object({
+      sessionId: z.string(),
+      // Optional follow-up: present = STOP-AND-SEND (cancel the in-flight turn
+      // via `chat.cancel`, THEN send this as a fresh prompt); absent = a pure
+      // stop (cancel only). A remote-operator action (docs/04).
+      text: z.string().min(1).optional(),
+    }),
+  }),
 ]);
 export type RpcRequest = z.infer<typeof rpcRequestSchema>;
 
@@ -295,6 +318,33 @@ export const sessionAnswerResponseSchema = z.object({
   op: z.literal("session.answer"),
 });
 export type SessionAnswerResponse = z.infer<typeof sessionAnswerResponseSchema>;
+
+/**
+ * Ack for `session.steer` — the operator's redirect has been injected into the
+ * in-flight turn (the extension prefilled the composer then fired
+ * `steerWithMessage`). A `remote-operator`-provenance action (docs/04); it leaves
+ * no distinct on-disk marker — the steered text reads as a normal `user.message`
+ * (docs/02 §4.28).
+ */
+export const sessionSteerResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.steer"),
+});
+export type SessionSteerResponse = z.infer<typeof sessionSteerResponseSchema>;
+
+/**
+ * Ack for `session.stop` — the in-flight turn was cancelled (`chat.cancel`), and
+ * when a follow-up `text` was supplied it was then sent as a fresh prompt
+ * (stop-and-send). A `remote-operator`-provenance action (docs/04); a cancelled
+ * turn leaves no distinct on-disk marker either (docs/02 §4.28).
+ */
+export const sessionStopResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.stop"),
+});
+export type SessionStopResponse = z.infer<typeof sessionStopResponseSchema>;
 
 /**
  * A streamed frame delivered for an active `session.subscribe`. Two separate

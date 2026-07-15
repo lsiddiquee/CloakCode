@@ -12,6 +12,8 @@ import {
   answerSession,
   decideSession,
   respondSession,
+  steerSession,
+  stopSession,
   subscribeSession,
   type ConnState,
 } from "./bridge";
@@ -363,19 +365,17 @@ function useRemoteSend(session: SessionSummary): {
   error: string | null;
   sent: boolean;
   send: (text: string, toolCallId?: string) => Promise<boolean>;
+  steer: (text: string) => Promise<boolean>;
+  stop: (text?: string) => Promise<boolean>;
 } {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-  const send = async (text: string, toolCallId?: string): Promise<boolean> => {
+  const run = async (fn: () => Promise<void>): Promise<boolean> => {
     setSending(true);
     setError(null);
     try {
-      await respondSession({
-        sessionId: session.sessionId,
-        text,
-        ...(toolCallId ? { toolCallId } : {}),
-      });
+      await fn();
       setSent(true);
       return true;
     } catch (e) {
@@ -385,7 +385,24 @@ function useRemoteSend(session: SessionSummary): {
       setSending(false);
     }
   };
-  return { sending, error, sent, send };
+  const send = (text: string, toolCallId?: string): Promise<boolean> =>
+    run(() =>
+      respondSession({
+        sessionId: session.sessionId,
+        text,
+        ...(toolCallId ? { toolCallId } : {}),
+      }),
+    );
+  const steer = (text: string): Promise<boolean> =>
+    run(() => steerSession({ sessionId: session.sessionId, text }));
+  const stop = (text?: string): Promise<boolean> =>
+    run(() =>
+      stopSession({
+        sessionId: session.sessionId,
+        ...(text ? { text } : {}),
+      }),
+    );
+  return { sending, error, sent, send, steer, stop };
 }
 
 /**
@@ -679,17 +696,30 @@ function PendingCard({
 
 function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
   const [msg, setMsg] = useState("");
-  const { sending, error, send } = useRemoteSend(session);
+  const { sending, error, send, steer, stop } = useRemoteSend(session);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const inTurn = session.inTurn;
+  const text = msg.trim();
+  const hasText = text.length > 0;
 
-  const submit = async (): Promise<void> => {
-    const text = msg.trim();
-    if (text.length === 0 || sending) return;
-    if (await send(text)) setMsg("");
+  // Run a text action and clear the box on success. Guards empty/in-flight.
+  const act = async (fn: () => Promise<boolean>): Promise<void> => {
+    if (sending || !hasText) return;
+    if (await fn()) setMsg("");
   };
+  const doQueue = (): Promise<void> => act(() => send(text));
+  const doSteer = (): Promise<void> => act(() => steer(text));
+  const doStopSend = (): Promise<void> => act(() => stop(text));
+  // Pure cancel: needs no message, works with an empty box, and must NOT clear
+  // whatever the operator is drafting.
+  const doStop = async (): Promise<void> => {
+    if (!sending) await stop();
+  };
+  // The submit/Enter action: steer while mid-turn, else a plain queued send.
+  const primary = inTurn ? doSteer : doQueue;
 
   // Grow the textarea with its content (capped) so multi-line messages are
-  // visible. Enter inserts a newline; Ctrl/⌘+Enter sends.
+  // visible. Enter inserts a newline; Ctrl/⌘+Enter runs the primary action.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -702,7 +732,7 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
       className="chat-composer"
       onSubmit={(e) => {
         e.preventDefault();
-        void submit();
+        void primary();
       }}
     >
       {error && <div className="pending-error">send failed: {error}</div>}
@@ -711,13 +741,17 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
           ref={ref}
           className="chat-input"
           rows={1}
-          placeholder="Message the active chat…  (⏎ newline · ⌘/Ctrl+⏎ send)"
+          placeholder={
+            inTurn
+              ? "Redirect this turn…  (⏎ newline · ⌘/Ctrl+⏎ steer)"
+              : "Message the active chat…  (⏎ newline · ⌘/Ctrl+⏎ send)"
+          }
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              void submit();
+              void primary();
             }
           }}
           disabled={sending}
@@ -725,13 +759,44 @@ function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
         <button
           type="submit"
           className="chat-send"
-          disabled={sending || msg.trim().length === 0}
+          disabled={sending || !hasText}
         >
-          {sending ? "…" : "Send"}
+          {sending ? "…" : inTurn ? "Steer" : "Send"}
         </button>
       </div>
+      {inTurn && (
+        <div className="chat-actions">
+          <button
+            type="button"
+            className="chat-send danger"
+            onClick={() => void doStopSend()}
+            disabled={sending || !hasText}
+          >
+            Stop &amp; send
+          </button>
+          <button
+            type="button"
+            className="chat-send danger"
+            onClick={() => void doStop()}
+            disabled={sending}
+          >
+            Stop
+          </button>
+          <button
+            type="button"
+            className="chat-send secondary"
+            onClick={() => void doQueue()}
+            disabled={sending || !hasText}
+            title="Queue as a normal message — use if this turn has actually ended (stale tracking)"
+          >
+            Send anyway
+          </button>
+        </div>
+      )}
       <div className="blocker-note">
-        Sends to the active chat in VS Code (remote-operator).
+        {inTurn
+          ? "Mid-turn: Steer redirects it · Stop & send cancels then sends · “Send anyway” just queues (use if tracking is stale). remote-operator."
+          : "Sends to the active chat in VS Code (remote-operator)."}
       </div>
     </form>
   );

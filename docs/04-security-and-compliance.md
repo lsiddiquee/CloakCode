@@ -56,6 +56,12 @@ Design implications for an actuator that can stage/inject prompts:
   Code’s native prompt still appears and whoever answers first wins, so the local user is always
   the backstop. The command is targeted by **exact** session URI, so a stale/wrong id is a safe
   no-op and can never approve a different session (docs/03 “Remote approval”, docs/02 §4.20).
+- **Steer / stop / stop-and-send are `remote-operator`, command-only.** The mid-turn actions
+  (`session.steer`, `session.stop`) and the queued send (`session.respond`) all reach VS Code only
+  through public `workbench.action.chat.*` commands after focusing the session URI — never a network
+  write, never GitHub. Each is tagged `remote-operator`; a steered redirect is recorded on disk as an
+  ordinary `user.message` (docs/02 §4.28), so the loop/UI must keep treating it as operator-origin,
+  not reflected human intent. `chat.cancel` only halts the runner's own turn.
 
 ## Tunnel & transport
 

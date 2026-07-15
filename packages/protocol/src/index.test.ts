@@ -12,6 +12,8 @@ import {
   sessionsListResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
+  sessionSteerResponseSchema,
+  sessionStopResponseSchema,
   providerInfoSchema,
   cloakcodeHelloSchema,
   connectionHelloSchema,
@@ -194,6 +196,58 @@ describe("rpcRequestSchema", () => {
           toolCallId: "t1",
           answers: [{ selected: "Overwrite" }],
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses a session.steer request", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "8",
+      op: "session.steer",
+      params: { sessionId: "sessA", text: "actually use zod" },
+    });
+    expect(parsed.op).toBe("session.steer");
+    if (parsed.op === "session.steer") {
+      expect(parsed.params.text).toBe("actually use zod");
+    }
+  });
+
+  it("rejects a session.steer with empty text", () => {
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "8",
+        op: "session.steer",
+        params: { sessionId: "sessA", text: "" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses a session.stop request with and without a follow-up message", () => {
+    const stopAndSend = rpcRequestSchema.parse({
+      id: "9",
+      op: "session.stop",
+      params: { sessionId: "sessA", text: "start over" },
+    });
+    expect(stopAndSend.op).toBe("session.stop");
+    if (stopAndSend.op === "session.stop") {
+      expect(stopAndSend.params.text).toBe("start over");
+    }
+    const pureStop = rpcRequestSchema.parse({
+      id: "10",
+      op: "session.stop",
+      params: { sessionId: "sessA" },
+    });
+    if (pureStop.op === "session.stop") {
+      expect(pureStop.params.text).toBeUndefined();
+    }
+  });
+
+  it("rejects a session.stop with empty (present but blank) text", () => {
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "9",
+        op: "session.stop",
+        params: { sessionId: "sessA", text: "" },
       }).success,
     ).toBe(false);
   });
@@ -427,6 +481,16 @@ describe("response schemas", () => {
   it("parses a session.answer ack", () => {
     const res = { id: "7", ok: true as const, op: "session.answer" as const };
     expect(sessionAnswerResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a session.steer ack", () => {
+    const res = { id: "8", ok: true as const, op: "session.steer" as const };
+    expect(sessionSteerResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a session.stop ack", () => {
+    const res = { id: "9", ok: true as const, op: "session.stop" as const };
+    expect(sessionStopResponseSchema.parse(res)).toEqual(res);
   });
 });
 

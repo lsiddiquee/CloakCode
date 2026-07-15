@@ -8,6 +8,8 @@ const h = vi.hoisted(() => ({
   status: "open" as string,
   pending: [] as PendingBlocker[],
   respond: vi.fn(async (_params: unknown) => {}),
+  steer: vi.fn(async (_params: unknown) => {}),
+  stop: vi.fn(async (_params: unknown) => {}),
 }));
 
 // Stub the bridge so mounting SessionView never opens a real WebSocket and the
@@ -25,6 +27,8 @@ vi.mock("./bridge", () => ({
     return () => {};
   },
   respondSession: h.respond,
+  steerSession: h.steer,
+  stopSession: h.stop,
   decideSession: async () => {},
   answerSession: async () => {},
 }));
@@ -33,6 +37,8 @@ beforeEach(() => {
   h.status = "open";
   h.pending = [];
   h.respond.mockClear();
+  h.steer.mockClear();
+  h.stop.mockClear();
 });
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -88,6 +94,85 @@ describe("SessionView composer", () => {
       sessionId: "sess-1",
       text: "line1",
     });
+  });
+});
+
+describe("SessionView composer — mid-turn actions", () => {
+  it("not mid-turn: primary is a plain queued Send (no steer/stop UI)", () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: false })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Steer/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Stop$/ })).toBeNull();
+  });
+
+  it("mid-turn: Ctrl/Cmd+Enter steers into the running turn", () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: true })}
+        onBack={() => {}}
+      />,
+    );
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "use zod" } });
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(h.steer).toHaveBeenCalledTimes(1);
+    expect(h.steer.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "sess-1",
+      text: "use zod",
+    });
+    expect(h.respond).not.toHaveBeenCalled();
+  });
+
+  it("mid-turn: Stop & send cancels then sends the typed text", () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: true })}
+        onBack={() => {}}
+      />,
+    );
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "start over" } });
+    fireEvent.click(screen.getByRole("button", { name: /Stop & send/ }));
+    expect(h.stop).toHaveBeenCalledTimes(1);
+    expect(h.stop.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "sess-1",
+      text: "start over",
+    });
+  });
+
+  it("mid-turn: pure Stop cancels with no message even when the box is empty", () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: true })}
+        onBack={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Stop$/ }));
+    expect(h.stop).toHaveBeenCalledTimes(1);
+    expect(h.stop.mock.calls[0]?.[0]).toEqual({ sessionId: "sess-1" });
+  });
+
+  it("mid-turn: “Send anyway” force-queues via respond (stale-tracking escape hatch)", () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: true })}
+        onBack={() => {}}
+      />,
+    );
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "just queue it" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send anyway/ }));
+    expect(h.respond).toHaveBeenCalledTimes(1);
+    expect(h.respond.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "sess-1",
+      text: "just queue it",
+    });
+    expect(h.steer).not.toHaveBeenCalled();
   });
 });
 
