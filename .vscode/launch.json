@@ -12,7 +12,7 @@
         "${workspaceFolder}/packages/extension/dist/**/*.cjs"
       ],
       "env": {
-        "CLOAKCODE_PORT": "7803",
+        "CLOAKCODE_GATEWAY_PORT": "7803",
         "CLOAKCODE_DIAG_FILE": "${workspaceFolder}/.local/cloakcode-diagnostics.txt",
         // The devcontainer's initializeCommand writes HOST_IP (the WSL/host IP)
         // into the container env; connect F5 straight to a gateway on the host at

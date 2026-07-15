@@ -98,10 +98,13 @@
           "markdownDescription": "How **CloakCode: Show Phone Link** gets a phone-reachable URL. `off`: use VS Code's automatic forwarding (`asExternalUri`) — phone-reachable in Codespaces/remotes, but a **desktop-loopback** URL in local dev containers. `devtunnel`: auto-host the gateway on a **private** Microsoft Dev Tunnel and parse its public URL for you — no manual tunnel or URL paste. Requires the `devtunnel` CLI installed and `devtunnel user login`. The tunnel is **private** (sign-in required to open the link), never anonymous. _Advanced:_ set the `CLOAKCODE_PUBLIC_URL` env var to force your own bring-your-own-tunnel URL."
         },
         "cloakcode.port": {
-          "type": "number",
-          "default": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
           "scope": "window",
-          "markdownDescription": "Localhost port for the CloakCode gateway (bound to `127.0.0.1` only). `0` (default) picks a free **ephemeral** port each launch — avoids collisions when several windows/instances run. Set a fixed port (e.g. `7801`) to **lock** it, which also keeps the phone/tunnel URL stable across reloads. (The dev launch overrides this with `CLOAKCODE_PORT`.)"
+          "markdownDescription": "Localhost port for the CloakCode gateway (bound to `127.0.0.1` only). **Unset** (default): try **3543**, falling back to a free **ephemeral** port only if it's taken. `0`: always use an ephemeral port. A fixed value (e.g. `7801`): **lock** that port — keeps the phone/tunnel URL stable across reloads (fails if it's busy). The standalone gateway follows the same rule via the `CLOAKCODE_GATEWAY_PORT` env var, which overrides this setting."
         },
         "cloakcode.gatewayUrl": {
           "type": "string",

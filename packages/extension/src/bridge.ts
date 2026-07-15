@@ -3,13 +3,18 @@ import { readFile } from "node:fs/promises";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   rpcRequestSchema,
+  DEFAULT_PORT,
   type Decision,
   type QuestionAnswer,
   type SessionSummary,
 } from "@cloakcode/protocol";
 import { SessionFollower, type SessionLog } from "./session-observer.js";
 import { SpoolFollower } from "./hook-spool.js";
-import { contentTypeFor, resolveStaticPath } from "@cloakcode/gateway";
+import {
+  contentTypeFor,
+  listenWithFallback,
+  resolveStaticPath,
+} from "@cloakcode/gateway";
 
 /**
  * The localhost bridge. Binds `127.0.0.1` only (security rule 3) and speaks the
@@ -90,6 +95,12 @@ export interface BridgeOptions {
   /** Fixed port for same-host convenience; `0` picks an ephemeral free port. */
   port?: number;
   /**
+   * When `port` is a specific busy port, fall back to an ephemeral one instead
+   * of failing (backs the unset-→-DEFAULT_PORT-then-ephemeral default via
+   * `resolvePortPlan`). Off for a locked explicit port.
+   */
+  fallbackToEphemeral?: boolean;
+  /**
    * Directory of the built PWA to serve over plain HTTP on the same port that
    * carries the `/bridge` WebSocket (the packaged gateway). Omit for dev/test —
    * Vite serves the app then, and the bridge answers plain HTTP with `426`.
@@ -129,7 +140,7 @@ export async function startBridge(
   opts: BridgeOptions = {},
 ): Promise<Bridge> {
   const host = opts.host ?? "127.0.0.1";
-  const port = opts.port ?? 7801;
+  const port = opts.port ?? DEFAULT_PORT;
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
   const serveDir = opts.serveDir;
 
@@ -197,14 +208,12 @@ export async function startBridge(
   }, heartbeatMs);
   heartbeat.unref(); // never keep the process alive for the heartbeat alone
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => resolve());
-  });
-
-  const address = server.address();
-  const boundPort =
-    typeof address === "object" && address ? address.port : port;
+  const boundPort = await listenWithFallback(
+    server,
+    host,
+    port,
+    opts.fallbackToEphemeral ?? false,
+  );
 
   return {
     port: boundPort,

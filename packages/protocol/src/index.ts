@@ -1,6 +1,15 @@
 import { z } from "zod";
 
 /**
+ * Preferred loopback port for BOTH the embedded bridge and the standalone
+ * gateway. `cloakcode.port` / `CLOAKCODE_GATEWAY_PORT` of `0` (or unset) means
+ * "try this port first, and fall back to an ephemeral port only if it is
+ * already taken"; any non-zero value locks that exact port (no fallback). Kept
+ * here so the two runtimes always agree on the default. See docs/03.
+ */
+export const DEFAULT_PORT = 3543;
+
+/**
  * Liveness-derived session status. Per research (docs/02 §3.3) this comes from
  * file mtime + the blocker signature, never from the last event type.
  */

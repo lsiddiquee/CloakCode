@@ -19,7 +19,7 @@ WORKDIR /app
 COPY --from=build /repo/packages/gateway/dist/main.mjs ./main.mjs
 COPY --from=build /repo/packages/web/dist ./web
 ENV CLOAKCODE_GATEWAY_HOST=0.0.0.0 \
-    CLOAKCODE_GATEWAY_PORT=7900 \
+    CLOAKCODE_GATEWAY_PORT=3543 \
     CLOAKCODE_WEB_DIR=/app/web
-EXPOSE 7900
+EXPOSE 3543
 CMD ["node", "main.mjs"]

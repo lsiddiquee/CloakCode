@@ -13,12 +13,19 @@ import { ProviderRegistry } from "./registry.js";
 import { WsProvider } from "./ws-provider.js";
 import { Relay } from "./relay.js";
 import { contentTypeFor, resolveStaticPath } from "./static-files.js";
+import { listenWithFallback } from "./listen.js";
 
 export interface GatewayOptions {
   /** Bind address. Defaults to `127.0.0.1` (front it with a tunnel for remote). */
   host?: string;
   /** Port; `0` (default) picks a free ephemeral port. */
   port?: number;
+  /**
+   * When `port` is a specific busy port, fall back to an ephemeral one instead
+   * of failing (backs the unset-→-DEFAULT_PORT-then-ephemeral default via
+   * `resolvePortPlan`). Off for a locked explicit port.
+   */
+  fallbackToEphemeral?: boolean;
   /** Directory of the built PWA to serve; omit to run WS-only (`426` on GET). */
   serveDir?: string;
   /**
@@ -166,13 +173,12 @@ export async function startGateway(
     });
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => resolve());
-  });
-  const address = server.address();
-  const boundPort =
-    typeof address === "object" && address ? address.port : port;
+  const boundPort = await listenWithFallback(
+    server,
+    host,
+    port,
+    opts.fallbackToEphemeral ?? false,
+  );
 
   return {
     port: boundPort,

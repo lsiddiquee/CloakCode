@@ -41,7 +41,7 @@ function snapshot(
     hookConfigPath: "/home/u/.copilot/hooks/cloakcode.json",
     cloakcodeEnv: [
       { key: "CLOAKCODE_INSTANCE_ID", value: "ext-dev" },
-      { key: "CLOAKCODE_PORT", value: "7803" },
+      { key: "CLOAKCODE_GATEWAY_PORT", value: "7803" },
     ],
     ...over,
   };
@@ -81,7 +81,7 @@ describe("formatDiagnostics", () => {
 
   it("lists only allow-listed CLOAKCODE_* env vars", () => {
     const out = formatDiagnostics(snapshot());
-    expect(out).toContain("CLOAKCODE_PORT=7803");
+    expect(out).toContain("CLOAKCODE_GATEWAY_PORT=7803");
     expect(out).toContain("CLOAKCODE_INSTANCE_ID=ext-dev");
   });
 

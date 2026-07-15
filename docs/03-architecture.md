@@ -172,8 +172,11 @@ _X_ only sees records where `sessionId === X` (`computePendingBlockers` filters 
 hook needs no notion of "which VS Code window" — fire-and-forget per interactive record is
 sufficient; the `session_id` in the record is the correlation key the follower routes on.
 
-The per-window **ephemeral bridge port** is now the default (`cloakcode.port: 0` picks a free
-port; set a fixed port to lock the phone/tunnel URL), and `instanceId` defaults to
+The bridge/gateway **port** follows one rule for both the embedded bridge and the standalone
+gateway (`resolvePortPlan`): **unset** (`cloakcode.port` blank / `CLOAKCODE_GATEWAY_PORT` unset)
+→ try **3543** (the shared `DEFAULT_PORT`), falling back to a free **ephemeral** port only if it's taken;
+**`0`** → always ephemeral; a **fixed `N`** → lock that port (stable phone/tunnel URL, fails if
+busy). `instanceId` defaults to
 `<env-kind>:<workspace>` (dev-container name when available). It is a **display label only** and
 is overridden per workspace via the **`CloakCode: Set Instance ID`** command (stored in
 `workspaceState`, not a setting — which had confused the User/Remote/Workspace scopes). _Deferred (Q6/M4):_ a per-environment **leader** (lock in globalStorage) so one

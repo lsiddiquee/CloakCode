@@ -13,7 +13,9 @@ import { defaultSpoolDir } from "./hook-spool.js";
  */
 
 const instanceId = os.hostname();
-const port = Number(process.env["CLOAKCODE_PORT"] ?? 7801);
+// Dev harness wants a FIXED port so Vite's proxy target stays put (not the
+// 3543-then-ephemeral runtime rule). Standard env name: CLOAKCODE_GATEWAY_PORT.
+const port = Number(process.env["CLOAKCODE_GATEWAY_PORT"] ?? 7801);
 const root = defaultWorkspaceStorageRoot();
 const spoolDir = process.env["CLOAKCODE_SPOOL"] ?? defaultSpoolDir();
 

@@ -7,7 +7,7 @@
  *
  * Env:
  *   CLOAKCODE_GATEWAY_HOST   bind address (default 127.0.0.1; use 0.0.0.0 in Docker)
- *   CLOAKCODE_GATEWAY_PORT   port (default 7900)
+ *   CLOAKCODE_GATEWAY_PORT   port: unset → 3543 (ephemeral if taken); 0 → ephemeral; N → lock N
  *   CLOAKCODE_WEB_DIR        directory of the built PWA to serve (optional)
  *   CLOAKCODE_TUNNEL         `devtunnel` to auto-host a private tunnel (optional)
  *   CLOAKCODE_INSTANCE_ID    tunnel-name seed (default "gateway")
@@ -18,10 +18,12 @@
 import { networkInterfaces } from "node:os";
 import { connectionUrls } from "./connect-urls.js";
 import { startGateway } from "./gateway.js";
+import { resolvePortPlan } from "./listen.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
-const port = Number(process.env["CLOAKCODE_GATEWAY_PORT"]) || 7900;
+// unset → 3543 then ephemeral; 0 → ephemeral; N → lock N (same rule as embedded).
+const portPlan = resolvePortPlan(process.env["CLOAKCODE_GATEWAY_PORT"]);
 const serveDir = process.env["CLOAKCODE_WEB_DIR"];
 const verbose =
   process.env["CLOAKCODE_VERBOSE"] === "1" ||
@@ -30,7 +32,8 @@ const log = (line: string): void => console.log(`[cloakcode-gateway] ${line}`);
 
 const gateway = await startGateway({
   host,
-  port,
+  port: portPlan.port,
+  fallbackToEphemeral: portPlan.fallbackToEphemeral,
   log,
   verbose,
   ...(serveDir ? { serveDir } : {}),

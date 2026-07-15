@@ -29,8 +29,10 @@ import { phoneLinkHtml, isLoopback } from "./phone-link.js";
 import {
   devTunnelInstallHint,
   devTunnelName,
+  resolvePortPlan,
   startDevTunnel,
   TunnelError,
+  type PortPlan,
   type Tunnel,
   type TunnelLog,
 } from "@cloakcode/gateway";
@@ -191,12 +193,14 @@ export async function activate(
   out.appendLine(
     `instanceId: "${instanceId}" (run “CloakCode: Set Instance ID” to change)`,
   );
-  // `0` = an ephemeral free port (avoids collisions across windows/instances); a
-  // fixed `cloakcode.port` locks it (stable phone/tunnel URL). `CLOAKCODE_PORT`
-  // overrides for the dev launch so Vite's proxy target stays fixed.
-  // `let` so establishConnection() can refresh it on reconnect (cloakcode.port).
-  let port =
-    Number(process.env["CLOAKCODE_PORT"]) || cfg.get<number>("port") || 0;
+  // Bind rule (resolvePortPlan, tested): `cloakcode.port` / `CLOAKCODE_GATEWAY_PORT`
+  // unset → try 3543, then an ephemeral port if it's taken; `0` → ephemeral; a
+  // fixed N → lock N (stable phone/tunnel URL). `let` so establishConnection()
+  // refreshes it on reconnect.
+  let portPlan = resolvePortPlan(
+    process.env["CLOAKCODE_GATEWAY_PORT"],
+    cfg.get<number | null>("port"),
+  );
   const root = defaultWorkspaceStorageRoot();
   // The spool is a fixed, per-environment dir shared by the hook and every
   // window's follower (see hook-spool `defaultSpoolDir`) — NOT `globalStorageUri`,
@@ -351,8 +355,10 @@ export async function activate(
   // change.
   const establishConnection = async (): Promise<string> => {
     const cfgNow = vscode.workspace.getConfiguration("cloakcode");
-    port =
-      Number(process.env["CLOAKCODE_PORT"]) || cfgNow.get<number>("port") || 0;
+    portPlan = resolvePortPlan(
+      process.env["CLOAKCODE_GATEWAY_PORT"],
+      cfgNow.get<number | null>("port"),
+    );
     // Pure decision (tested in connection-plan.test.ts): explicit url → gateway;
     // else embedded.
     const plan = resolveConnectionPlan({
@@ -378,14 +384,20 @@ export async function activate(
         );
         bridge = await startEmbeddedBridge(
           deps,
-          port,
+          portPlan,
           serveDir,
           instanceId,
           out,
         );
       }
     } else {
-      bridge = await startEmbeddedBridge(deps, port, serveDir, instanceId, out);
+      bridge = await startEmbeddedBridge(
+        deps,
+        portPlan,
+        serveDir,
+        instanceId,
+        out,
+      );
     }
     status.tooltip = gatewayClient
       ? `CloakCode: gateway mode (${gatewayClient.url}) — click for the phone link`
@@ -516,7 +528,7 @@ export async function activate(
       root,
       scanned,
       bridgePort: bridge?.port ?? null,
-      configuredPort: port,
+      configuredPort: portPlan.port,
       spoolDir,
       hookConfigPath: path.join(
         os.homedir(),
@@ -685,7 +697,7 @@ export function deactivate(): void {
  */
 async function startEmbeddedBridge(
   deps: BridgeDeps,
-  port: number,
+  portPlan: PortPlan,
   serveDir: string | undefined,
   instanceId: string,
   out: vscode.OutputChannel,
@@ -693,7 +705,8 @@ async function startEmbeddedBridge(
   try {
     const b = await startBridge(deps, {
       host: "127.0.0.1",
-      port,
+      port: portPlan.port,
+      fallbackToEphemeral: portPlan.fallbackToEphemeral,
       ...(serveDir ? { serveDir } : {}),
     });
     out.appendLine(
@@ -703,7 +716,7 @@ async function startEmbeddedBridge(
     return b;
   } catch (err) {
     out.appendLine(
-      `failed to start bridge on ${port}: ${
+      `failed to start bridge on ${portPlan.port}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );

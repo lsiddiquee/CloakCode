@@ -14,6 +14,7 @@ import {
   sessionAnswerResponseSchema,
   sessionSteerResponseSchema,
   sessionStopResponseSchema,
+  DEFAULT_PORT,
   providerInfoSchema,
   cloakcodeHelloSchema,
   connectionHelloSchema,
@@ -33,6 +34,12 @@ const validSummary: SessionSummary = {
   owned: true,
   inTurn: false,
 };
+
+describe("DEFAULT_PORT", () => {
+  it("is the shared preferred loopback port (3543)", () => {
+    expect(DEFAULT_PORT).toBe(3543);
+  });
+});
 
 describe("sessionStatusSchema", () => {
   it("accepts the three known statuses", () => {
