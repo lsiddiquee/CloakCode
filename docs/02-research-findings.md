@@ -564,6 +564,22 @@ copilotVersion, vscodeVersion, startTime, context?.cwd }` and `assistant.message
 built-in Copilot version **drifts across environments** (host 0.56.0 vs container 0.52.0); the desktop
 install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
 
+- **4.27** _A forked conversation shares the PARENT's transcript; it gets only its own debug-log dir —
+  so it is **invisible** as a distinct session-list row (observed 2026-07-15; **one reload-validation
+  pending**)._ Forking a chat in the UI does **not** create a new
+  `transcripts/<forkId>.jsonl`; the fork **appends into the parent's** transcript. Verified on-disk:
+  the parent session `7e695673-…-1883bf14b05a` (hash `bf235c2e…`) kept growing (10405 → 10423 lines,
+  mtime advancing) while the fork produced turns, and the fork's own message text landed **inside**
+  the parent's `7e695673….jsonl`. The fork's session id `c62241fb-…-979b26941a75` has a
+  `debug-logs/c62241fb…/` dir but **no** `transcripts/c62241fb….jsonl` (checked twice, minutes apart).
+  Because `scanSessions` lists `transcripts/*.jsonl`, it correctly sees **one** session (the parent) —
+  the fork is folded in, not dropped. This is **platform behaviour, not a scanner bug**. Surfacing
+  forks as distinct rows would require keying off `debug-logs/<id>/` (each fork gets its own) — a
+  design choice deferred **post-MVP** (docs/05, _Future / post-MVP capabilities_). **Still to confirm
+  on the next window reload:** whether the fork's transcript is merely **lazily flushed** (appears
+  later) vs. **never** created (always shares the parent) — i.e. is the transcript truly not "live"
+  for forks. Re-run the mtime / lines / has-transcript sweep after reload and update this entry.
+
 ---
 
 ## 5. Capability matrix (current)

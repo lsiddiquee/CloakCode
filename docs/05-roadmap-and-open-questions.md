@@ -167,6 +167,15 @@ the critical path.
   until then, treat wide binds as trusted-network-only. (Extends M4's “mTLS/token auth” to the
   explicit-gateway topology; sequenced after the MVP gateway ships.)
 
+- **Surface forked conversations as distinct sessions.** A forked chat does **not** get its own
+  transcript — it appends into the **parent's** `transcripts/<parentId>.jsonl` and only gets its own
+  `debug-logs/<forkId>/` dir (docs/02 §4.27, pending one reload-validation). So today the observer
+  (which lists `transcripts/*.jsonl`) folds a fork into its parent and shows a single row. If we want
+  forks as separate, actuatable rows, the scanner would key off `debug-logs/<id>/` (each fork has its
+  own) and reconcile against the shared transcript. Read-only surfacing is low-risk; making a fork
+  independently **actuatable** needs the cross-window / owner-signal work (the actuator is unsolved).
+  Deferred until a concrete slice needs it (YAGNI).
+
 ## Explicitly deferred
 
 - **One-question-at-a-time blocker UI — SHIPPED 2026-07-14.** A multi-question
