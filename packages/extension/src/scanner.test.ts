@@ -139,6 +139,35 @@ describe("parseTranscript", () => {
     ].join("\n");
     expect(parseTranscript(content).inTurn).toBe(true);
   });
+
+  it("is NOT inTurn on the spurious trailing turn_start after a turn_end", () => {
+    // Copilot writes a childless `turn_start` right after each `turn_end` (same
+    // ts, parent = the turn_end) as an idle next-turn placeholder — it must NOT
+    // read as mid-turn (docs/02 §3.3/§4.28; the real-world bug this fixes).
+    const content = [
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T1" } }),
+      JSON.stringify({ type: "assistant.message", data: { content: "done" } }),
+      JSON.stringify({ type: "assistant.turn_end", data: { turnId: "T1" } }),
+      // The placeholder: opens right after the turn_end, no activity follows.
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T2" } }),
+    ].join("\n");
+    expect(parseTranscript(content).inTurn).toBe(false);
+  });
+
+  it("IS inTurn for an auto-chained turn (after a turn_end) once it has activity", () => {
+    // A real turn can also follow a turn_end (agent auto-chaining); the child
+    // event (a tool call) proves it is live, unlike the childless placeholder.
+    const content = [
+      JSON.stringify({ type: "assistant.turn_end", data: { turnId: "T1" } }),
+      JSON.stringify({ type: "assistant.turn_start", data: { turnId: "T2" } }),
+      JSON.stringify({
+        type: "tool.execution_start",
+        data: { toolCallId: "x", toolName: "read_file" },
+      }),
+    ].join("\n");
+    expect(parseTranscript(content).inTurn).toBe(true);
+  });
 });
 
 describe("storageHashFromUri", () => {

@@ -590,7 +590,16 @@ install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
   on `turn_start` **only**, not `user.message`, since a **steer is recorded as an ordinary mid-turn
   `user.message`** (§3.1) and must not clear the in-flight turn. (2) **Live-gate** — like `blocked`,
   mid-turn counts only while the transcript is live by mtime, so a dormant `turn_start`-ended
-  transcript reads idle. Surfaced as `SessionSummary.inTurn` (docs/03). **Crucially, the action TYPE
+  transcript reads idle. (3) **Placeholder guard (fix 2026-07-15, real bug):** Copilot writes a
+  **spurious `assistant.turn_start` immediately after every `assistant.turn_end`** — SAME timestamp,
+  `parentId` = that turn_end — as a pre-allocated "next turn" that **never runs** (verified: 3290
+  starts vs 3281 ends in one live log; the transcript idles ending on this **childless** start). A
+  naive "open turn_start = mid-turn" therefore sticks `inTurn` **true forever** on an idle session
+  (the exact §3.3 trap that forced _status_ off the last event). Disambiguator: a turn that opened
+  **right after a `turn_end`** and has since seen **no assistant activity** (`assistant.message` /
+  `tool.*` / `function`) is the placeholder → **not** mid-turn; a real turn either follows a
+  `user.message` or gains a child event as the model works (an auto-chained turn after a `turn_end`
+  is caught by the activity check). Surfaced as `SessionSummary.inTurn` (docs/03). **Crucially, the action TYPE
   is not observable:** a steered message lands in the transcript as a **plain `user.message`** (normal
   `parentId`, no steer/queue tag) and a stopped/force-stopped turn ends with an ordinary
   `assistant.turn_end` (no `reason`/`aborted`/`cancelled` field) — both LIVE-CONFIRMED 2026-07-15 via

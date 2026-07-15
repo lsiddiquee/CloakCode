@@ -92,6 +92,17 @@ export function parseTranscript(content: string): ParsedTranscript {
   let title = "";
   let turns = 0;
   let openTurnId: string | undefined; // the in-flight assistant turn, if any
+  // Copilot writes a spurious `assistant.turn_start` immediately after each
+  // `assistant.turn_end` (SAME timestamp, `parentId` = that turn_end) as a
+  // pre-allocated "next turn" placeholder that never runs — so an IDLE session's
+  // transcript ends on a childless `turn_start` (docs/02 §3.3/§4.28: the very
+  // trap that forces status off the last event). Disambiguate: a turn that
+  // OPENED right after a `turn_end` and has seen NO activity is that placeholder,
+  // not a live turn. A real turn either follows a `user.message` or gains a
+  // child event (message / tool / function) as the model works.
+  let openTurnAfterTurnEnd = false;
+  let openTurnHadActivity = false;
+  let prevType = "";
   const openTools = new Map<string, string>(); // toolCallId -> toolName
 
   // A new turn (a user message, or the assistant starting to speak) abandons any
@@ -144,6 +155,11 @@ export function parseTranscript(content: string): ParsedTranscript {
         // `user.message` (a steer injects a mid-turn `user.message`, §3.1, which
         // must NOT clear the in-flight turn).
         openTurnId = String(data.turnId ?? "");
+        // Placeholder guard: a `turn_start` right after a `turn_end` (no user
+        // message between) is either the spurious idle placeholder or an
+        // auto-chained turn — only the LATTER gains activity below.
+        openTurnAfterTurnEnd = prevType === "assistant.turn_end";
+        openTurnHadActivity = false;
         break;
       }
       case "assistant.turn_end": {
@@ -161,13 +177,29 @@ export function parseTranscript(content: string): ParsedTranscript {
       default:
         break;
     }
+    // Any assistant-side event after a `turn_start` proves the turn is really
+    // running (distinguishes a live turn from the childless idle placeholder).
+    if (
+      openTurnId !== undefined &&
+      (event.type === "assistant.message" ||
+        event.type === "tool.execution_start" ||
+        event.type === "tool.execution_complete" ||
+        event.type === "function")
+    ) {
+      openTurnHadActivity = true;
+    }
+    prevType = event.type ?? "";
   }
 
   return {
     title,
     turns,
     openInteractiveTools: [...openTools.values()].filter(isInteractive),
-    inTurn: openTurnId !== undefined,
+    // Mid-turn only when there's an open turn that is NOT the spurious idle
+    // placeholder (opened right after a turn_end with no activity since).
+    inTurn:
+      openTurnId !== undefined &&
+      (openTurnHadActivity || !openTurnAfterTurnEnd),
   };
 }
 
