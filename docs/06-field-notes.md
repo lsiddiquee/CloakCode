@@ -147,3 +147,13 @@ Base: `~/.vscode-server/data/User/`
   invalid operator RPC, so a version mismatch surfaces; (2) redeploy fresh —
   `pnpm --filter @cloakcode/gateway assemble` (rebuilds protocol first, then the gateway bundle +
   web) and `pnpm --filter @cloakcode/extension package` — in the SAME change that alters the protocol.
+- **`pnpm <anything>` can reach the npm registry via the `packageManager` pin — NOT vsce.** Root
+  `package.json` pins `"packageManager": "pnpm@11.9.0"`; pnpm ≥9.7 (`manage-package-manager-versions`
+  default on) and corepack both DOWNLOAD that exact pnpm from the npm registry when the running pnpm
+  differs from the pin. Silent where the registry is reachable (this container runs pnpm 11.9.0 = the
+  pin → no fetch), but BLOCKED on a restricted host with a different/uncached pnpm — which reads as
+  "pnpm package reaches out to npm". It is NOT the packaging: `vsce package --no-dependencies` packages
+  fine against a dead registry (verified 2026-07-15). Offline options: install pnpm 11.9.0 on the build
+  host to match the pin; or `.npmrc` `manage-package-manager-versions=false` (and don't `corepack
+  enable`) so the local pnpm is used; or point `COREPACK_NPM_REGISTRY` / `npm_config_registry` at an
+  internal mirror; or pre-warm the corepack cache while online.

@@ -180,6 +180,16 @@ the critical path.
 
 ## Known issues (to fix)
 
+- **Extension is near-silent in its Output channel — a stale-extension hang was invisible (parked
+  2026-07-15).** When the transcript stuck on "Loading…" (after installing the VSIX without a window
+  reload → the running extension still had the pre-#3 schema, so its relayed `session.subscribe` error
+  used the unroutable id `"unknown"` and the gateway relay dropped it), nothing in the CloakCode Output
+  channel showed it. Add structured Output-channel logging for the RPC path — `session.subscribe` (log
+  resolved? follower started?), the respond/decide/answer dispatch, and any parse/handler error — so a
+  silent failure is visible without a debugger. Pairs with the gateway's `--verbose`. Also mirror the
+  gateway fix on the extension side: preserve the request id on a parse failure so a relayed error
+  routes back instead of hanging.
+
 - **Self-review 2026-07-13 — guardrail gaps in the last 7 commits.** (1) The
   **read-position restore** (`SessionView`, `41f392b`) was **broken** — `toBottom` ran on the first
   content measurement, before the transcript streamed in, so `scrollHeight` ≈ 0 clamped the target near
