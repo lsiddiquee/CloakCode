@@ -1,6 +1,6 @@
 {
   "name": "@cloakcode/gateway",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Standalone CloakCode gateway — the run-it-yourself hub that serves the PWA and multiplexes phone (operator) + extension (provider) connections. NO vscode import.",
   "type": "module",
