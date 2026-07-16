@@ -722,3 +722,105 @@ describe("startBridge static gateway", () => {
     }
   });
 });
+
+describe("bridge teardown / re-establish (reconnect contract)", () => {
+  // The mobile-reconnect flow depends on TWO server guarantees, exercised end to
+  // end here against the real bridge: (1) closing the bridge (the extension's
+  // `CloakCode: Reconnect` / a settings hot-apply) actually TERMINATES live
+  // subscribers — otherwise the client "doesn't flinch" and never reconnects;
+  // and (2) a fresh subscribe with `sinceSeq` resumes past what was already seen,
+  // so no missed events are dropped and none are replayed. The web client's
+  // backoff/resume loop is unit-tested separately (web `bridge.test.ts`).
+  it("terminates live subscribers on close, then resumes from sinceSeq on re-subscribe", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-recon-"));
+    const file = path.join(dir, "sessA.jsonl");
+    await fs.writeFile(
+      file,
+      [
+        JSON.stringify({ type: "user.message", data: { content: "one" } }),
+        JSON.stringify({ type: "user.message", data: { content: "two" } }),
+      ].join("\n"),
+    );
+
+    const bridge1 = await startBridge(
+      deps({ findTranscript: async () => file }),
+      { port: 0 },
+    );
+    const ws1 = new WebSocket(`ws://127.0.0.1:${bridge1.port}`);
+    // The 'close' the client's reconnect loop keys off — must fire on teardown.
+    const closed = new Promise<void>((resolve) =>
+      ws1.on("close", () => resolve()),
+    );
+    const backlog: number[] = [];
+    await new Promise<void>((resolve, reject) => {
+      ws1.on("open", () =>
+        ws1.send(
+          JSON.stringify({
+            id: "r",
+            op: "session.subscribe",
+            params: { instanceId: "i", sessionId: "sessA" },
+          }),
+        ),
+      );
+      ws1.on("message", (data) => {
+        const frame = JSON.parse(data.toString());
+        if (frame.kind === "event") {
+          backlog.push(frame.event.seq);
+          if (backlog.length === 2) resolve();
+        }
+      });
+      ws1.on("error", reject);
+    });
+    expect(backlog).toEqual([0, 1]);
+
+    // Teardown must terminate the live subscriber (else it never reconnects).
+    await bridge1.close();
+    await closed; // hangs if close() leaves the socket open ("did not flinch")
+
+    // New activity lands while the client is disconnected.
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({ type: "user.message", data: { content: "three" } })}`,
+    );
+
+    // Re-establish on a fresh bridge and resume from where the client left off.
+    const bridge2 = await startBridge(
+      deps({ findTranscript: async () => file }),
+      { port: 0 },
+    );
+    try {
+      const resumed: number[] = [];
+      const got = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const ws2 = new WebSocket(`ws://127.0.0.1:${bridge2.port}`);
+          ws2.on("open", () =>
+            ws2.send(
+              JSON.stringify({
+                id: "r2",
+                op: "session.subscribe",
+                params: { instanceId: "i", sessionId: "sessA", sinceSeq: 2 },
+              }),
+            ),
+          );
+          ws2.on("message", (data) => {
+            const frame = JSON.parse(data.toString());
+            if (frame.kind === "event") {
+              resumed.push(frame.event.seq);
+              ws2.close();
+              resolve(frame);
+            }
+          });
+          ws2.on("error", reject);
+        },
+      );
+      // Only the event past sinceSeq replays — 0 and 1 are NOT re-sent.
+      expect(resumed).toEqual([2]);
+      expect(got).toMatchObject({
+        event: { part: { kind: "userMessage", text: "three" } },
+      });
+    } finally {
+      await bridge2.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
