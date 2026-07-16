@@ -43,7 +43,7 @@ Do not proceed until this authority order has been applied.
 Before making or reviewing any change, read and follow:
 
 1. `.github/copilot-instructions.md`
-2. `docs/02-research-findings.md` (verified facts: on-disk observer, blocker signature, corrections log)
+2. `docs/02-research-findings.md` (verified facts: on-disk observer, blocker signature, the findings ledger + the `02.x` topic files)
 3. `docs/03-architecture.md` (the `SessionPart` schema + observer/actuator split + package boundaries)
 4. `docs/04-security-and-compliance.md` (the zero-code-sync + redaction + provenance rules)
 5. Any milestone/section in `docs/05-roadmap-and-open-questions.md` relevant to the request.
@@ -71,7 +71,8 @@ Before making or reviewing any change, read and follow:
 ## Docs-sync rule
 
 - If behavior, contracts, the `SessionPart` schema, or a design decision changes, update the relevant
-  `docs/*.md` in the **same change**. Extend the corrections log in `docs/02` when a finding changes.
+  `docs/*.md` in the **same change**. Add/extend the finding in the relevant `docs/02.x` topic file
+  (and its one-line ledger entry in `docs/02`) when a finding changes.
 - If no doc update is needed, say why in the completion checklist.
 
 ## TDD / Definition of Done

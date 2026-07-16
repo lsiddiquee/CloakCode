@@ -11,7 +11,7 @@ and design; it is all captured in this repo. Do the following before proposing a
    - `.github/copilot-instructions.md` (the non-negotiable rules + conventions + Definition of Done)
    - `docs/README.md` (index + fast orientation)
    - `docs/02-research-findings.md` (the empirical record: on-disk transcript observer, the
-     **blocker signature**, command-injection/queue findings, and the corrections log)
+     **blocker signature**, command-injection/queue findings, and the topic detail files `02.x`)
    - `docs/03-architecture.md` (the `SessionPart` schema + observer/actuator split)
    - `docs/05-roadmap-and-open-questions.md` (what's proven, what's next, open questions Q1–Q5)
    - `docs/06-field-notes.md` (preserved raw working memory — the compressed field log)

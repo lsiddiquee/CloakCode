@@ -127,7 +127,8 @@ research/     Python PoCs: session lister + transcript/blocker inspector (stdlib
 4. **Security gate.** No code-sync path introduced; nothing logs secrets/tokens/raw code; egress
    stays redacted and token-budgeted; message provenance tags preserved.
 5. **Docs current.** Update the relevant `docs/` file in the **same change** that alters a design
-   decision; extend the corrections log in `docs/02` when a finding changes.
+   decision; add/extend the finding in the relevant `docs/02.x` topic file (and its one-line ledger
+   entry in `docs/02`) when a finding changes.
 6. **Conventional Commit** message (enforced by the `commit-msg` hook).
 
 ## Validation commands
@@ -156,8 +157,8 @@ apply **no matter the reason for a switch or deep dive**.
   Fine for the current conversation's working state; **never** the home for anything durable or that
   others need — it does not survive a rebuild and reaches no one else.
 - **Git-tracked docs (`docs/`) — durable, shared knowledge.** Anything **potentially useful to anyone
-  else** MUST be recorded there: design decisions (docs/01–05), the empirical record + corrections log
-  (docs/02), and durable **build / tooling / agent gotchas + verified practices**
+  else** MUST be recorded there: design decisions (docs/01–05), the empirical record + findings ledger
+  (docs/02 + its `02.x` topic files), and durable **build / tooling / agent gotchas + verified practices**
   ([docs/06 field notes](../docs/06-field-notes.md)) — in the **same change** that produced it. If a
   rediscovery would waste someone's time, it belongs here, not in `/memories/`.
 
@@ -188,13 +189,13 @@ When you find yourself re-explaining the same thing to the AI, fixing the same c
 repeatedly, or hitting a non-obvious gotcha, **capture it in committed git so nobody rediscovers
 it**: build / tooling / AI-edit gotchas + verified practices go in
 [docs/06 field notes](../docs/06-field-notes.md); research findings about Copilot / VS Code
-internals extend the relevant `docs/` file (or the corrections log in docs/02). Do **not** leave a
+internals extend the relevant `docs/` file (or the matching `docs/02.x` topic file + its ledger line). Do **not** leave a
 durable gotcha only in `/memories/` (ephemeral) — migrate it to `docs/`.
 
 ## Docs map
 
 - [Vision & requirements](../docs/01-vision-and-requirements.md)
-- [Research findings](../docs/02-research-findings.md) — the empirical record + corrections log
+- [Research findings](../docs/02-research-findings.md) — the empirical record + findings ledger (+ `02.x` topic files)
 - [Architecture](../docs/03-architecture.md)
 - [Security & compliance](../docs/04-security-and-compliance.md)
 - [Roadmap & open questions](../docs/05-roadmap-and-open-questions.md)

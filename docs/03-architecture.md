@@ -637,7 +637,7 @@ So the address triple `(instanceId, workspaceHash, sessionId)` carries an owners
 
 Ownership resolving to "everything read-only" is hard to debug blind — the root cause
 once was an extension id containing a slash breaking the storage-hash derivation (see the
-[docs/02](02-research-findings.md) corrections log). The **Show Diagnostics** command
+[docs/02](02-research-findings.md) findings ledger, §4.x — detail in the topic files). The **Show Diagnostics** command
 prints a snapshot to the `CloakCode` output channel (activation also dumps it there, and to
 `CLOAKCODE_DIAG_FILE` when set — the dev launch points it at `.local/cloakcode-diagnostics.txt`).
 It is **redaction-safe**: no secrets, tokens, code, or prompts — only environment metadata

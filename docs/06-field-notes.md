@@ -2,7 +2,10 @@
 
 > Raw, terse working notes from the 2026-07-08 investigation, preserved verbatim-ish so
 > nothing is lost if the assistant's memory store does not travel between machines/containers.
-> The narrative versions live in [02-research-findings.md](02-research-findings.md); this is the
+> The narrative versions live in [02-research-findings.md](02-research-findings.md) and its topic
+> files ([02.1 messaging](02.1-messaging.md) · [02.2 turn tracking](02.2-turn-tracking.md) ·
+> [02.3 tool call handling](02.3-tool-call-handling.md) · [02.4 storage](02.4-storage-and-logs.md) ·
+> [02.5 session state](02.5-session-state.md)); this is the
 > compressed field log. Environment when captured: `copilot-agent` 0.56.0, VS Code 1.128.0,
 > remote server (`~/.vscode-server`).
 >
