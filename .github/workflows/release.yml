@@ -94,6 +94,8 @@ jobs:
         with:
           files: |
             dist/extension/*.vsix
+            dist/extension/install.sh
+            dist/extension/uninstall.sh
             cloakcode-gateway-*.tgz
           generate_release_notes: true
 
