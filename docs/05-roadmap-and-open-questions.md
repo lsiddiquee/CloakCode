@@ -226,6 +226,20 @@ the critical path.
 
 ## Known issues (to fix)
 
+- **Image / pasted-screenshot attachments are NOT mirrorable by the on-disk observer — a limitation we
+  cannot handle server-side (2026-07-16).** A conversation's **file/text** attachments are fine — their
+  content is **inlined** into the request and thus readable from the transcript/debug-log. But **image**
+  attachments (a picked image file **or** a pasted screenshot) are **never persisted** to the on-disk
+  transcript/debug-log — confirmed by a real **~15 KB** attached image being absent (pollution-proof
+  scan: no ≥5000-char PNG/JPEG base64 run; no `*.png`/`*.jpg` blob written; `user.message.attachments`
+  is always `[]`). The bytes live only in the **client** `ChatModel` (`IImageVariableEntry.value`,
+  docs/02 §4.11/§4.29) and stream straight to the model API. **Consequence:** the phone can show
+  file/text attachments but only a **placeholder** for images. **Why we can't fix it in the observer:**
+  there is no server-side copy to read — mirroring images needs a **renderer-side** capture of
+  `request.variableData` (the same renderer-vs-ext-host reachability question as the actuator), so it is
+  **post-MVP** at best. When built, attachment bytes/text must pass the **redaction/token-budget gate**
+  before any egress (docs/04) and never be logged raw.
+
 - **Extension is near-silent in its Output channel — a stale-extension hang was invisible (parked
   2026-07-15).** When the transcript stuck on "Loading…" (after installing the VSIX without a window
   reload → the running extension still had the pre-#3 schema, so its relayed `session.subscribe` error

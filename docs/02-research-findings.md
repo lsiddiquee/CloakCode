@@ -611,6 +611,29 @@ install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
   `tool.execution_start` (blocker-shaped) but is followed by `assistant.turn_end`; the existing
   "a new turn supersedes an open interactive tool" rule already prevents a phantom blocker.
 
+- **4.29** _Conversation attachments: file/text content is inlined & recoverable on disk, but image
+  (and pasted-screenshot) **bytes are NOT persisted server-side** — the on-disk observer cannot access
+  them (confirmed 2026-07-16)._ Attachments are modelled **client-side** as `IChatRequestVariableEntry`
+  (core `chat/common/attachments/chatVariableEntries.ts`): `kind:'file'`, **`kind:'image'`**
+  (`isPasted:true` for a pasted screenshot; `mimeType`), `kind:'paste'` (pasted **code/text**, not
+  screenshots), …; the base entry's `value` carries the payload (image **bytes** for images). This is
+  the client-authoritative `ChatModel` (§4.11), not the server. On disk: a **file/text** attachment's
+  **content is inlined** into the message (`user.message.content` in the transcript; the
+  `llm_request.attrs.userRequest` request text in the debug-log) as an `<attachment …>…</attachment>`
+  block → **recoverable** (verified with strings that only exist inside the attached file and were
+  never typed as commands). But **image / pasted-screenshot bytes are absent**: a pollution-proof scan
+  for a **≥5000-char** base64 run after a PNG (`iVBORw0KGgo`) / JPEG (`/9j/4AAQ`) signature found
+  **none** in the transcript or debug-log, a real **~15 KB** attached image was **not** present, and no
+  `*.png`/`*.jpg` blob is written under `workspaceStorage/<hash>`. The transcript's
+  `user.message.attachments` array **exists but is always written empty (`[]`)** — no structured
+  attachment metadata. **Methodology caveat (bit me twice):** grepping the logs for a marker
+  **pollutes** them — your own `run_in_terminal` arguments are logged, so `grep "iVBORw0KGgo"` "finds"
+  the signature; use **never-typed** strings + a **long-run** requirement. ⇒ image bytes live only in
+  the client `IImageVariableEntry.value` and stream to the model API; mirroring them needs a
+  **renderer-side** read (same renderer-reachability question as the actuator). Recorded as a
+  **known limitation we cannot handle** from the on-disk observer (docs/05, _Known issues_). Working
+  notes: `.local/research/conversation-attachments-access.md`.
+
 ---
 
 ## 5. Capability matrix (current)
