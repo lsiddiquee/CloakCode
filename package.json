@@ -11,6 +11,7 @@
   "bugs": {
     "url": "https://github.com/lsiddiquee/CloakCode/issues"
   },
+  "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=20"

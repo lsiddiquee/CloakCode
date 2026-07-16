@@ -50,6 +50,10 @@ try {
   if (existsSync(join(EXT, "README.md"))) {
     cpSync(join(EXT, "README.md"), join(stage, "README.md"));
   }
+  const rootLicense = resolve(EXT, "..", "..", "LICENSE");
+  if (existsSync(rootLicense)) {
+    cpSync(rootLicense, join(stage, "LICENSE"));
+  }
 
   // A deployable manifest: valid extension id, no scripts/deps (esbuild already
   // inlined protocol/ws/zod/qrcode-generator into dist/extension.cjs).
@@ -59,7 +63,7 @@ try {
     description: src.description,
     version: src.version,
     publisher: src.publisher,
-    // license: TODO — pick an OSS license before open-sourcing (see worklist).
+    license: src.license,
     repository: src.repository,
     homepage: src.homepage,
     bugs: src.bugs,
