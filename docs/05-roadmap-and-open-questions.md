@@ -192,10 +192,12 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
 
 **Cutting a release (branch → PR → tag):**
 
-1. Run the **Prepare release** workflow (Actions tab, or `gh workflow run prepare-release.yml -f
-   version=0.1.0`). It creates `release/vX.Y.Z`, stamps the version into the three shipped manifests
-   via `scripts/set-version.mjs`, commits `chore(release): vX.Y.Z`, and opens a PR to `main`. The
-   release branch is a durable record of the cut (not just the tag).
+1. Run **`pnpm release <version>`** (e.g. `pnpm release 0.2.0`). It validates the version is plain
+   SemVer **and** strictly greater than the latest release (the highest `v*` tag / committed version),
+   then dispatches the **Prepare release** workflow (equivalently: the Actions tab, or `gh workflow
+   run prepare-release.yml -f version=0.2.0`). That workflow creates `release/vX.Y.Z`, stamps the
+   version into the three shipped manifests via `scripts/set-version.mjs`, commits
+   `chore(release): vX.Y.Z`, and pushes the branch (a durable record of the cut — open its PR link).
 2. Review + merge the PR.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` **verifies the tag matches
    the committed version** (fails on drift), then builds → tests → packages the `.vsix` + gateway
