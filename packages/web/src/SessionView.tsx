@@ -356,7 +356,7 @@ const Part = memo(function Part({
           ))}
           {!resolved && (
             <div className="blocker-note">
-              View-only for now — answering arrives with the actuator.
+              Shown here for context — answer it from the pending panel.
             </div>
           )}
         </div>
