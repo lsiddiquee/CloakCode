@@ -1,7 +1,9 @@
 # 04 — Security & compliance
 
-The defining constraint (R1) is **the codebase never leaves the local machine**. This
-document records how that is enforced and the security lessons the investigation surfaced.
+The defining constraint (R1) is **your code never syncs to GitHub or a third party**. CloakCode
+adds no new path that sends your code anywhere Copilot doesn't already; the session mirror is
+deliberately viewed on _your_ devices over _your_ tunnel. This document records how that is
+enforced and the security lessons the investigation surfaced.
 
 ## Zero code-sync — enforced by architecture, not policy
 
@@ -11,18 +13,25 @@ document records how that is enforced and the security lessons the investigation
   remote access is exclusively via an explicit tunnel to _your_ infrastructure.
 - **Egress allowlist.** Any future remote-ops destinations are explicitly allowlisted;
   GitHub domains are simply never on it.
-- **Context minimization by construction.** The only outbound payload is what the Context
-  Redactor assembles (active selection, symbol _signatures_, nearby diagnostics) — there
-  is no API surface that can serialize the workspace.
+- **No new egress path by construction.** CloakCode **mirrors** Copilot's own transcript and
+  **relays** your prompts into Copilot; it does not assemble or upload workspace context of its
+  own. Whatever reaches the phone is what you already gave Copilot — there is no API surface that
+  serializes the workspace to a model or a third party.
 
-## Context redaction gate
+## Bounded, self-owned egress
 
-Before any prompt/context is sent to a model or across the bridge:
+The mirror + relay architecture means there is **no new code→model path to gate**: CloakCode shows
+you Copilot's own transcript and relays your prompts into Copilot, which sends context to the model
+exactly as it would if you typed locally. The controls that matter are about **where the mirror
+goes**, not scrubbing content:
 
-1. Start from the selection (or a small radius around the cursor), not whole files.
-2. Prefer **symbol signatures** (via the document-symbol provider) over full bodies.
-3. Run a **secret/entropy scan** (AWS keys, PATs, `.env` values, private keys) and block on match.
-4. Enforce a hard **token budget** (`model.countTokens`) — a mechanical cap on egress.
+- **No auto-harvest.** CloakCode never auto-attaches files/selection/context the operator didn't
+  choose; it forwards only the operator's message.
+- **Your own agent/entitlement.** If CloakCode ever runs its own model loop (post-MVP owned loop),
+  it does so through your own consented entitlement — Copilot via `vscode.lm` / the `@github/copilot`
+  SDK / Copilot CLI over ACP, or your own agent — never a third party you didn't choose.
+- **Your bridge + tunnel only.** The mirror binds `127.0.0.1` and reaches the phone only over your
+  authenticated tunnel (below); it never touches GitHub.
 
 ## Model-side data handling
 
@@ -43,9 +52,9 @@ Design implications for an actuator that can stage/inject prompts:
   `remote-operator`, `cloakcode-staged` — end to end.
 - **Never let reflected/staged text be treated as trusted user intent.** The agent loop and
   the operator UI must both distinguish injected content from human input.
-- **Confirm remote-origin actions.** Remote-submitted prompts that trigger
-  irreversible/destructive actions should require an explicit confirmation surfaced back to
-  the operator.
+- **Destructive actions are Copilot's, gated by Copilot.** CloakCode inserts no processing layer;
+  a destructive **tool** call is gated by VS Code's own native approval, which the operator
+  allows/denies remotely (`session.decide`) — so there is no extra CloakCode confirm layer to add.
 - **Session action log.** The bridge records each remote action per `sessionId` (redacted:
   event + provenance + token _counts_ / booleans, hashed body — never the body) so what left,
   and why, is reviewable. Best-effort local, like Copilot's transcripts — not a hard audit
@@ -110,8 +119,8 @@ mTLS) before a provider hands over any session data.
 
 | Threat                      | Mitigation                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------ |
-| Code exfiltration           | No sync path; localhost bridge; redaction gate; token budget.                              |
-| Reflected prompt injection  | Provenance tagging; distinguish staged vs human input; confirm remote destructive actions. |
+| Code exfiltration           | No sync path; no new code→model path (mirror/relay, no auto-harvest); localhost bridge + your tunnel. |
+| Reflected prompt injection  | Provenance tagging; distinguish staged vs human input; native tool approval gates destructive calls. |
 | Unauthorized remote control | mTLS/token auth on the tunnel; localhost-only bind.                                        |
 | Rogue local gateway (discovery) | Discovery off by default; local-only candidates; no network/tunnel scan; hub auth at M4. |
 | Sensitive data in prompts   | Secret/entropy scan blocks before send; session action log.                                |

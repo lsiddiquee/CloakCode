@@ -4,8 +4,9 @@
 
 **CloakCode** is a secure "bridge" that lets a developer observe and drive GitHub Copilot (and,
 later, other remote tooling) **in their local VS Code**, controlled **remotely** from a
-phone or another machine — while **the codebase never leaves the local machine** (only prompts
-and minimal, redacted context cross the bridge). You keep VS Code's own Copilot chat and can step
+phone or another machine — while **your code never syncs to GitHub or a third party** (the session
+mirror is deliberately viewed on _your_ devices over _your_ tunnel; CloakCode adds no new path that
+sends your code anywhere Copilot doesn't already). You keep VS Code's own Copilot chat and can step
 away without losing the thread: get pinged when a session needs input and answer it from your
 phone.
 
@@ -64,7 +65,7 @@ the design is preserved:
 | R7  | Answer the blocker remotely (incl. multiple-choice)               | The remaining build work (actuator).                                                                                                                                                                                          |
 | R8  | Phone-first client                                                | React PWA + Web Push for blocker alerts.                                                                                                                                                                                      |
 | R9  | Resilient on mobile networks                                      | Resumable event log (`lastSeq`).                                                                                                                                                                                              |
-| R10 | Minimal context egress + redaction                                | Send only selection/signatures, scrubbed for secrets.                                                                                                                                                                         |
+| R10 | Bounded, self-owned egress                                        | No new code→model path; the mirror + actions cross only your bridge + authenticated tunnel; never auto-harvest context. |
 | R11 | Observability: structured logs, health metrics, per-session action logs | **Redacted by construction** (never logs code/prompts/secrets); `traceId`-correlated across extension/leader/hook/bridge/web; provenance-stamped. Per-session action logs (one JSONL per `sessionId`, like Copilot's transcripts) ship; the rest of the foundation is **pre-MVP** — see docs/03 "Observability". |
 
 ## Non-goals (for now)

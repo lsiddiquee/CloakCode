@@ -221,7 +221,7 @@ flowchart TB
         AG --> BR
         ACT --> BR
     end
-    BR -.->|secure tunnel (mTLS/WireGuard) — prompts + redacted context only| PH["📱 @cloakcode/web (PWA)\nsession list · live mirror · answer blockers"]
+    BR -.->|secure tunnel (mTLS/WireGuard) — session mirror + actions, your infra only| PH["📱 @cloakcode/web (PWA)\nsession list · live mirror · answer blockers"]
     LM -.->|consented| COP[("Copilot models")]
 ```
 
@@ -718,8 +718,8 @@ code/prompts** (docs/04). So every record is **redacted by construction**: we lo
 shape, and outcome** — `sessionId`, `workspaceHash`, `toolName`, token _counts_, byte _sizes_,
 durations, booleans, hashes — **never content**. A body that must be referenced becomes a
 salted hash + length, not the bytes. This is enforced at the logging boundary (a typed API
-that does not accept free-form blobs + a redaction pass reusing the egress gate's
-secret/entropy scan + a test and a lint rule). Observability that leaked code would defeat the
+that does not accept free-form blobs + a redaction pass (its own secret/entropy scan) + a test and
+  a lint rule). Observability that leaked code would defeat the
 whole product, so it is designed in from the first log line, not bolted on.
 
 ### Three planes

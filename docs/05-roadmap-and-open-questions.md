@@ -140,7 +140,7 @@ refresh. The transcript observer (`SessionFollower`) tracks the flag via `comput
 
 ### M4 — Secure tunnel + hardening
 
-- mTLS/token auth, provenance tagging (see security doc), redaction gate, tunnel to your
+- mTLS/token auth, provenance tagging (see security doc), tunnel to your
   infra, and the **observability backbone** — ship structured logs + metrics + the
   session action logs out; auth-stamped actor identity; a health RPC to the phone
   (foundation is pre-MVP; full design in
@@ -215,6 +215,16 @@ the critical path.
   low-risk; making a fork independently **actuatable** needs the cross-window / owner-signal work (the
   actuator is unsolved). **Post-MVP**, deferred until a concrete slice needs it (YAGNI).
 
+- **Owned-loop ("live") mode via ACP / an agent SDK.** Today's actuator is command-injection into
+  Copilot's own chat (non-deterministic queue/steer; can't token-stream). The deterministic upgrade
+  is to **own the tool-calling loop** — the strongest lead is **Copilot CLI over ACP** (Agent Client
+  Protocol: `copilot --acp --stdio`, with `session/prompt`, `session/cancel` steer/stop, and a real
+  `session/request_permission` approval channel — Q2), alongside the `@github/copilot` agent-host SDK
+  and `vscode.lm`. ACP is agent-agnostic, so the same seam also drives **your own models/agent** (a
+  vision reason) — model calls still route through your own consented entitlement, never a third party
+  (docs/04 "Bounded, self-owned egress"). This is where the deferred `cloakcode-staged` provenance
+  guard and the token-live disclaimer land. **Post-MVP** (YAGNI until a slice needs it).
+
 ## Explicitly deferred
 
 - **One-question-at-a-time blocker UI — SHIPPED 2026-07-14.** A multi-question
@@ -239,8 +249,8 @@ the critical path.
   file/text attachments but only a **placeholder** for images. **Why we can't fix it in the observer:**
   there is no server-side copy to read — mirroring images needs a **renderer-side** capture of
   `request.variableData` (the same renderer-vs-ext-host reachability question as the actuator), so it is
-  **post-MVP** at best. When built, attachment bytes/text must pass the **redaction/token-budget gate**
-  before any egress (docs/04) and never be logged raw.
+  **post-MVP** at best. When built, attachment bytes/text stay under the same handling as the mirror
+  (your bridge + tunnel only; docs/04) and are never logged raw.
 
 - **Extension is near-silent in its Output channel — a stale-extension hang was invisible (parked
   2026-07-15).** When the transcript stuck on "Loading…" (after installing the VSIX without a window

@@ -24,9 +24,12 @@ actuator (answering/steering remotely) is the next build. See
 1. **Zero code-sync.** NEVER add code that pushes, uploads, or syncs the workspace to
    GitHub (`git push`, GitHub REST, repo/Codespaces upload). Compliance is architectural —
    there must be **no such path** in the codebase.
-2. **Minimal, redacted egress.** Only prompts + minimal context (selection, symbol
-   signatures, nearby diagnostics) leave the machine, and only after the redaction gate
-   (secret/entropy scan + token budget). Never send whole files/repos.
+2. **Bounded, self-owned egress.** CloakCode adds **no new path that sends your code anywhere
+   Copilot doesn't already.** It mirrors Copilot's own transcript and relays your prompts into
+   Copilot; if it ever runs its own model loop it does so through **your own consented
+   agent/entitlement** (Copilot via `vscode.lm` / CLI, or your own agent via ACP — never a third
+   party you didn't choose) and **never auto-harvests workspace context** beyond what the operator
+   provides. The mirror + actions cross only the localhost bridge and _your_ authenticated tunnel.
 3. **Localhost-only bridge.** The bridge binds `127.0.0.1`; remote access is exclusively via
    an explicit tunnel to _your_ infra — never GitHub.
 4. **Prompt-injection provenance.** Every message carries a source tag
@@ -127,8 +130,9 @@ research/     Python PoCs: session lister + transcript/blocker inspector (stdlib
    `poetry run mypy research` clean.
 3. **Boundaries respected.** Only `@cloakcode/extension` imports `vscode`; shared types come from
    `@cloakcode/protocol`; no lazy-import/`importlib`-style workarounds.
-4. **Security gate.** No code-sync path introduced; nothing logs secrets/tokens/raw code; egress
-   stays redacted and token-budgeted; message provenance tags preserved.
+4. **Security gate.** No code-sync path introduced; **no new egress path** (mirror/relay; any model
+   loop routes through your own consented agent/entitlement — `vscode.lm`/CLI/ACP — and never
+   auto-harvests context); nothing logs secrets/tokens/raw code; message provenance tags preserved.
 5. **Docs current.** Update the relevant `docs/` file in the **same change** that alters a design
    decision; add/extend the finding in the relevant `docs/02.x` topic file (and its one-line ledger
    entry in `docs/02`) when a finding changes.

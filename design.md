@@ -22,7 +22,7 @@ on your phone and (later) lets you answer it from wherever you are.
 These hold for **every** version, including v0:
 
 1. **Zero code-sync to GitHub** — no push/upload/repo-sync path exists in the codebase.
-2. **Minimal, redacted egress** — only prompts + small context leave, after a redaction gate.
+2. **Bounded, self-owned egress** — no new code→model path; the mirror + actions cross only your bridge + tunnel, never GitHub/third party.
 3. **Localhost-only bridge** — binds `127.0.0.1`; remote access is via _your_ tunnel only.
 4. **Provenance tags** — every message is tagged `genuine-local-user` / `remote-operator` /
    `cloakcode-staged`; reflected/staged text is never trusted as user intent.
@@ -62,8 +62,8 @@ flowchart LR
 
 - Answering/steering a session (the actuator) — **view only** at first.
 - The cross-environment relay, Web Push notifications, multi-instance leader election.
-- A heavy redaction pipeline (v0 stays read-only and local, so egress risk is minimal;
-  the redaction gate lands before anything is _sent_ on behalf of the user).
+- A context-redaction pipeline (unnecessary by design — CloakCode mirrors Copilot's transcript and
+  relays prompts into Copilot; it never assembles or uploads workspace context of its own).
 
 v0 proves the whole height of the system with the least code, and every piece of it is on
 the path to the real thing.

@@ -1,8 +1,9 @@
 # CloakCode documentation
 
 CloakCode is a local-to-remote bridge that lets you **observe and drive GitHub Copilot in your
-local VS Code from a phone or another machine — with zero code-sync to GitHub**. Your codebase
-stays on the machine; only prompts and minimal, redacted context cross a secure tunnel. It keeps
+local VS Code from a phone or another machine — with zero code-sync to GitHub**. Your code never
+syncs to GitHub or a third party; the session mirror crosses only a secure tunnel to your own
+devices. It keeps
 you in VS Code's own Copilot chat — interactive selection, file/screenshot sharing, fluid
 desktop↔phone switching — so you can step away and still answer a blocker, approve a tool call, or
 steer a session, rather than returning to find it waiting on a one-word answer.

@@ -1,6 +1,6 @@
 ---
 name: CloakCode Guardrails Coder
-description: "Use when implementing or reviewing CloakCode changes that must strictly enforce the project guardrails: ZERO code-sync to GitHub, package boundaries (only @cloakcode/extension imports vscode), the redaction/provenance security gate, TDD/YAGNI/DRY discipline, and docs synchronization. Also enforces 'do not re-derive already-proven research'."
+description: "Use when implementing or reviewing CloakCode changes that must strictly enforce the project guardrails: ZERO code-sync to GitHub, package boundaries (only @cloakcode/extension imports vscode), the bounded-egress + provenance security gate, TDD/YAGNI/DRY discipline, and docs synchronization. Also enforces 'do not re-derive already-proven research'."
 tools:
   [
     vscode,
@@ -45,7 +45,7 @@ Before making or reviewing any change, read and follow:
 1. `.github/copilot-instructions.md`
 2. `docs/02-research-findings.md` (verified facts: on-disk observer, blocker signature, the findings ledger + the `02.x` topic files)
 3. `docs/03-architecture.md` (the `SessionPart` schema + observer/actuator split + package boundaries)
-4. `docs/04-security-and-compliance.md` (the zero-code-sync + redaction + provenance rules)
+4. `docs/04-security-and-compliance.md` (the zero-code-sync + bounded-egress + provenance rules)
 5. Any milestone/section in `docs/05-roadmap-and-open-questions.md` relevant to the request.
 
 ## Hard rules (in priority order)
@@ -57,8 +57,10 @@ Before making or reviewing any change, read and follow:
    and `@cloakcode/agent` pure and unit-testable without an extension host. `@cloakcode/web` imports
    neither `vscode` nor node-server internals. Shared types come from `@cloakcode/protocol` only —
    never duplicate the `SessionPart`/RPC shapes. No lazy-import/`importlib`-style boundary bypasses.
-3. **Security gate.** All egress passes the redaction gate (secret/entropy scan + token budget); the
-   bridge binds `127.0.0.1` only; every message carries a provenance tag
+3. **Security gate.** CloakCode adds **no new egress path** — it mirrors Copilot's transcript and
+   relays prompts into Copilot; any model loop routes through your own consented agent/entitlement
+   (`vscode.lm`/CLI/ACP) and never auto-harvests workspace context. The bridge binds `127.0.0.1`
+   only; every message carries a provenance tag
    (`genuine-local-user` / `remote-operator` / `cloakcode-staged`) and reflected/staged text is never
    treated as trusted user intent; **never log** secrets, tokens, or raw code/prompts.
 4. **YAGNI on the actuator.** The actuator (answer/steer) is unsolved — do **not** build speculative
@@ -96,7 +98,8 @@ Before making or reviewing any change, read and follow:
 
 - **Zero code-sync:** explicitly confirm no push/upload/sync path was introduced.
 - **Boundaries:** confirm only `extension` imports `vscode`; shared types from `protocol`; no bypasses.
-- **Security gate:** confirm redaction/token-budget, localhost-only, provenance tags, no secret logging.
+- **Security gate:** confirm no new egress path (mirror/relay; own-entitlement model loop; no
+  auto-harvest), localhost-only, provenance tags, no secret logging.
 - **YAGNI:** confirm no speculative actuator abstraction added.
 - **Tests:** failing-test-first evidence + pass/fail of the narrowest run.
 - **Docs sync:** updated / not required, with why.

@@ -3,8 +3,8 @@
 **Observe and drive GitHub Copilot from your phone — with zero code-sync to GitHub.**
 
 CloakCode is a local-to-remote bridge that lets you observe and drive GitHub Copilot in your
-local VS Code from a **phone** (a React PWA) or another machine. Your codebase stays entirely on
-the local machine; only prompts and minimal, redacted context ever cross a secure tunnel.
+local VS Code from a **phone** (a React PWA) or another machine. Your code never syncs to GitHub or
+any third party; the session mirror crosses only a secure tunnel to your own devices.
 
 You keep VS Code's own Copilot chat — the interactive session you prefer, where you select code or
 text to discuss, point at specific things, and attach files or screenshots — which has no remote
@@ -135,11 +135,13 @@ virtual-interface bind, and keep the phone on the tunnel rather than a LAN IP.
 ### Security posture (today)
 
 - **Zero code-sync — structural.** No `git push` / GitHub-API / repo-upload path exists in the
-  codebase; only prompts + redacted context ever egress.
+  codebase; CloakCode adds no new path that sends your code anywhere Copilot doesn't already.
 - **Localhost by default + a private tunnel.** The tunnel is never `--allow-anonymous`; its own
   sign-in is the compensating control while app-auth is deferred.
-- **Redaction gate & provenance.** Egress is secret-scanned and token-budgeted; every message is
-  provenance-tagged so staged/reflected text is never treated as user intent.
+- **Bounded, self-owned egress & provenance.** CloakCode adds no new path that sends your code
+  anywhere Copilot doesn't already (it mirrors Copilot's transcript and relays your prompts into
+  Copilot; no auto-harvest); every message is provenance-tagged so staged/reflected text is never
+  treated as user intent.
 - **No gateway/bridge app-auth yet.** Anyone who can _reach_ the port can drive it — hence the
   loopback default, the private tunnel, and the firewall scoping above.
 
