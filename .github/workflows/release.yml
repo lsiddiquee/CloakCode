@@ -104,12 +104,15 @@ jobs:
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
-      # --- Gated: npm (gateway). Needs @cloakcode/gateway made publishable:
-      #     drop `"private": true` (or add publishConfig) + own the @cloakcode
-      #     scope on npm. Scoped public package → --access public. ---
+      # --- Gated: npm (@cloakcode/gateway). Publishes the staged self-contained
+      #     bundle (scripts/pack-npm.mjs → dist/gateway-npm: main.mjs + web + a
+      #     clean deps-free manifest), reusing the assembled output above. Needs
+      #     the @cloakcode scope owned on npm; scoped public → --access public. ---
       - name: Publish gateway → npm
         if: ${{ env.NPM_TOKEN != '' }}
-        run: pnpm --filter @cloakcode/gateway publish --access public --no-git-checks
+        run: |
+          node packages/gateway/scripts/pack-npm.mjs
+          npm publish dist/gateway-npm --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

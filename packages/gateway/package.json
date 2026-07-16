@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "bundle": "node scripts/bundle.mjs",
     "assemble": "bash scripts/assemble-gateway.sh",
+    "pack:npm": "pnpm assemble && node scripts/pack-npm.mjs",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",

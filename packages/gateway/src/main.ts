@@ -19,6 +19,9 @@
  * loopback + a PRIVATE tunnel; do not expose 0.0.0.0 on an untrusted network.
  */
 import { networkInterfaces } from "node:os";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { connectionUrls } from "./connect-urls.js";
 import { createConsoleLogger, parseLogLevel } from "./console-logger.js";
 import { startGateway } from "./gateway.js";
@@ -28,7 +31,13 @@ import { devTunnelName, startDevTunnel } from "./tunnel.js";
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
 // unset → 3543 then ephemeral; 0 → ephemeral; N → lock N (same rule as embedded).
 const portPlan = resolvePortPlan(process.env["CLOAKCODE_GATEWAY_PORT"]);
-const serveDir = process.env["CLOAKCODE_WEB_DIR"];
+// Serve the PWA from CLOAKCODE_WEB_DIR, else a `web/` folder colocated with the
+// bundle (how the published npm package and the assembled folder ship it). Absent
+// both → WebSocket-only.
+const bundledWeb = join(dirname(fileURLToPath(import.meta.url)), "web");
+const serveDir =
+  process.env["CLOAKCODE_WEB_DIR"] ??
+  (existsSync(bundledWeb) ? bundledWeb : undefined);
 const verbose =
   process.env["CLOAKCODE_VERBOSE"] === "1" ||
   process.env["CLOAKCODE_VERBOSE"] === "true";

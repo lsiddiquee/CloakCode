@@ -161,8 +161,12 @@ build+test on push/PR; `release.yml` = publish on a `v*` tag). Distribution targ
   from repo root). Gated on `DOCKERHUB_TOKEN`/`DOCKERHUB_USERNAME`. _(Dockerfile bug to fix first:
   it copies `main.mjs` but `CMD` runs `main.cjs`.)_
 - **Gateway → npm** (`@cloakcode/gateway`) as the low-effort minimum: `npx @cloakcode/gateway`
-  just works cross-platform. Needs the package made publishable (drop `"private": true` / add
-  `publishConfig`, own the `@cloakcode` scope, `--access public`). Gated on `NPM_TOKEN`.
+  just works cross-platform. Publishes a **staged self-contained package** (`scripts/pack-npm.mjs`
+  → `dist/gateway-npm`: the bundled `main.mjs` with `bin`/`main` pointing at it, the PWA under
+  `web/`, and a clean deps-free manifest) — the raw workspace package can't be published (its
+  `workspace:*` protocol dep is unpublished, and `bin` on the workspace manifest breaks the
+  extension's install). `main.mjs` serves the colocated `web/` by default, so `npx` serves the PWA.
+  Own the `@cloakcode` scope on npm; scoped public → `--access public`. Gated on `NPM_TOKEN`.
 - **Gateway → self-contained executables (win/linux/mac).** Feasible but a follow-up because the
   gateway serves the PWA from a dir, so an executable must **embed the web assets**. Recommended:
   `@yao-pkg/pkg` (one job cross-compiles all targets from a CJS bundle; `assets` embeds the web
