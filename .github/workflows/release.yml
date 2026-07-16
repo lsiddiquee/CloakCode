@@ -112,7 +112,7 @@ jobs:
         if: ${{ env.NPM_TOKEN != '' }}
         run: |
           node packages/gateway/scripts/pack-npm.mjs
-          npm publish dist/gateway-npm --access public
+          npm publish ./dist/gateway-npm --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
