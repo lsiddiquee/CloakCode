@@ -21,7 +21,9 @@ afterEach(() => {
 });
 
 /** Start a fake gateway that answers the knock, then runs `onProvider` on the hello. */
-function startFakeGateway(onProvider: (ws: WsSocket) => void): Promise<number> {
+function startFakeGateway(
+  onProvider: (ws: WsSocket, hello: Record<string, unknown>) => void,
+): Promise<number> {
   return new Promise((resolve) => {
     const wss = new WebSocketServer({ port: 0 }, () => {
       const addr = wss.address();
@@ -36,7 +38,7 @@ function startFakeGateway(onProvider: (ws: WsSocket) => void): Promise<number> {
         ws.send(JSON.stringify({ type: "cloakcode.hello", role: "gateway" }));
         ws.once("message", (raw2) => {
           const hello = JSON.parse(raw2.toString());
-          if (hello?.role === "provider") onProvider(ws);
+          if (hello?.role === "provider") onProvider(ws, hello);
         });
       });
     });
@@ -85,5 +87,41 @@ describe("connectGateway", () => {
         200,
       ),
     ).rejects.toThrow(/unreachable/);
+  });
+
+  it("presents the provider↔gateway token in its hello when configured", async () => {
+    let seen: Record<string, unknown> | undefined;
+    const port = await startFakeGateway((_ws, hello) => {
+      seen = hello;
+    });
+    client = await connectGateway(
+      `ws://127.0.0.1:${port}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      undefined,
+      "s3cret",
+    );
+    await waitFor(() => seen !== undefined);
+    expect(seen).toMatchObject({
+      role: "provider",
+      token: "s3cret",
+      provider: { instanceId: "i1" },
+    });
+  });
+
+  it("omits the token from the hello when none is configured", async () => {
+    let seen: Record<string, unknown> | undefined;
+    const port = await startFakeGateway((_ws, hello) => {
+      seen = hello;
+    });
+    client = await connectGateway(
+      `ws://127.0.0.1:${port}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+    );
+    await waitFor(() => seen !== undefined);
+    expect(seen).not.toHaveProperty("token");
   });
 });

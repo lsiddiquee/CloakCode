@@ -37,6 +37,7 @@ export function connectGateway(
   deps: BridgeDeps,
   log: (line: string) => void,
   firstConnectTimeoutMs = 4000,
+  token?: string,
 ): Promise<GatewayClient> {
   return new Promise((resolve, reject) => {
     let closed = false;
@@ -91,8 +92,17 @@ export function connectGateway(
             return;
           }
           knocked = true;
-          // Phase 2: reveal the full provider hello.
-          s.send(JSON.stringify({ type: "hello", role: "provider", provider }));
+          // Phase 2: reveal the full provider hello, carrying the
+          // provider↔gateway shared secret (if configured) so the gateway can
+          // authenticate this extension before it registers (docs/04).
+          s.send(
+            JSON.stringify({
+              type: "hello",
+              role: "provider",
+              provider,
+              ...(token ? { token } : {}),
+            }),
+          );
           log(`gateway: connected as provider (${provider.instanceId})`);
           if (!settled) {
             settled = true;

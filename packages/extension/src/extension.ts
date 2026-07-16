@@ -399,6 +399,13 @@ export async function activate(
       gatewayUrl: cfgNow.get<string>("gatewayUrl"),
       envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
     });
+    // Provider↔gateway shared secret (machine-to-machine): setting wins, else
+    // env; unset → no auth (loopback dev). Presented in the provider hello —
+    // never operator-facing (docs/04).
+    const gatewayToken =
+      (cfgNow.get<string>("gatewayToken") ?? "").trim() ||
+      process.env["CLOAKCODE_GATEWAY_TOKEN"] ||
+      undefined;
     const gatewayUrl = plan.kind === "gateway" ? plan.url : undefined;
     if (gatewayUrl) {
       // Client mode (docs/03 "Explicit gateway"): connect OUT as a provider; the
@@ -409,6 +416,8 @@ export async function activate(
           { instanceId },
           deps,
           (m) => log.debug("gateway.client", { msg: m }),
+          undefined,
+          gatewayToken,
         );
       } catch (err) {
         log.warn("gateway.unreachable", {

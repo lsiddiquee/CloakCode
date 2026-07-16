@@ -115,13 +115,31 @@ and the tunnel goes through your own infra, never GitHub — the zero-code-sync 
 When M4 lands, discovery must additionally verify the hub's identity (shared operator secret /
 mTLS) before a provider hands over any session data.
 
+## Authentication (two separate boundaries)
+
+CloakCode has two trust boundaries, authenticated **differently** — do not conflate them:
+
+- **Provider ↔ gateway (machine-to-machine).** An extension registers with your standalone
+  gateway by presenting a **shared secret** in its `provider` hello (`CLOAKCODE_GATEWAY_TOKEN` on
+  the gateway; `cloakcode.gatewayToken` / the same env on the extension). The gateway verifies it
+  **timing-safe** (`verifyGatewayToken`) and closes the connection on mismatch, before the provider
+  can register or serve any RPC. It is **never** exchanged with, embedded in a link/QR for, or shown
+  to the operator. Off when no token is set (loopback dev). A shared token is right-sized for a
+  gateway you run; **mTLS** is a post-MVP hardening (per-provider identity + revocation) and, because
+  the token rides the hello frame rather than the transport, swapping to it doesn't churn the app
+  protocol.
+- **Gateway ↔ operator (the human/phone).** A **separate**, user-facing auth — a PIN / OTP /
+  device-pairing ladder (docs/05 Q9). **Deferred**: the interim compensating control is the
+  **authenticated private tunnel** (its own sign-in) plus the loopback default; do not expose a wide
+  bind on an untrusted network until this lands.
+
 ## Threat-model quick list
 
 | Threat                      | Mitigation                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------ |
 | Code exfiltration           | No sync path; no new code→model path (mirror/relay, no auto-harvest); localhost bridge + your tunnel. |
 | Reflected prompt injection  | Provenance tagging; distinguish staged vs human input; native tool approval gates destructive calls. |
-| Unauthorized remote control | mTLS/token auth on the tunnel; localhost-only bind.                                        |
+| Unauthorized remote control | Provider↔gateway shared-secret (in the hello, timing-safe); operator via the private tunnel (app-layer PIN deferred, Q9); localhost-only bind. |
 | Rogue local gateway (discovery) | Discovery off by default; local-only candidates; no network/tunnel scan; hub auth at M4. |
 | Sensitive data in prompts   | Secret/entropy scan blocks before send; session action log.                                |
 | Tool output tampering       | Treat tool/log content as untrusted input; validate at the boundary (zod).                 |

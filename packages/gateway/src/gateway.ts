@@ -16,7 +16,7 @@ import { Relay } from "./relay.js";
 import { contentTypeFor, resolveStaticPath } from "./static-files.js";
 import { listenWithFallback } from "./listen.js";
 import { silentLogger } from "./console-logger.js";
-import { verifyGatewayToken, tokenFromRequestUrl } from "./auth.js";
+import { verifyGatewayToken } from "./auth.js";
 
 export interface GatewayOptions {
   /** Bind address. Defaults to `127.0.0.1` (front it with a tunnel for remote). */
@@ -38,12 +38,12 @@ export interface GatewayOptions {
    */
   logger?: Logger;
   /**
-   * Shared secret required on the `/bridge` WebSocket upgrade (as a `?token=`
-   * query param) from BOTH operators (phone/PWA) and providers (extensions).
-   * When set, an upgrade without a matching token is rejected `401`. Omit (or
-   * empty) to disable auth — the loopback-dev default. Verified timing-safe;
-   * front the gateway with a private tunnel regardless (this is what makes a
-   * shared / wider reach safe — docs/04).
+   * Shared secret for the **provider↔gateway** link: an extension must present
+   * it in its `provider` hello to register. Machine-to-machine only — never
+   * exchanged with or shown to the operator (phone), whose auth is a separate
+   * concern (docs/05 Q9). Omit (or empty) to disable — the loopback-dev default.
+   * Verified timing-safe. A shared token is right-sized for a gateway you run;
+   * mTLS is a post-MVP hardening (docs/04).
    */
   token?: string;
 }
@@ -104,15 +104,6 @@ export async function startGateway(
 
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
-    // Auth at the upgrade: BOTH operators (PWA) and providers (extensions)
-    // present the shared secret as `?token=` on the `/bridge` URL. Rejected
-    // before any frame is exchanged. No-op when no token is configured.
-    if (!verifyGatewayToken(opts.token, tokenFromRequestUrl(req.url))) {
-      logger.warn("auth.reject");
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
     );
@@ -128,6 +119,14 @@ export async function startGateway(
     if (hello?.role !== "provider") {
       logger.debug("provider.hello_missing");
       socket.close(); // knocked as a provider but didn't complete the hello
+      return;
+    }
+    // Provider↔gateway auth: the extension presents the shared secret in its
+    // hello (machine-to-machine, never operator-facing). Rejected before it can
+    // register or serve any RPC. No-op when no token is configured (loopback dev).
+    if (!verifyGatewayToken(opts.token, hello.token)) {
+      logger.warn("provider.auth_reject");
+      socket.close();
       return;
     }
     const instanceId = hello.provider.instanceId;
@@ -215,11 +214,13 @@ export async function startGateway(
 }
 
 /** Parse a first frame as a connection hello, or `undefined` if it isn't one. */
-function parseHello(
-  text: string,
-):
+function parseHello(text: string):
   | { role: "operator" }
-  | { role: "provider"; provider: { instanceId: string } }
+  | {
+      role: "provider";
+      provider: { instanceId: string };
+      token?: string | undefined;
+    }
   | undefined {
   let json: unknown;
   try {

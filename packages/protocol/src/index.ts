@@ -434,9 +434,12 @@ export type CloakcodeHello = z.infer<typeof cloakcodeHelloSchema>;
  * First frame on a gateway `/bridge` connection, declaring the peer's role so
  * the standalone gateway can multiplex phones and extension providers on one
  * endpoint. An `operator` (phone / PWA) then speaks the usual client RPC; a
- * `provider` serves the gateway's forwarded RPCs for its own `instanceId`. A
- * connection that sends no hello is treated as an `operator`, so the embedded
- * bridge (where every client is a phone) is unaffected.
+ * `provider` serves the gateway's forwarded RPCs for its own `instanceId` and
+ * presents the **provider↔gateway shared secret** (`token`) so only your own
+ * extensions can register — a machine-to-machine credential, never exchanged
+ * with or shown to the operator (operator auth is a separate concern, docs/05
+ * Q9). A connection that sends no hello is treated as an `operator`, so the
+ * embedded bridge (where every client is a phone) is unaffected.
  */
 export const connectionHelloSchema = z.discriminatedUnion("role", [
   z.object({ type: z.literal("hello"), role: z.literal("operator") }),
@@ -444,6 +447,7 @@ export const connectionHelloSchema = z.discriminatedUnion("role", [
     type: z.literal("hello"),
     role: z.literal("provider"),
     provider: providerInfoSchema,
+    token: z.string().optional(),
   }),
 ]);
 export type ConnectionHello = z.infer<typeof connectionHelloSchema>;

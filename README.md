@@ -142,8 +142,10 @@ virtual-interface bind, and keep the phone on the tunnel rather than a LAN IP.
   anywhere Copilot doesn't already (it mirrors Copilot's transcript and relays your prompts into
   Copilot; no auto-harvest); every message is provenance-tagged so staged/reflected text is never
   treated as user intent.
-- **No gateway/bridge app-auth yet.** Anyone who can _reach_ the port can drive it — hence the
-  loopback default, the private tunnel, and the firewall scoping above.
+- **Provider↔gateway auth; operator via the tunnel (for now).** An extension registers with your
+  gateway only by presenting a shared secret (`CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`).
+  The phone (operator) link relies on the **private tunnel**'s own sign-in — an app-layer operator
+  PIN is deferred (docs/05 Q9) — so keep the loopback default + the firewall scoping above.
 
 Full model: [docs/04 — Security & compliance](docs/04-security-and-compliance.md).
 

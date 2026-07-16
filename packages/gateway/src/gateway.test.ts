@@ -288,30 +288,68 @@ describe("startGateway", () => {
   });
 });
 
-describe("startGateway auth (token at the /bridge upgrade)", () => {
-  it("rejects an upgrade with no token when one is configured", async () => {
-    gw = await startGateway({ port: 0, token: "s3cret" });
-    await expect(open(`ws://127.0.0.1:${gw.port}/bridge`)).rejects.toThrow();
-  });
+describe("startGateway provider auth (token in the provider hello)", () => {
+  /** Knock + full provider hello carrying `token`; returns the socket. */
+  async function openProviderWithToken(
+    url: string,
+    instanceId: string,
+    token: string | undefined,
+  ): Promise<WebSocket> {
+    const ws = await open(url);
+    ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
+    await nextMessage(ws); // the gateway's answering knock
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId },
+        ...(token !== undefined ? { token } : {}),
+      }),
+    );
+    return ws;
+  }
 
-  it("rejects an upgrade with the WRONG token", async () => {
+  it("registers a provider that presents the matching token", async () => {
     gw = await startGateway({ port: 0, token: "s3cret" });
-    await expect(
-      open(`ws://127.0.0.1:${gw.port}/bridge?token=nope`),
-    ).rejects.toThrow();
-  });
-
-  it("accepts an upgrade with the matching token", async () => {
-    gw = await startGateway({ port: 0, token: "s3cret" });
-    const ws = await open(`ws://127.0.0.1:${gw.port}/bridge?token=s3cret`);
-    expect(ws.readyState).toBe(WebSocket.OPEN);
+    const ws = await openProviderWithToken(
+      `ws://127.0.0.1:${gw.port}`,
+      "ok",
+      "s3cret",
+    );
+    await waitFor(() => gw!.registry.all().length === 1);
     ws.close();
   });
 
-  it("is OPEN when no token is configured (loopback-dev default)", async () => {
+  it("rejects (closes, never registers) a provider with the WRONG token", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret" });
+    const ws = await openProviderWithToken(
+      `ws://127.0.0.1:${gw.port}`,
+      "bad",
+      "nope",
+    );
+    await new Promise<void>((r) => ws.once("close", () => r()));
+    expect(gw!.registry.all().length).toBe(0);
+  });
+
+  it("rejects a provider that presents NO token when one is required", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret" });
+    const ws = await openProviderWithToken(
+      `ws://127.0.0.1:${gw.port}`,
+      "none",
+      undefined,
+    );
+    await new Promise<void>((r) => ws.once("close", () => r()));
+    expect(gw!.registry.all().length).toBe(0);
+  });
+
+  it("registers with no token when auth is disabled (loopback-dev default)", async () => {
     gw = await startGateway({ port: 0 });
-    const ws = await open(`ws://127.0.0.1:${gw.port}/bridge`);
-    expect(ws.readyState).toBe(WebSocket.OPEN);
+    const ws = await openProviderWithToken(
+      `ws://127.0.0.1:${gw.port}`,
+      "dev",
+      undefined,
+    );
+    await waitFor(() => gw!.registry.all().length === 1);
     ws.close();
   });
 });

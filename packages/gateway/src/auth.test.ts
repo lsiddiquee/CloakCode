@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { verifyGatewayToken, tokenFromRequestUrl } from "./auth.js";
+import { verifyGatewayToken } from "./auth.js";
 
 describe("verifyGatewayToken", () => {
   it("is OPEN when no token is configured (auth disabled)", () => {
@@ -17,18 +17,5 @@ describe("verifyGatewayToken", () => {
 
   it("rejects a length-mismatched token without throwing (timing-safe path)", () => {
     expect(verifyGatewayToken("short", "a-much-longer-token")).toBe(false);
-  });
-});
-
-describe("tokenFromRequestUrl", () => {
-  it("extracts the token query param from the upgrade URL", () => {
-    expect(tokenFromRequestUrl("/bridge?token=abc123")).toBe("abc123");
-    expect(tokenFromRequestUrl("/bridge?foo=1&token=xy%20z")).toBe("xy z");
-  });
-
-  it("returns undefined when absent or malformed", () => {
-    expect(tokenFromRequestUrl("/bridge")).toBeUndefined();
-    expect(tokenFromRequestUrl("/bridge?foo=1")).toBeUndefined();
-    expect(tokenFromRequestUrl(undefined)).toBeUndefined();
   });
 });

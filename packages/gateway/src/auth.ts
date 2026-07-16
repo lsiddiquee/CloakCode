@@ -19,19 +19,3 @@ export function verifyGatewayToken(
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }
-
-/**
- * Pull the `token` query parameter out of a WebSocket upgrade request URL (a
- * path like `/bridge?token=…`). Both operators (PWA) and providers (extensions)
- * present the shared secret this way, so the gateway can authenticate at the
- * HTTP upgrade without touching the frame protocol. Returns `undefined` when
- * absent.
- */
-export function tokenFromRequestUrl(
-  url: string | undefined,
-): string | undefined {
-  if (!url) return undefined;
-  const q = url.indexOf("?");
-  if (q === -1) return undefined;
-  return new URLSearchParams(url.slice(q + 1)).get("token") ?? undefined;
-}
