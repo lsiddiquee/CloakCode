@@ -202,13 +202,14 @@ the critical path.
   explicit-gateway topology; sequenced after the MVP gateway ships.)
 
 - **Surface forked conversations as distinct sessions.** A forked chat does **not** get its own
-  transcript — it appends into the **parent's** `transcripts/<parentId>.jsonl` and only gets its own
-  `debug-logs/<forkId>/` dir (docs/02 §4.27, pending one reload-validation). So today the observer
-  (which lists `transcripts/*.jsonl`) folds a fork into its parent and shows a single row. If we want
-  forks as separate, actuatable rows, the scanner would key off `debug-logs/<id>/` (each fork has its
-  own) and reconcile against the shared transcript. Read-only surfacing is low-risk; making a fork
-  independently **actuatable** needs the cross-window / owner-signal work (the actuator is unsolved).
-  Deferred until a concrete slice needs it (YAGNI).
+  transcript — its turns land in an **existing** `transcripts/<sourceId>.jsonl` while the fork gets
+  only its own `debug-logs/<forkId>/` dir (docs/02 §4.27, **confirmed** 2026-07-16). So today the
+  observer (which lists `transcripts/*.jsonl`) folds a fork into the source row and never shows it
+  separately. Direction (a **lead, not a decision** — the detailed mechanism and final approach are
+  **to be reviewed/finalized later**): key the session list off `debug-logs/<id>/` too (each fork has
+  its own), unioned with transcripts, so each distinct on-disk id gets a row. Read-only surfacing is
+  low-risk; making a fork independently **actuatable** needs the cross-window / owner-signal work (the
+  actuator is unsolved). **Post-MVP**, deferred until a concrete slice needs it (YAGNI).
 
 ## Explicitly deferred
 
