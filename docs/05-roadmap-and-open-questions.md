@@ -22,12 +22,14 @@
 
 ## Milestones
 
-> **Cross-cutting — Observability (R11), foundation is pre-MVP.** CloakCode has **no**
-> structured logging, metrics, tracing, or audit trail today (just ad-hoc `out.appendLine` +
-> the diagnostics dump). Before MVP we need the **foundation**: a redaction-by-construction
-> `Logger` port, `traceId` correlation across extension / leader / hook / bridge / web, and an
-> **audit log for remote actions** (who actuated, what egressed). Full design — including what
-> the **leader** and each **extension** log — in
+> **Cross-cutting — Observability (R11), foundation shipping.** The
+> redaction-by-construction **`Logger` port** is now in `@cloakcode/protocol` (ILogger-style,
+> local-only) with a **console** sink (standalone gateway) + an **OutputChannel** sink (extension),
+> a `cloakcode.logLevel` setting, and a `newTraceId()` helper (2026-07-16); core lifecycle/actuator
+> callsites are migrated. **Still pre-MVP:** finishing the `out.appendLine` migration, propagating
+> `traceId` across the RPC hops (web / bridge / gateway / actuator + the hook spool), and the
+> **audit log for remote actions** (who actuated, what egressed). Full design — including what the
+> **leader** and each **extension** log — in
 > [03 — Observability](03-architecture.md#observability-logging--traceability); shipping
 > logs / metrics / audit to your infra is M4.
 

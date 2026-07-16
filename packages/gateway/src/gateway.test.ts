@@ -1,7 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { WebSocket } from "ws";
 import { startGateway, type Gateway } from "./gateway.js";
-import type { SessionSummary } from "@cloakcode/protocol";
+import {
+  createLogger,
+  type LogRecord,
+  type SessionSummary,
+} from "@cloakcode/protocol";
 
 let gw: Gateway | undefined;
 
@@ -261,16 +265,25 @@ describe("startGateway", () => {
     ws.close();
   });
 
-  it("logs provider connect + disconnect via the log callback", async () => {
-    const lines: string[] = [];
-    gw = await startGateway({ port: 0, log: (l) => lines.push(l) });
+  it("logs provider connect + disconnect via the injected logger", async () => {
+    const records: LogRecord[] = [];
+    const logger = createLogger({
+      sink: (r) => records.push(r),
+      level: "trace",
+    });
+    gw = await startGateway({ port: 0, logger });
     const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i7");
     await waitFor(() =>
-      lines.some((l) => l.includes("provider connected: i7")),
+      records.some(
+        (r) => r.event === "provider.connect" && r.fields.instanceId === "i7",
+      ),
     );
     p.close();
     await waitFor(() =>
-      lines.some((l) => l.includes("provider disconnected: i7")),
+      records.some(
+        (r) =>
+          r.event === "provider.disconnect" && r.fields.instanceId === "i7",
+      ),
     );
   });
 });

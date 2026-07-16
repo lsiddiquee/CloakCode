@@ -74,6 +74,19 @@
     "configuration": {
       "title": "CloakCode",
       "properties": {
+        "cloakcode.logLevel": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "default": "info",
+          "scope": "window",
+          "markdownDescription": "Minimum severity written to the **CloakCode** output channel (View → Output → *CloakCode*). Logging is **local only** — CloakCode never sends telemetry to the cloud. `trace`/`debug` add per-RPC, observer, and actuator detail (correlated by a local `traceId`); `warn`/`error` show only problems."
+        },
         "cloakcode.installHook": {
           "type": "boolean",
           "default": true,

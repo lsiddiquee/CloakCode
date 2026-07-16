@@ -692,14 +692,16 @@ session.
 
 ## Observability, logging & traceability
 
-> **Status: a pre-MVP gap.** Today the only instrumentation is ad-hoc
-> `out.appendLine()` to the "CloakCode" OutputChannel plus the one-shot
-> `CloakCode: Show Diagnostics` dump. There is **no** structured logging, no metrics, no
-> cross-process correlation, and no durable audit trail. For a tool that **bridges
-> local↔remote and actuates an agent on the user's behalf**, that is a real gap — field
-> issues aren't debuggable, health isn't monitorable, and (the compliance one) "**who** drove
-> Copilot from the phone, and **what** left the machine" isn't reviewable. This section is the
-> design to close it; the **foundation is a pre-MVP requirement** (R11).
+> **Status: foundation shipping.** The `Logger` port below is now in
+> `@cloakcode/protocol` (ILogger-style: `trace|debug|info|warn|error`, `child()`
+> context, redaction-typed fields), with a **console** sink for the standalone
+> gateway and an **OutputChannel** sink for the extension, a `cloakcode.logLevel`
+> setting (+ `CLOAKCODE_LOG_LEVEL` for the gateway), and a `newTraceId()` helper
+> (2026-07-16). Output is **always local** — never cloud telemetry. Still
+> **pre-MVP-remaining:** finishing the ad-hoc `out.appendLine()` migration,
+> **propagating `traceId` across the RPC hops** (web→bridge→gateway→actuator + the
+> hook spool), the durable **audit trail**, metrics, and file rotation. The rest of
+> this section is the full design.
 
 ### The CloakCode twist: observability under a no-log-secrets rule
 
@@ -799,6 +801,9 @@ audit event, not a silent drop.
 1. **Foundation (pre-MVP, R11):** the `Logger` port + redaction pass + component tags +
    `traceId` correlation, and the **audit log for remote actions** (`respond` / `decide` /
    `answer`) — the compliance minimum. Replace `out.appendLine` with it.
+   _(SHIPPED 2026-07-16: the `Logger` port + console/OutputChannel sinks + `cloakcode.logLevel`
+   setting + `newTraceId()`; core lifecycle/actuator callsites migrated. **Remaining:** the rest of
+   the `out.appendLine` migration, RPC-wide `traceId` propagation, and the audit trail.)_
 2. **M4 (with the tunnel):** ship logs / metrics / audit to your infra; auth-stamped actor
    identity; tamper-evident audit; the health RPC to the phone.
 3. **Later:** a metrics dashboard; client-log ship-back; OpenTelemetry export — noting the neat

@@ -11,12 +11,14 @@
  *   CLOAKCODE_WEB_DIR        directory of the built PWA to serve (optional)
  *   CLOAKCODE_TUNNEL         `devtunnel` to auto-host a private tunnel (optional)
  *   CLOAKCODE_INSTANCE_ID    tunnel-name seed (default "gateway")
+ *   CLOAKCODE_LOG_LEVEL      trace|debug|info|warn|error (default info; CLOAKCODE_VERBOSE=1 ⇒ debug)
  *
  * Security: no app-layer auth yet (bridge auth is deferred) — keep it on
  * loopback + a PRIVATE tunnel; do not expose 0.0.0.0 on an untrusted network.
  */
 import { networkInterfaces } from "node:os";
 import { connectionUrls } from "./connect-urls.js";
+import { createConsoleLogger, parseLogLevel } from "./console-logger.js";
 import { startGateway } from "./gateway.js";
 import { resolvePortPlan } from "./listen.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
@@ -28,14 +30,19 @@ const serveDir = process.env["CLOAKCODE_WEB_DIR"];
 const verbose =
   process.env["CLOAKCODE_VERBOSE"] === "1" ||
   process.env["CLOAKCODE_VERBOSE"] === "true";
-const log = (line: string): void => console.log(`[cloakcode-gateway] ${line}`);
+// Structured, local-only logger (docs/03). CLOAKCODE_VERBOSE=1 is shorthand for debug.
+const logger = createConsoleLogger({
+  level:
+    parseLogLevel(process.env["CLOAKCODE_LOG_LEVEL"]) ??
+    (verbose ? "debug" : "info"),
+  base: { component: "gateway" },
+});
 
 const gateway = await startGateway({
   host,
   port: portPlan.port,
   fallbackToEphemeral: portPlan.fallbackToEphemeral,
-  log,
-  verbose,
+  logger,
   ...(serveDir ? { serveDir } : {}),
 });
 console.log(

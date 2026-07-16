@@ -5,6 +5,8 @@ import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
 import { connectGateway, type GatewayClient } from "./gateway-client.js";
 import { resolveConnectionPlan } from "./connection-plan.js";
+import { createOutputChannelLogger } from "./logger.js";
+import { type Logger, type LogLevel } from "@cloakcode/protocol";
 import {
   defaultWorkspaceStorageRoot,
   scanSessions,
@@ -29,6 +31,7 @@ import { phoneLinkHtml, isLoopback } from "./phone-link.js";
 import {
   devTunnelInstallHint,
   devTunnelName,
+  parseLogLevel,
   resolvePortPlan,
   startDevTunnel,
   TunnelError,
@@ -181,6 +184,12 @@ export async function activate(
   context.subscriptions.push(out);
 
   const cfg = vscode.workspace.getConfiguration("cloakcode");
+  // Local-only structured logger → the CloakCode output channel (docs/03). The
+  // level is a function so the `cloakcode.logLevel` setting changes it live.
+  let logLevel: LogLevel = parseLogLevel(cfg.get<string>("logLevel")) ?? "info";
+  const log = createOutputChannelLogger(out, () => logLevel, {
+    component: "extension",
+  });
   // The instanceId is a DISPLAY LABEL only (never routing/identity). It lives in
   // this workspace's `workspaceState`, changed via the `CloakCode: Set Instance
   // ID` command — NOT a setting (a setting confused the User/Remote/Workspace
@@ -190,9 +199,7 @@ export async function activate(
     (context.workspaceState.get<string>(INSTANCE_ID_KEY) ?? "").trim() ||
     (await defaultInstanceId());
   let instanceId = await resolveInstanceId();
-  out.appendLine(
-    `instanceId: "${instanceId}" (run “CloakCode: Set Instance ID” to change)`,
-  );
+  log.info("activate", { instanceId });
   // Bind rule (resolvePortPlan, tested): `cloakcode.port` / `CLOAKCODE_GATEWAY_PORT`
   // unset → try 3543, then an ephemeral port if it's taken; `0` → ephemeral; a
   // fixed N → lock N (stable phone/tunnel URL). `let` so establishConnection()
@@ -256,7 +263,7 @@ export async function activate(
       // (chat.shared.contribution.ts) — so opening it should load THAT session
       // and `chat.open` should target it. See docs/02.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      out.appendLine(`respond: open ${uri.toString()} then chat.open`);
+      log.info("actuator.respond", { sessionId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.open", {
         query: text,
@@ -269,7 +276,7 @@ export async function activate(
       // at the next tool-call boundary. Window-local/focus-dependent, like
       // respond; a remote-operator action, never genuine-local intent.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      out.appendLine(`steer: open ${uri.toString()} then steerWithMessage`);
+      log.info("actuator.steer", { sessionId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.open", {
         query: text,
@@ -284,7 +291,7 @@ export async function activate(
       // session; research §7). With a follow-up `text`, send it as a fresh
       // prompt afterwards (stop-and-send). A remote-operator action.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      out.appendLine(`stop${text ? "+send" : ""}: open ${uri.toString()}`);
+      log.info("actuator.stop", { sessionId, send: Boolean(text) });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.cancel");
       if (text) {
@@ -299,7 +306,7 @@ export async function activate(
       // 02 4.16). No per-tool id: acceptTool/skipTool act on that session's
       // first waiting confirmation; `toolCallId` is logged for traceability.
       if (!sessionId) {
-        out.appendLine("decide: missing sessionId, ignoring");
+        log.warn("actuator.decide_no_session");
         return;
       }
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
@@ -307,9 +314,7 @@ export async function activate(
         decision === "allow"
           ? "workbench.action.chat.acceptTool"
           : "workbench.action.chat.skipTool";
-      out.appendLine(
-        `decide ${decision} for ${toolCallId} (${sessionId}) -> ${cmd}`,
-      );
+      log.info("actuator.decide", { sessionId, decision, toolCallId });
       await vscode.commands.executeCommand(cmd, { sessionResource: uri });
     },
     answer: async ({ sessionId, toolCallId, answers }) => {
@@ -322,10 +327,7 @@ export async function activate(
       // of cancelling it (what a chat-text answer does).
       const base = baseToolCallId(toolCallId);
       const ids = base === toolCallId ? [toolCallId] : [toolCallId, base];
-      out.appendLine(
-        `answer (${sessionId}): ${answers.length} question(s); ` +
-          `resolveIds=${ids.join(", ")}`,
-      );
+      log.info("actuator.answer", { sessionId, questions: answers.length });
       for (const rid of ids) {
         await vscode.commands.executeCommand(
           "_chat.notifyQuestionCarouselAnswer",
@@ -377,17 +379,15 @@ export async function activate(
           (m) => out.appendLine(m),
         );
       } catch (err) {
-        out.appendLine(
-          `gateway ${gatewayUrl} unreachable (${
-            err instanceof Error ? err.message : String(err)
-          }); falling back to the embedded bridge`,
-        );
+        log.warn("gateway.unreachable", {
+          error: err instanceof Error ? err.message : String(err),
+        });
         bridge = await startEmbeddedBridge(
           deps,
           portPlan,
           serveDir,
           instanceId,
-          out,
+          log,
         );
       }
     } else {
@@ -396,7 +396,7 @@ export async function activate(
         portPlan,
         serveDir,
         instanceId,
-        out,
+        log,
       );
     }
     status.tooltip = gatewayClient
@@ -418,7 +418,7 @@ export async function activate(
     if (reconnecting) return;
     reconnecting = true;
     try {
-      out.appendLine(`reconnecting (${reason})…`);
+      log.info("reconnect", { reason });
       gatewayClient?.close();
       gatewayClient = undefined;
       await bridge?.close();
@@ -426,7 +426,7 @@ export async function activate(
       tunnel?.stop();
       tunnel = undefined;
       const summary = await establishConnection();
-      out.appendLine(`reconnected → ${summary}`);
+      log.info("reconnected", { summary });
     } finally {
       reconnecting = false;
     }
@@ -460,6 +460,15 @@ export async function activate(
       await reconnect("instanceId changed");
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("cloakcode.logLevel")) {
+        logLevel =
+          parseLogLevel(
+            vscode.workspace
+              .getConfiguration("cloakcode")
+              .get<string>("logLevel"),
+          ) ?? "info";
+        log.info("logLevel.changed", { level: logLevel });
+      }
       if (reconnectKeys.some((k) => e.affectsConfiguration(k))) {
         void reconnect("settings changed");
       }
@@ -700,7 +709,7 @@ async function startEmbeddedBridge(
   portPlan: PortPlan,
   serveDir: string | undefined,
   instanceId: string,
-  out: vscode.OutputChannel,
+  log: Logger,
 ): Promise<Bridge | undefined> {
   try {
     const b = await startBridge(deps, {
@@ -709,17 +718,17 @@ async function startEmbeddedBridge(
       fallbackToEphemeral: portPlan.fallbackToEphemeral,
       ...(serveDir ? { serveDir } : {}),
     });
-    out.appendLine(
-      `bridge listening on ws://127.0.0.1:${b.port} (instance "${instanceId}")` +
-        (serveDir ? " + PWA from dist/web" : ""),
-    );
+    log.info("bridge.listen", {
+      port: b.port,
+      pwa: Boolean(serveDir),
+      instanceId,
+    });
     return b;
   } catch (err) {
-    out.appendLine(
-      `failed to start bridge on ${portPlan.port}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+    log.error("bridge.listen_failed", {
+      port: portPlan.port,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return undefined;
   }
 }
