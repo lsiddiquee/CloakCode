@@ -258,6 +258,32 @@ export async function readSpoolDir(dir: string): Promise<SpoolRecord[]> {
   return out;
 }
 
+/**
+ * Remove every spool file belonging to a session — the GC for a **force-stop**.
+ * Cancelling the in-flight turn abandons its pending tool call(s): we've decided
+ * to ignore that blocker (dismiss the popover), so its spool file is safe to drop
+ * NOW instead of lingering until `isSuperseded` catches it on the next turn
+ * (docs/02 §4.19). Best-effort and idempotent — concurrent followers/hooks may
+ * race, so a failed unlink is swallowed and the retired/superseded self-heal in
+ * `SpoolFollower.pump` stays the backstop. Returns the base `toolCallId`s dropped.
+ */
+export async function removeSpoolForSession(
+  dir: string,
+  sessionId: string,
+): Promise<string[]> {
+  const mine = (await readSpoolDir(dir)).filter(
+    (r) => r.sessionId === sessionId,
+  );
+  await Promise.all(
+    mine.map((r) =>
+      fs.rm(spoolEntryPath(dir, r.toolCallId), { force: true }).catch(() => {
+        // best-effort — the retired/superseded self-heal is the backstop
+      }),
+    ),
+  );
+  return mine.map((r) => baseToolCallId(r.toolCallId));
+}
+
 /** Collect the base `toolCallId`s already present in a transcript body. */
 export function transcriptToolCallIds(content: string): Set<string> {
   const ids = new Set<string>();

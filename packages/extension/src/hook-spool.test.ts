@@ -7,6 +7,7 @@ import {
   baseToolCallId,
   spoolEntryPath,
   readSpoolDir,
+  removeSpoolForSession,
   transcriptToolCallIds,
   computePendingBlockers,
   isRetired,
@@ -284,6 +285,41 @@ describe("readSpoolDir", () => {
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("removeSpoolForSession", () => {
+  it("drops only the target session's files (the force-stop GC signal)", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-rm-"));
+    try {
+      await writeRecord(
+        dir,
+        rec(RAW_QUESTION, "vscode_askQuestions", {}, "sessA"),
+      );
+      await writeRecord(dir, rec(RAW_RUN, "run_in_terminal", {}, "sessA"));
+      await writeRecord(
+        dir,
+        rec("other__vscode-9", "run_in_terminal", {}, "sessB"),
+      );
+
+      const dropped = await removeSpoolForSession(dir, "sessA");
+
+      expect(dropped.sort()).toEqual([BASE_QUESTION, BASE_RUN].sort());
+      const left = await readSpoolDir(dir);
+      expect(left).toHaveLength(1);
+      expect(left[0]?.sessionId).toBe("sessB");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is a safe no-op when the session has no spool files / dir is missing", async () => {
+    expect(
+      await removeSpoolForSession(
+        path.join(os.tmpdir(), "cc-none-" + Date.now()),
+        "sessA",
+      ),
+    ).toEqual([]);
   });
 });
 

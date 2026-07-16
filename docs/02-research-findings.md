@@ -470,7 +470,13 @@ freeformValue}>`; `resolveId` = `ChatToolInvocation.toolCallId` (= `chatStreamTo
   the record and nothing supersedes it until real new activity happens. Tool events are ignored (a
   sibling tool finishing in the same turn must not retire a live approval); timestamps are
   non-monotonic across history so we take the **max** (an old out-of-order event can’t inflate it).
-  Covers both questions and approvals (shared spool reconcile).
+  Covers both questions and approvals (shared spool reconcile). **Force-stop GC (2026-07-16):** a
+  remote **force-stop** cancels the in-flight turn without either the transcript landing the tool
+  (`isRetired`) or the session advancing a turn (`isSuperseded`), so the abandoned spool file would
+  linger until the _next_ turn. Since force-stop means we're ignoring that blocker (dismissing the
+  popover), the `stop` actuator now GCs the session's spool file(s) on the same signal
+  (`removeSpoolForSession`, best-effort/idempotent) — the retired/superseded self-heal in
+  `SpoolFollower.pump` stays the backstop.
 - **4.20** _No take-control, no permission replication — surface + debounce (2026-07-10; replaces
   the §4.15/§4.16 model)._ Since approvals resolve via `acceptTool`/`skipTool` (a command, not a
   held hook), the hook stopped deciding anything: it **surfaces every tool call** (`spoolRecordFor`

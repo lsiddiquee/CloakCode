@@ -25,6 +25,7 @@ import {
   defaultSpoolDir,
   hookConfigPath,
   localChatSessionUri,
+  removeSpoolForSession,
   stableHookPath,
 } from "./hook-spool.js";
 import { phoneLinkHtml, isLoopback } from "./phone-link.js";
@@ -311,6 +312,11 @@ export async function activate(
       });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.cancel");
+      // Force-stop abandons the in-flight turn's pending tool call(s): we're
+      // ignoring that blocker (dismissing the popover), so GC its spool file NOW
+      // on the same signal instead of waiting for `isSuperseded` to catch it on
+      // the next turn (fixes the force-stop spool leak; docs/02 §4.19).
+      await removeSpoolForSession(spoolDir, sessionId);
       if (text) {
         await vscode.commands.executeCommand("workbench.action.chat.open", {
           query: text,
