@@ -702,8 +702,10 @@ session.
 > request envelope → logged by the bridge/gateway → threaded into the actuator),
 > so one remote action is one trace end-to-end; and the extension's ad-hoc
 > `out.appendLine` calls are migrated (only the on-demand `Show Diagnostics` report
-> still writes the channel directly). Still **pre-MVP-remaining:** the hook-spool
-> trace hop, the durable **audit trail**, metrics, and file rotation. The rest of
+> still writes the channel directly). **Per-session action logs now ship** — each
+> actuation is appended to a per-`sessionId` JSONL under CloakCode's own workspace
+> storage (2026-07-16). Still **pre-MVP-remaining:** the hook-spool trace hop,
+> metrics, and file rotation. The rest of
 > this section is the full design.
 
 ### The CloakCode twist: observability under a no-log-secrets rule
@@ -723,7 +725,7 @@ whole product, so it is designed in from the first log line, not bolted on.
 | ------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------- |
 | **Logs** (ordered structured events) | "what happened, in order"                       | OutputChannel (live) + rotating JSONL file; web → `console` + optional ship-back |
 | **Metrics** (counters/gauges)        | "healthy? how much?"                            | in-memory, exposed via the diagnostics RPC; pushed to your infra at M4           |
-| **Audit** (append-only)              | "who actuated / what egressed, and why allowed" | durable, persistent, provenance-stamped                                          |
+| **Session logs** (per-session)       | "what CloakCode did on this session"            | per-`sessionId` JSONL in CloakCode's workspace storage; local-only, provenance-stamped |
 
 ### Structured logging (replaces `out.appendLine`)
 
@@ -745,7 +747,7 @@ actuator → VS Code → response` — plus the **separate hook process**:
 - The client mints a **`traceId`** per user action (send / answer / approve); every hop logs
   `{ traceId, spanId, parentSpanId }`, so one action is one trace end-to-end.
 - The trace carries the **provenance tag** (`genuine-local-user` / `remote-operator` /
-  `cloakcode-staged`) so the audit answers "human at the keyboard, or the phone?"
+  `cloakcode-staged`) so the session log answers "human at the keyboard, or the phone?"
 - The **hook** is out-of-process (only `env` + the spool reach it), so propagate `traceId`
   **through the spool file** it already writes — a blocker the hook surfaces and the answer
   that resolves it then share one trace.
@@ -770,17 +772,19 @@ actuator → VS Code → response` — plus the **separate hook process**:
 - **Web client.** Socket state + reconnects; action sends (`traceId`); render errors; and an
   optional **redacted log ship-back** so a phone-side bug is debuggable from the host.
 
-### Audit trail (the compliance backbone)
+### Session action logs
 
-Broadens docs/04's prompts-only "audit log" to **every remote action and every egress**.
-Append-only, **persistent**, each record: `ts, traceId, provenance, actor` (operator identity
-once auth lands, M4), `target (instanceId, workspaceHash, sessionId), action, outcome`
-(`allowed` / `denied-by-guard` / `failed`), and a `redaction summary` (bytes/tokens scanned +
-stripped, hashed body — never the body). Optionally **tamper-evident** via a hash chain. This
-is what makes "who drove Copilot remotely, and what left the machine" reviewable — the reason
-an enterprise would trust the bridge at all. It also pairs with the receiving-side actuation
-guard (see "Actuation routing & the receiving-side guard"): a `denied-by-guard` outcome is an
-audit event, not a silent drop.
+Not a hard audit trail — Copilot Chat has none either; it has **transcripts**. CloakCode
+mirrors that: each remote action is appended to a **per-`sessionId` JSONL** under CloakCode's
+own workspace storage (global storage when no folder is open), so "what CloakCode did on this
+session" reads back like a transcript. Every record is a normal redacted log record —
+`ts, level, event, provenance` (`remote-operator` for actuations), `sessionId`, and the
+action's shape (`toolCallId`, a `decision`, token _counts_ / booleans) — **never** the body.
+Best-effort and **local-only**: no hash chain, no forced mount. The storage dir is durable on
+a host / WSL install; in a container it rides the ephemeral overlay (docs/02 §4.22) — mount it
+yourself if you want it to survive a rebuild. It pairs with the receiving-side actuation guard
+(see "Actuation routing & the receiving-side guard"): a `denied-by-guard` outcome is logged
+too, not silently dropped.
 
 ### Health & diagnostics
 
@@ -792,32 +796,34 @@ audit event, not a silent drop.
 
 ### Storage, rotation, retention
 
-- **Ephemeral-storage caveat (docs/02 §4.22):** `~/.vscode-server` is an **overlay** — a
-  container rebuild wipes it. Live logs may sit there (rotated, size-capped JSONL), but the
-  **audit log must live on a persistent path or ship out** (M4), or "who did what" is lost on
-  every rebuild.
-- File logs rotate with retention caps; metrics stay in-memory + snapshotted; audit is durable
-  and retained per policy.
+- **Ephemeral-storage caveat (docs/02 §4.22):** `~/.vscode-server` and the extension's
+  workspace storage are an **overlay** — a container rebuild wipes them. Live logs and the
+  per-session action logs may sit there (rotated, size-capped JSONL); mount the storage dir or
+  ship the records out (M4) if you need them to survive a rebuild.
+- File logs rotate with retention caps; metrics stay in-memory + snapshotted; session logs are
+  best-effort local (durable only if the storage dir is on a persistent path).
 
 ### Phasing (YAGNI — not all at once)
 
 1. **Foundation (pre-MVP, R11):** the `Logger` port + redaction pass + component tags +
-   `traceId` correlation, and the **audit log for remote actions** (`respond` / `decide` /
-   `answer`) — the compliance minimum. Replace `out.appendLine` with it.
+   `traceId` correlation, and **per-session action logs** for remote actions (`respond` /
+   `steer` / `stop` / `decide` / `answer`). Replace `out.appendLine` with it.
    _(SHIPPED 2026-07-16: the `Logger` port + console/OutputChannel sinks + `cloakcode.logLevel`
-   setting + `newTraceId()`; the `out.appendLine` migration (bar the diagnostics report); and
-   **`traceId` propagation** across web→bridge→gateway→actuator. **Remaining:** the hook-spool
-   trace hop and the audit trail.)_
-2. **M4 (with the tunnel):** ship logs / metrics / audit to your infra; auth-stamped actor
-   identity; tamper-evident audit; the health RPC to the phone.
+   setting + `newTraceId()`; the `out.appendLine` migration (bar the diagnostics report);
+   **`traceId` propagation** across web→bridge→gateway→actuator; and the **per-session action
+   logs** (per-`sessionId` JSONL in CloakCode's workspace storage). **Remaining:** the
+   hook-spool trace hop.)_
+2. **M4 (with the tunnel):** ship logs / metrics / session logs to your infra; auth-stamped
+   actor identity; the health RPC to the phone.
 3. **Later:** a metrics dashboard; client-log ship-back; OpenTelemetry export — noting the neat
    parallel that the Copilot **debug-log we already parse _is_ OTel spans** (docs/02), so
    emitting our own the same way is natural.
 
 ### Open questions
 
-- Where does the **durable audit log** live under ephemeral overlay storage — a persistent
-  volume, or ship-on-write to your infra (buffer + replay if the tunnel is down)?
+- **Durability of the session logs** under ephemeral overlay storage — good enough as
+  best-effort local (like Copilot's own transcripts), or offer ship-on-write to your infra
+  (buffer + replay if the tunnel is down) for users who need retention?
 - Mechanical **no-secrets-in-logs** enforcement — the redaction wrapper + a lint rule banning
   raw interpolation into log fields + an entropy test over the sinks. Sufficient?
 - **Trace propagation into the out-of-process hook** — the spool file is the clean channel; is

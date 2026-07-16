@@ -7,7 +7,7 @@ describe("createOutputChannelLogger", () => {
     const channel = { appendLine: (l: string) => lines.push(l) };
     let level: "debug" | "info" = "info";
     const log = createOutputChannelLogger(channel, () => level, {
-      component: "extension",
+      base: { component: "extension" },
     });
 
     log.debug("obs.scan"); // filtered at info

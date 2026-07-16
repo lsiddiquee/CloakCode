@@ -187,9 +187,21 @@ export async function activate(
   // Local-only structured logger → the CloakCode output channel (docs/03). The
   // level is a function so the `cloakcode.logLevel` setting changes it live.
   let logLevel: LogLevel = parseLogLevel(cfg.get<string>("logLevel")) ?? "info";
+  // Per-session action logs (docs/03): one JSONL per `sessionId` under CloakCode's
+  // OWN workspace storage (global storage when no folder is open) — like Copilot's
+  // transcripts, but recording the actions CloakCode took. Local-only, best-effort
+  // (no hard audit, no forced mount); mount the storage dir yourself for durability.
+  const sessionLogDir = path.join(
+    context.storageUri?.fsPath ?? context.globalStorageUri.fsPath,
+    "session-logs",
+  );
   const log = createOutputChannelLogger(out, () => logLevel, {
-    component: "extension",
+    base: { component: "extension" },
+    sessionLogDir,
   });
+  // Every remote actuation is provenance-stamped so the session log answers
+  // "who acted" — the phone, never the local keyboard (docs/04).
+  const actuatorLog = log.child({ provenance: "remote-operator" });
   // The instanceId is a DISPLAY LABEL only (never routing/identity). It lives in
   // this workspace's `workspaceState`, changed via the `CloakCode: Set Instance
   // ID` command — NOT a setting (a setting confused the User/Remote/Workspace
@@ -264,7 +276,7 @@ export async function activate(
       // (chat.shared.contribution.ts) — so opening it should load THAT session
       // and `chat.open` should target it. See docs/02.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      log.info("actuator.respond", { sessionId, traceId });
+      actuatorLog.info("actuator.respond", { sessionId, traceId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.open", {
         query: text,
@@ -277,7 +289,7 @@ export async function activate(
       // at the next tool-call boundary. Window-local/focus-dependent, like
       // respond; a remote-operator action, never genuine-local intent.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      log.info("actuator.steer", { sessionId, traceId });
+      actuatorLog.info("actuator.steer", { sessionId, traceId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.open", {
         query: text,
@@ -292,7 +304,11 @@ export async function activate(
       // session; research §7). With a follow-up `text`, send it as a fresh
       // prompt afterwards (stop-and-send). A remote-operator action.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      log.info("actuator.stop", { sessionId, send: Boolean(text), traceId });
+      actuatorLog.info("actuator.stop", {
+        sessionId,
+        send: Boolean(text),
+        traceId,
+      });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.cancel");
       if (text) {
@@ -307,7 +323,7 @@ export async function activate(
       // 02 4.16). No per-tool id: acceptTool/skipTool act on that session's
       // first waiting confirmation; `toolCallId` is logged for traceability.
       if (!sessionId) {
-        log.warn("actuator.decide_no_session");
+        actuatorLog.warn("actuator.decide_no_session");
         return;
       }
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
@@ -315,7 +331,12 @@ export async function activate(
         decision === "allow"
           ? "workbench.action.chat.acceptTool"
           : "workbench.action.chat.skipTool";
-      log.info("actuator.decide", { sessionId, decision, toolCallId, traceId });
+      actuatorLog.info("actuator.decide", {
+        sessionId,
+        decision,
+        toolCallId,
+        traceId,
+      });
       await vscode.commands.executeCommand(cmd, { sessionResource: uri });
     },
     answer: async ({ sessionId, toolCallId, answers, traceId }) => {
@@ -328,7 +349,7 @@ export async function activate(
       // of cancelling it (what a chat-text answer does).
       const base = baseToolCallId(toolCallId);
       const ids = base === toolCallId ? [toolCallId] : [toolCallId, base];
-      log.info("actuator.answer", {
+      actuatorLog.info("actuator.answer", {
         sessionId,
         questions: answers.length,
         traceId,

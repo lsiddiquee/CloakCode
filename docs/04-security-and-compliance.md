@@ -46,8 +46,10 @@ Design implications for an actuator that can stage/inject prompts:
 - **Confirm remote-origin actions.** Remote-submitted prompts that trigger
   irreversible/destructive actions should require an explicit confirmation surfaced back to
   the operator.
-- **Audit log.** The bridge records every prompt (redacted/hashed body + token count + model
-  - provenance) so exactly what left — and why — is reviewable.
+- **Session action log.** The bridge records each remote action per `sessionId` (redacted:
+  event + provenance + token _counts_ / booleans, hashed body — never the body) so what left,
+  and why, is reviewable. Best-effort local, like Copilot's transcripts — not a hard audit
+  trail; see docs/03 "Session action logs".
 - **Remote approval is `remote-operator`, fail-safe to local.** Each allow/deny (`session.decide`)
   and structured answer (`session.answer`) is a `remote-operator` action carried only over the
   **localhost** bridge to the extension host, which relays it to VS Code’s **own** confirmation via
@@ -112,5 +114,5 @@ mTLS) before a provider hands over any session data.
 | Reflected prompt injection  | Provenance tagging; distinguish staged vs human input; confirm remote destructive actions. |
 | Unauthorized remote control | mTLS/token auth on the tunnel; localhost-only bind.                                        |
 | Rogue local gateway (discovery) | Discovery off by default; local-only candidates; no network/tunnel scan; hub auth at M4. |
-| Sensitive data in prompts   | Secret/entropy scan blocks before send; audit log.                                         |
+| Sensitive data in prompts   | Secret/entropy scan blocks before send; session action log.                                |
 | Tool output tampering       | Treat tool/log content as untrusted input; validate at the boundary (zod).                 |
