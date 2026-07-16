@@ -9,13 +9,13 @@ FROM node:24-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY . .
-# The committed .npmrc/lockfile target an internal Microsoft feed unreachable from
-# a public Docker build (Docker Hub / a user's machine); resolve fresh from public
-# npm — same workaround as .github/workflows. pnpm 11.9 also needs Node >=22.13
-# (why the base is node:24). TODO(pre-public): ship a public-registry lockfile.
+# The committed .npmrc targets an internal Microsoft feed unreachable from a
+# public Docker build (Docker Hub / a user's machine), so we swap in public npm.
+# The committed pnpm-lock.yaml is registry-portable (integrity-only, no absolute
+# tarball URLs), so --frozen-lockfile installs it from public npm with every
+# version pin intact. pnpm 11.9 needs Node >=22.13 (why the base is node:24).
 RUN printf 'registry=https://registry.npmjs.org/\n' > .npmrc \
-  && rm -f pnpm-lock.yaml \
-  && pnpm install \
+  && pnpm install --frozen-lockfile \
   && pnpm --filter @cloakcode/protocol build \
   && pnpm --filter @cloakcode/gateway bundle \
   && pnpm --filter @cloakcode/web build

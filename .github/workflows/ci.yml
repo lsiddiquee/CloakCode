@@ -32,15 +32,15 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # NOTE: the committed .npmrc + pnpm-lock.yaml resolve against an internal
-      # Microsoft package feed (supply-chain screened) that public GitHub runners
-      # can't reach. Resolve fresh from public npm for CI. TODO(pre-public): ship a
-      # public-registry lockfile + .npmrc, then switch back to --frozen-lockfile.
+      # NOTE: the committed .npmrc targets an internal Microsoft package feed
+      # (supply-chain screened) for the dev container; public GitHub runners can't
+      # reach it, so we swap in the public registry. The committed pnpm-lock.yaml is
+      # registry-portable (integrity-only, no absolute tarball URLs), so
+      # --frozen-lockfile resolves it from public npm while keeping every version pin.
       - name: Install deps (public npm)
         run: |
           printf 'registry=https://registry.npmjs.org/\n' > .npmrc
-          rm -f pnpm-lock.yaml
-          pnpm install
+          pnpm install --frozen-lockfile
 
       # Topological order builds @cloakcode/protocol first, so the downstream
       # typechecks (which resolve its dist) pass.
@@ -61,13 +61,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # The local eslint/prettier hooks need node_modules present. Public npm
-      # (see the node job) — the committed feed is internal-only.
+      # The local eslint/prettier hooks need node_modules present. Swap the
+      # internal feed for public npm (see the node job); the portable lockfile
+      # installs with --frozen-lockfile.
       - name: Install deps (public npm)
         run: |
           printf 'registry=https://registry.npmjs.org/\n' > .npmrc
-          rm -f pnpm-lock.yaml
-          pnpm install
+          pnpm install --frozen-lockfile
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

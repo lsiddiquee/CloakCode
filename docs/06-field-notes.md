@@ -160,3 +160,19 @@ Base: `~/.vscode-server/data/User/`
   host to match the pin; or `.npmrc` `manage-package-manager-versions=false` (and don't `corepack
   enable`) so the local pnpm is used; or point `COREPACK_NPM_REGISTRY` / `npm_config_registry` at an
   internal mirror; or pre-warm the corepack cache while online.
+- **Registry-portable `pnpm-lock.yaml` from an internal feed: strip the tarball URLs, keep integrity.**
+  This container resolves through the Microsoft package-feed proxy (`.npmrc` `registry=…microsoft.io`),
+  so the committed lockfile carried ~674 absolute `tarball: https://ms-feed-{2,12,25}.pkgs.visualstudio.com/…`
+  URLs that public runners can't reach. Two facts: (1) pnpm's `lockfileIncludeTarballUrl: false` does **not**
+  drop them here — the feed serves tarballs from non-standard, load-balanced `ms-feed-N` hosts that differ
+  from the registry path, so pnpm records the resolved URL because it can't reconstruct it (regenerating even
+  errors: "tarball URL … does not match the registry's published metadata"). (2) The fix is to strip only the
+  URL fragment, keeping `integrity:` — `sed -E 's/, tarball: https:[^}]*\}/}/' pnpm-lock.yaml` (NOT
+  `/tarball:/d`, which deletes the whole `resolution:` line incl. integrity; and it's `sed -i` on Linux, not
+  the macOS `sed -i ''`). Result: `resolution: {integrity: sha1-…}`. pnpm accepts the integrity-only lockfile
+  (`pnpm install --offline --frozen-lockfile` validates it against the store); on public npm it reconstructs
+  `<registry>/<name>/-/<name>-<ver>.tgz` and the **sha1 still matches** because the tarball bytes are identical
+  to npmjs.org. This preserves every version pin — strictly better than CI's old `rm pnpm-lock.yaml` + fresh
+  install. CI + the gateway Dockerfile now write a public `.npmrc` and `pnpm install --frozen-lockfile`
+  (the committed `.npmrc` stays on the MS feed for this dev container). Still TODO before public: verify a
+  real public-npm `--frozen-lockfile` install where npmjs.org is actually reachable.
