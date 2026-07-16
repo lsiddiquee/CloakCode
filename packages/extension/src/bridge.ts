@@ -248,6 +248,28 @@ export async function startBridge(
   };
 }
 
+/**
+ * Best-effort recovery of the client's request `id` from a payload that FAILED
+ * full RPC validation, so the error reply still correlates to the pending call
+ * on the web client (which keys replies by `id`). Returns `"unknown"` only when
+ * the payload is not JSON or carries no string `id`.
+ */
+export function salvageRequestId(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as { id?: unknown }).id === "string"
+    ) {
+      return (parsed as { id: string }).id;
+    }
+  } catch {
+    // not JSON at all → fall through to the sentinel
+  }
+  return "unknown";
+}
+
 export async function handleMessage(
   socket: WebSocket,
   raw: string,
@@ -261,7 +283,7 @@ export async function handleMessage(
   } catch {
     socket.send(
       JSON.stringify({
-        id: "unknown",
+        id: salvageRequestId(raw),
         ok: false,
         error: { message: "invalid request" },
       }),

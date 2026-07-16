@@ -92,6 +92,27 @@ describe("startBridge", () => {
     }
   });
 
+  it("preserves the request id on a validation error (so the client can correlate)", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      // Valid `id`, invalid `op` → the error reply must echo the id, not "unknown".
+      const res = await request(bridge.port, { id: "abc-42", op: "nope" });
+      expect(res).toMatchObject({ id: "abc-42", ok: false });
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it('falls back to "unknown" id when the payload has no salvageable id', async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await rawRequest(bridge.port, "}{ not json at all");
+      expect(res).toMatchObject({ id: "unknown", ok: false });
+    } finally {
+      await bridge.close();
+    }
+  });
+
   it("rejects non-JSON garbage (input is parsed, never trusted raw)", async () => {
     const bridge = await startBridge(deps(), { port: 0 });
     try {
