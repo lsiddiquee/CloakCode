@@ -2,17 +2,38 @@
 
 ## Vision
 
-**CloakCode** is a secure "bridge" that lets a developer leverage GitHub Copilot (and,
-later, other remote tooling) from a **local editor**, controlled **remotely** from a
-phone or another machine — while guaranteeing that **the codebase never leaves the local
-machine**. It is built for enterprise tenants where syncing/pushing code to GitHub
-(remote repos, Codespaces, standard remote-dev extensions) is prohibited.
+**CloakCode** is a secure "bridge" that lets a developer observe and drive GitHub Copilot (and,
+later, other remote tooling) **in their local VS Code**, controlled **remotely** from a
+phone or another machine — while **the codebase never leaves the local machine** (only prompts
+and minimal, redacted context cross the bridge). You keep VS Code's own Copilot chat and can step
+away without losing the thread: get pinged when a session needs input and answer it from your
+phone.
 
 Three core objectives:
 
 1. **Control Copilot** — use Copilot's models and agent behaviour locally via supported APIs.
 2. **Zero code-sync** — only prompts and minimal, redacted context ever traverse the bridge.
 3. **Extensible remote controller** — groundwork for a command centre for remote operations from a local editor.
+
+## Why it exists
+
+The motivation is everyday developer flow, not a single deployment constraint:
+
+- **Remote for the VS Code Copilot chat — which has none.** VS Code's Copilot chat is the
+  interactive session many prefer (select code or text to discuss, point at specific things,
+  attach files or screenshots from the repo or outside it), but it can't be reached remotely.
+  CloakCode adds that remote, so you don't have to switch to a CLI or web mode that drops the
+  interactive UI — and you can't always: Copilot CLI has no remote either.
+- **Long runs shouldn't sit idle waiting for you.** A long agent workflow stalls on a
+  confirmation, a multiple-choice question, or a tool-call approval; get pinged and answer it from
+  your phone so it **keeps moving**, instead of waiting hours for you to come back to a one-word
+  answer.
+- **You answer, not autopilot.** Give the real answer to a question rather than letting an
+  autopilot reply with a templated "user is away — choose the best option" default.
+- **Fluid and two-way.** Move between your phone and the desktop chat at will — no one-way handoff
+  to a CLI or mode you can't switch back from.
+- **Covers the gaps.** Works when your repo isn't on GitHub and when you'd rather bring your own
+  models — all while your code stays on your machine.
 
 ## How the requirements evolved (important context)
 
@@ -34,7 +55,7 @@ the design is preserved:
 
 | #   | Requirement                                                       | Notes                                                                                                                                                                                                                         |
 | --- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | Never sync/push code to GitHub                                    | Compliance-critical; architectural, not policy-based.                                                                                                                                                                         |
+| R1  | Never sync/push code to GitHub                                    | Core privacy guarantee; enforced architecturally, not by policy.                                                                                                                                                            |
 | R2  | Access Copilot models locally                                     | Via stable `vscode.lm`.                                                                                                                                                                                                       |
 | R3  | List available sessions remotely                                  | Session picker for the phone. **Proven.**                                                                                                                                                                                     |
 | R4  | View a session's full transcript remotely                         | Live mirror. **Proven (read).**                                                                                                                                                                                               |

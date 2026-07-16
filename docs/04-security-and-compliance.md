@@ -6,7 +6,7 @@ document records how that is enforced and the security lessons the investigation
 ## Zero code-sync — enforced by architecture, not policy
 
 - **No git-remote path exists in CloakCode.** The extension has no code that runs
-  `git push`, calls the GitHub REST API, or syncs a repo. Compliance is structural.
+  `git push`, calls the GitHub REST API, or syncs a repo. The guarantee is structural.
 - **The bridge binds to `127.0.0.1` only.** Nothing is network-listening beyond localhost;
   remote access is exclusively via an explicit tunnel to _your_ infrastructure.
 - **Egress allowlist.** Any future remote-ops destinations are explicitly allowlisted;
@@ -27,9 +27,9 @@ Before any prompt/context is sent to a model or across the bridge:
 ## Model-side data handling
 
 `vscode.lm` routes through the user's Copilot entitlement and shows a **native consent
-dialog** on first use — an auditable checkpoint. Verify the tenant is on Copilot
-Business/Enterprise so the redacted snippets that _are_ sent fall under the
-no-training-on-prompt contractual guarantees.
+dialog** on first use — an auditable checkpoint. Check that your Copilot plan
+(Business/Enterprise) puts the redacted snippets that _are_ sent under the
+no-training-on-prompt guarantees.
 
 ## Prompt-injection provenance (a lesson learned the hard way)
 

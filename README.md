@@ -2,11 +2,19 @@
 
 **Observe and drive GitHub Copilot from your phone — with zero code-sync to GitHub.**
 
-CloakCode is a local-to-remote bridge for enterprise tenants where pushing code to GitHub
-is prohibited. Your codebase stays entirely on the local machine; only prompts and minimal,
-redacted context ever cross a secure tunnel. The main client is a **phone** (a React PWA),
-so you can watch a long Copilot agent flow, get pinged when it **stalls on a blocker**, and
-**answer that multiple-choice prompt remotely**.
+CloakCode is a local-to-remote bridge that lets you observe and drive GitHub Copilot in your
+local VS Code from a **phone** (a React PWA) or another machine. Your codebase stays entirely on
+the local machine; only prompts and minimal, redacted context ever cross a secure tunnel.
+
+You keep VS Code's own Copilot chat — the interactive session you prefer, where you select code or
+text to discuss, point at specific things, and attach files or screenshots — which has no remote
+of its own. CloakCode adds one, and you switch fluidly between the desktop and your phone. When a
+long agent workflow **stalls on a blocker** — a confirmation, a multiple-choice question, or a
+tool-call approval — you get pinged and **answer it remotely** so the run keeps moving, instead of
+walking back hours later to find it waiting on a one-word answer (and without autopilot replying
+with a templated "user is away" default). It's the tool for the cases the web and CLI don't cover:
+your repo isn't on GitHub, you want to bring your own models, or you just prefer the VS Code
+Copilot UI — and Copilot CLI has no remote.
 
 > Status: **M0 — dev experience + design.** The read/observe half (list sessions, live
 > mirror, blocker detection) is proven; the actuator (answering/steering remotely) is the

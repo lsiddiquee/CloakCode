@@ -6,10 +6,10 @@
 
 ## What it is (one paragraph)
 
-CloakCode lets you **watch and drive GitHub Copilot from your phone** while your code
-**never leaves your machine**. In locked-down enterprise tenants where pushing code to
-GitHub is banned, CloakCode keeps the whole repo local and sends only prompts and minimal,
-redacted context across a private tunnel to _your_ infra — never GitHub.
+CloakCode lets you **watch and drive GitHub Copilot from your phone** while your code **never
+leaves your machine**. You keep using VS Code's own Copilot chat — select code to discuss, point
+at things, attach files or screenshots — and switch fluidly between the desktop and your phone.
+Only prompts and minimal, redacted context cross a private tunnel to _your_ infra — never GitHub.
 
 ## Why (the pain)
 

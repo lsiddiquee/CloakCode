@@ -846,7 +846,7 @@ too, not silently dropped.
 | Client    | React + Vite PWA, Shiki, `react-markdown`              | Phone-first, installable, rich rendering.         |
 | Push      | Service worker + Web Push API                          | Blocker alerts to a backgrounded phone.           |
 | Tunnel    | WireGuard / SSH reverse forward / mTLS to _your_ infra | Never GitHub.                                     |
-| Packaging | `@vscode/vsce` (private/internal)                      | Enterprise-restricted distribution.               |
+| Packaging | `@vscode/vsce` + `ovsx`, npm, Docker                   | Public: Marketplace / Open VSX, npm, Docker Hub + GHCR. |
 
 ## Client ordering
 

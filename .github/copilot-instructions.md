@@ -7,9 +7,12 @@
 ## Repository overview
 
 CloakCode is a **local-to-remote bridge** that lets a developer **observe and drive GitHub
-Copilot from a phone (or another machine)** — with **zero code-sync to GitHub**. It targets
-restricted enterprise tenants where pushing code to GitHub is prohibited. Only prompts and
-minimal, redacted context ever cross the bridge.
+Copilot from a phone (or another machine)** — with **zero code-sync to GitHub**. Your code stays
+on your machine; only prompts and minimal, redacted context ever cross the bridge. It exists so
+you can keep VS Code's own Copilot chat UI (interactive selection, file/screenshot sharing, fluid
+desktop↔phone switching) yet step away and still answer a blocker, approve a tool call, or steer a
+session — covering the cases the web/CLI don't (repo not on GitHub, your own models, no Copilot
+CLI remote).
 
 Polyglot monorepo (pnpm TypeScript + a small Python research/observer toolkit). Current
 status: **M0 — dev experience + design complete**; the read/observe half is proven, the
