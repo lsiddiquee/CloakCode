@@ -18,16 +18,27 @@ connects to.
 npx @cloakcode/gateway
 ```
 
-Serves the PWA + hub on `ws://127.0.0.1:3543` and prints the URLs to point your extension at. For
-phone access, add a **private** Dev Tunnel (needs the [`devtunnel`](https://aka.ms/DevTunnelCliInstall)
-CLI, signed in) — it prints a phone URL:
+Serves the PWA + hub on `ws://127.0.0.1:3543` and prints the URLs to point your extension at.
+
+There are no CLI flags — the published bin (`cloakcode-gateway`) is configured entirely by
+**environment variables** set on the command line. The common ones:
 
 ```bash
+# phone access via a private Dev Tunnel (needs the devtunnel CLI, signed in) — prints a phone URL
 CLOAKCODE_TUNNEL=devtunnel npx @cloakcode/gateway
+
+# pick a fixed port (default 3543; a fixed value keeps the phone/tunnel URL stable)
+CLOAKCODE_GATEWAY_PORT=8080 npx @cloakcode/gateway
+
+# accept LAN / container clients, require a provider token, and tunnel — all at once
+CLOAKCODE_GATEWAY_HOST=0.0.0.0 \
+CLOAKCODE_GATEWAY_PORT=8080 \
+CLOAKCODE_GATEWAY_TOKEN=<shared-secret> \
+CLOAKCODE_TUNNEL=devtunnel \
+  npx @cloakcode/gateway
 ```
 
-The published bin is `cloakcode-gateway`; it's configured entirely by
-[environment variables](#configuration-environment-variables).
+See [all options](#configuration-environment-variables) below.
 
 ## Run it — Docker
 
@@ -37,10 +48,12 @@ docker run --rm -p 3543:3543 ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
 The image serves the PWA + hub on `0.0.0.0:3543`. It does **not** bundle the `devtunnel` CLI — front
-it with your own private tunnel / ingress. Configure with `-e`:
+it with your own private tunnel / ingress. Configure with the same environment variables via `-e`,
+and map the port with `-p`:
 
 ```bash
-docker run --rm -p 3543:3543 \
+docker run --rm -p 8080:8080 \
+  -e CLOAKCODE_GATEWAY_PORT=8080 \
   -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
