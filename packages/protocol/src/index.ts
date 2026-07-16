@@ -196,16 +196,21 @@ export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 
 /**
  * Client → bridge request envelope. A discriminated union on `op` so each
- * operation can carry its own typed params; new ops extend this array.
+ * operation can carry its own typed params; new ops extend this array. Every
+ * request may carry an optional **`traceId`** — a client-minted, LOCAL-only
+ * correlation id (see `newTraceId`) so one remote action's logs line up across
+ * web → bridge → gateway → actuator (docs/03 Observability). Never sent to a cloud.
  */
 export const rpcRequestSchema = z.discriminatedUnion("op", [
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("sessions.list"),
     params: z.object({}).default({}),
   }),
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.subscribe"),
     params: z.object({
       sessionId: z.string(),
@@ -214,6 +219,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.respond"),
     params: z.object({
       sessionId: z.string(),
@@ -225,6 +231,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.decide"),
     params: z.object({
       sessionId: z.string(),
@@ -235,6 +242,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.answer"),
     params: z.object({
       sessionId: z.string(),
@@ -248,6 +256,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.steer"),
     params: z.object({
       sessionId: z.string(),
@@ -260,6 +269,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.stop"),
     params: z.object({
       sessionId: z.string(),

@@ -23,13 +23,18 @@ export class Relay {
    */
   forward(
     operator: WebSocket,
-    request: { id: string; op: string; params: unknown },
+    request: { id: string; op: string; params: unknown; traceId?: string },
     send: (text: string) => void,
   ): void {
     const relayId = `rl:${this.#seq++}`;
     this.#entries.set(relayId, { operator, originalId: request.id });
     send(
-      JSON.stringify({ id: relayId, op: request.op, params: request.params }),
+      JSON.stringify({
+        id: relayId,
+        op: request.op,
+        params: request.params,
+        ...(request.traceId !== undefined ? { traceId: request.traceId } : {}),
+      }),
     );
   }
 

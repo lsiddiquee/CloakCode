@@ -697,10 +697,13 @@ session.
 > context, redaction-typed fields), with a **console** sink for the standalone
 > gateway and an **OutputChannel** sink for the extension, a `cloakcode.logLevel`
 > setting (+ `CLOAKCODE_LOG_LEVEL` for the gateway), and a `newTraceId()` helper
-> (2026-07-16). Output is **always local** — never cloud telemetry. Still
-> **pre-MVP-remaining:** finishing the ad-hoc `out.appendLine()` migration,
-> **propagating `traceId` across the RPC hops** (web→bridge→gateway→actuator + the
-> hook spool), the durable **audit trail**, metrics, and file rotation. The rest of
+> (2026-07-16). Output is **always local** — never cloud telemetry. **`traceId`
+> now propagates across the RPC hops** (web mints it per action → carried on the
+> request envelope → logged by the bridge/gateway → threaded into the actuator),
+> so one remote action is one trace end-to-end; and the extension's ad-hoc
+> `out.appendLine` calls are migrated (only the on-demand `Show Diagnostics` report
+> still writes the channel directly). Still **pre-MVP-remaining:** the hook-spool
+> trace hop, the durable **audit trail**, metrics, and file rotation. The rest of
 > this section is the full design.
 
 ### The CloakCode twist: observability under a no-log-secrets rule
@@ -802,8 +805,9 @@ audit event, not a silent drop.
    `traceId` correlation, and the **audit log for remote actions** (`respond` / `decide` /
    `answer`) — the compliance minimum. Replace `out.appendLine` with it.
    _(SHIPPED 2026-07-16: the `Logger` port + console/OutputChannel sinks + `cloakcode.logLevel`
-   setting + `newTraceId()`; core lifecycle/actuator callsites migrated. **Remaining:** the rest of
-   the `out.appendLine` migration, RPC-wide `traceId` propagation, and the audit trail.)_
+   setting + `newTraceId()`; the `out.appendLine` migration (bar the diagnostics report); and
+   **`traceId` propagation** across web→bridge→gateway→actuator. **Remaining:** the hook-spool
+   trace hop and the audit trail.)_
 2. **M4 (with the tunnel):** ship logs / metrics / audit to your infra; auth-stamped actor
    identity; tamper-evident audit; the health RPC to the phone.
 3. **Later:** a metrics dashboard; client-log ship-back; OpenTelemetry export — noting the neat

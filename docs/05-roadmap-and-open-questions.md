@@ -25,10 +25,11 @@
 > **Cross-cutting — Observability (R11), foundation shipping.** The
 > redaction-by-construction **`Logger` port** is now in `@cloakcode/protocol` (ILogger-style,
 > local-only) with a **console** sink (standalone gateway) + an **OutputChannel** sink (extension),
-> a `cloakcode.logLevel` setting, and a `newTraceId()` helper (2026-07-16); core lifecycle/actuator
-> callsites are migrated. **Still pre-MVP:** finishing the `out.appendLine` migration, propagating
-> `traceId` across the RPC hops (web / bridge / gateway / actuator + the hook spool), and the
-> **audit log for remote actions** (who actuated, what egressed). Full design — including what the
+> a `cloakcode.logLevel` setting, and a `newTraceId()` helper (2026-07-16); the `out.appendLine`
+> migration is done (bar the on-demand diagnostics report) and **`traceId` now propagates across the
+> RPC hops** (web→bridge→gateway→actuator), so one remote action is one trace end-to-end. **Still
+> pre-MVP:** the hook-spool trace hop and the **audit log for remote actions** (who actuated, what
+> egressed) — its durable persistence is an open decision (persistent volume vs ship-on-write at M4). Full design — including what the
 > **leader** and each **extension** log — in
 > [03 — Observability](03-architecture.md#observability-logging--traceability); shipping
 > logs / metrics / audit to your infra is M4.

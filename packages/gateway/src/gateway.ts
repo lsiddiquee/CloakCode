@@ -298,9 +298,20 @@ async function handleOperator(
     logger.warn("rpc.no_provider", { op, sessionId: sessionId ?? "?" });
     return;
   }
-  logger.debug("rpc.relay", { op, sessionId: sessionId ?? "?" });
-  relay.forward(socket, { id, op, params: req.data.params }, (t) =>
-    provider.send(t),
+  logger.debug("rpc.relay", {
+    op,
+    sessionId: sessionId ?? "?",
+    ...(req.data.traceId !== undefined ? { traceId: req.data.traceId } : {}),
+  });
+  relay.forward(
+    socket,
+    {
+      id,
+      op,
+      params: req.data.params,
+      ...(req.data.traceId !== undefined ? { traceId: req.data.traceId } : {}),
+    },
+    (t) => provider.send(t),
   );
 }
 

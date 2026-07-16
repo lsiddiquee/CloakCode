@@ -64,7 +64,7 @@ let tunnel: Tunnel | undefined;
 async function installHook(
   context: vscode.ExtensionContext,
   spoolDir: string,
-  out: vscode.OutputChannel,
+  log: Logger,
 ): Promise<void> {
   try {
     const extHookBin = vscode.Uri.joinPath(
@@ -86,12 +86,12 @@ async function installHook(
     if (current !== next) {
       await fs.mkdir(path.dirname(hookFile), { recursive: true });
       await fs.writeFile(hookFile, next);
-      out.appendLine(`installed hook -> ${hookFile}`);
+      log.info("hook.installed");
     }
   } catch (err) {
-    out.appendLine(
-      `hook install skipped: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    log.warn("hook.install_skipped", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -126,11 +126,11 @@ async function ensureStableHook(extHookBin: string): Promise<string> {
  * command — NEVER on deactivation (the config is shared by every window, so a
  * lifecycle-driven removal would break the others). Best effort.
  */
-async function uninstallHook(out: vscode.OutputChannel): Promise<void> {
+async function uninstallHook(log: Logger): Promise<void> {
   for (const p of [hookConfigPath(), stableHookPath()]) {
     await fs.rm(p, { force: true }).catch(() => undefined);
   }
-  out.appendLine("removed CloakCode hook (config + stable copy)");
+  log.info("hook.removed");
 }
 
 /**
@@ -220,9 +220,9 @@ export async function activate(
   // every window. Off = we never write it; the user manages the hook themselves.
   const installEnabled = cfg.get<boolean>("installHook", true);
   if (installEnabled) {
-    await installHook(context, spoolDir, out);
+    await installHook(context, spoolDir, log);
   } else {
-    out.appendLine("hook install disabled (cloakcode.installHook = false)");
+    log.info("hook.install_disabled");
   }
 
   const surfaceDebounceMs = cfg.get<number>("surfaceDebounceMs");
@@ -253,8 +253,9 @@ export async function activate(
     findSessionLog: (sessionId) => findSessionLog(root, sessionId),
     findTranscript: (sessionId) => findTranscript(root, sessionId),
     spoolDir,
+    logger: log,
     ...(surfaceDebounceMs !== undefined ? { surfaceDebounceMs } : {}),
-    respond: async ({ sessionId, text }) => {
+    respond: async ({ sessionId, text, traceId }) => {
       // M3b targeted-send PROBE. Instead of only the active chat, focus the
       // SPECIFIC local session by its resource URI, then submit. Verified in
       // source: our observed `sessionId` names the transcript AND is exactly
@@ -263,20 +264,20 @@ export async function activate(
       // (chat.shared.contribution.ts) — so opening it should load THAT session
       // and `chat.open` should target it. See docs/02.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      log.info("actuator.respond", { sessionId });
+      log.info("actuator.respond", { sessionId, traceId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.open", {
         query: text,
       });
     },
-    steer: async ({ sessionId, text }) => {
+    steer: async ({ sessionId, text, traceId }) => {
       // Redirect the IN-FLIGHT turn (docs/02 §4.28 / research §7): focus the
       // session, PREFILL the composer without sending (`isPartialQuery`), then
       // fire `steerWithMessage` — VS Code folds the text into the running turn
       // at the next tool-call boundary. Window-local/focus-dependent, like
       // respond; a remote-operator action, never genuine-local intent.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      log.info("actuator.steer", { sessionId });
+      log.info("actuator.steer", { sessionId, traceId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.open", {
         query: text,
@@ -286,12 +287,12 @@ export async function activate(
         "workbench.action.chat.steerWithMessage",
       );
     },
-    stop: async ({ sessionId, text }) => {
+    stop: async ({ sessionId, text, traceId }) => {
       // Cancel the in-flight turn (`chat.cancel` is no-arg, acts on the focused
       // session; research §7). With a follow-up `text`, send it as a fresh
       // prompt afterwards (stop-and-send). A remote-operator action.
       const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      log.info("actuator.stop", { sessionId, send: Boolean(text) });
+      log.info("actuator.stop", { sessionId, send: Boolean(text), traceId });
       await vscode.commands.executeCommand("vscode.open", uri);
       await vscode.commands.executeCommand("workbench.action.chat.cancel");
       if (text) {
@@ -300,7 +301,7 @@ export async function activate(
         });
       }
     },
-    decide: async ({ sessionId, toolCallId, decision }) => {
+    decide: async ({ sessionId, toolCallId, decision, traceId }) => {
       // Resolve VS Code's OWN native tool confirmation via command, targeted
       // by the session URI (EXACT-match, so a wrong id is a safe no-op; docs/
       // 02 4.16). No per-tool id: acceptTool/skipTool act on that session's
@@ -314,10 +315,10 @@ export async function activate(
         decision === "allow"
           ? "workbench.action.chat.acceptTool"
           : "workbench.action.chat.skipTool";
-      log.info("actuator.decide", { sessionId, decision, toolCallId });
+      log.info("actuator.decide", { sessionId, decision, toolCallId, traceId });
       await vscode.commands.executeCommand(cmd, { sessionResource: uri });
     },
-    answer: async ({ sessionId, toolCallId, answers }) => {
+    answer: async ({ sessionId, toolCallId, answers, traceId }) => {
       // Deliver the operator's STRUCTURED answer to the pending question
       // carousel (docs/02 §4.16). `toolCallId` is the carousel `resolveId`,
       // but VS Code keys it on the BASE id (`chatStreamToolCallId` =
@@ -327,7 +328,11 @@ export async function activate(
       // of cancelling it (what a chat-text answer does).
       const base = baseToolCallId(toolCallId);
       const ids = base === toolCallId ? [toolCallId] : [toolCallId, base];
-      log.info("actuator.answer", { sessionId, questions: answers.length });
+      log.info("actuator.answer", {
+        sessionId,
+        questions: answers.length,
+        traceId,
+      });
       for (const rid of ids) {
         await vscode.commands.executeCommand(
           "_chat.notifyQuestionCarouselAnswer",
@@ -376,7 +381,7 @@ export async function activate(
           gatewayUrl,
           { instanceId },
           deps,
-          (m) => out.appendLine(m),
+          (m) => log.debug("gateway.client", { msg: m }),
         );
       } catch (err) {
         log.warn("gateway.unreachable", {
@@ -456,7 +461,7 @@ export async function activate(
         input.trim() || undefined,
       );
       instanceId = await resolveInstanceId();
-      out.appendLine(`instanceId set → "${instanceId}"`);
+      log.info("instanceId.set", { instanceId });
       await reconnect("instanceId changed");
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -577,7 +582,7 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.reinstallHook", async () => {
-      await installHook(context, spoolDir, out);
+      await installHook(context, spoolDir, log);
       void vscode.window.showInformationMessage(
         "CloakCode: Copilot hook installed / repaired.",
       );
@@ -593,7 +598,7 @@ export async function activate(
         "Remove hook",
       );
       if (pick !== "Remove hook") return;
-      await uninstallHook(out);
+      await uninstallHook(log);
       void vscode.window.showInformationMessage(
         "CloakCode: Copilot hook removed.",
       );
@@ -625,7 +630,7 @@ export async function activate(
       }
       showLinkPanel(
         await resolvePhoneUrl(bridge.port, devTunnelName(instanceId), (m) =>
-          out.appendLine(m),
+          log.debug("tunnel", { msg: m }),
         ),
       );
     }),
@@ -652,11 +657,11 @@ export async function activate(
       // / sign-in when needed; show the link on success. Reveal the log so the
       // devtunnel progress/errors are visible while it runs.
       out.show(true);
-      out.appendLine(`Set Up Phone Tunnel: hosting 127.0.0.1:${bridge.port}`);
+      log.info("tunnel.setup", { port: bridge.port });
       const url = await startOrRecoverTunnel(
         bridge.port,
         devTunnelName(instanceId),
-        (m) => out.appendLine(m),
+        (m) => log.debug("tunnel", { msg: m }),
       );
       if (url) showLinkPanel(url);
     }),
@@ -674,7 +679,7 @@ export async function activate(
     void startOrRecoverTunnel(
       b.port,
       devTunnelName(instanceId),
-      (m) => out.appendLine(m),
+      (m) => log.debug("tunnel", { msg: m }),
       true,
     );
   }

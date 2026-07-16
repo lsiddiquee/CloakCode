@@ -1,5 +1,6 @@
 import {
   rpcErrorSchema,
+  newTraceId,
   sessionSubscribeEventSchema,
   sessionsListResponseSchema,
   sessionRespondResponseSchema,
@@ -117,6 +118,7 @@ export function subscribeSession(
         JSON.stringify({
           id,
           op: "session.subscribe",
+          traceId: newTraceId(),
           params: {
             sessionId: params.sessionId,
             sinceSeq: lastSeq,
@@ -191,7 +193,7 @@ function oneShotRpc(
     }, 5000);
 
     ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id, op, params }));
+      ws.send(JSON.stringify({ id, op, params, traceId: newTraceId() }));
     });
 
     ws.addEventListener("message", (ev) => {

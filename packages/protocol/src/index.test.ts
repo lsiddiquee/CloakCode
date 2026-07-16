@@ -78,6 +78,22 @@ describe("rpcRequestSchema", () => {
     expect(parsed).toEqual({ id: "1", op: "sessions.list", params: {} });
   });
 
+  it("carries an optional traceId on the envelope", () => {
+    const withTrace = rpcRequestSchema.parse({
+      id: "1",
+      op: "session.respond",
+      traceId: "abc123",
+      params: { sessionId: "s1", text: "hi" },
+    });
+    expect(withTrace.traceId).toBe("abc123");
+    // Optional: a request without a traceId still parses.
+    const without = rpcRequestSchema.parse({
+      id: "2",
+      op: "sessions.list",
+    });
+    expect(without.traceId).toBeUndefined();
+  });
+
   it("parses a session.subscribe request and defaults sinceSeq", () => {
     const parsed = rpcRequestSchema.parse({
       id: "2",

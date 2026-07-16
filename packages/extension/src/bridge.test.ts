@@ -377,6 +377,29 @@ describe("startBridge", () => {
     }
   });
 
+  it("threads the client traceId through to the actuator dep", async () => {
+    let got: { sessionId: string; text: string; traceId?: string } | undefined;
+    const bridge = await startBridge(
+      deps({
+        respond: async (p) => {
+          got = p;
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      await request(bridge.port, {
+        id: "20",
+        op: "session.respond",
+        traceId: "trace-xyz",
+        params: { sessionId: "sessA", text: "hi" },
+      });
+      expect(got?.traceId).toBe("trace-xyz");
+    } finally {
+      await bridge.close();
+    }
+  });
+
   it("errors session.respond when no respond dep is configured", async () => {
     const bridge = await startBridge(deps(), { port: 0 });
     try {

@@ -5,6 +5,7 @@ import {
   rpcRequestSchema,
   DEFAULT_PORT,
   type Decision,
+  type Logger,
   type QuestionAnswer,
   type SessionSummary,
 } from "@cloakcode/protocol";
@@ -44,6 +45,12 @@ export interface BridgeDeps {
    */
   surfaceDebounceMs?: number;
   /**
+   * Local structured logger (docs/03). The bridge logs each RPC (`op` + the
+   * client `traceId`) and threads the traceId into the actuator so one remote
+   * action correlates end-to-end. Unset → the bridge logs nothing.
+   */
+  logger?: Logger;
+  /**
    * Deliver a `remote-operator` answer into the target window (M3b question
    * channel). Provided ONLY by the extension host (it calls
    * `workbench.action.chat.open`); the pure dev-server leaves it unset, so the
@@ -53,6 +60,7 @@ export interface BridgeDeps {
     sessionId: string;
     toolCallId?: string;
     text: string;
+    traceId?: string;
   }) => Promise<void>;
   /**
    * Record the operator's allow/deny verdict for a held tool call (docs/04) by
@@ -63,6 +71,7 @@ export interface BridgeDeps {
     sessionId: string;
     toolCallId: string;
     decision: Decision;
+    traceId?: string;
   }) => Promise<void>;
   /**
    * Deliver the operator's structured answer to a pending `vscode_askQuestions`
@@ -74,19 +83,28 @@ export interface BridgeDeps {
     sessionId: string;
     toolCallId: string;
     answers: QuestionAnswer[];
+    traceId?: string;
   }) => Promise<void>;
   /**
    * Steer the in-flight turn with a `remote-operator` redirect (docs/04): the
    * extension prefills the composer then fires `steerWithMessage` (docs/02
    * §4.28). Extension-host only; unset → `session.steer` is unsupported.
    */
-  steer?: (params: { sessionId: string; text: string }) => Promise<void>;
+  steer?: (params: {
+    sessionId: string;
+    text: string;
+    traceId?: string;
+  }) => Promise<void>;
   /**
    * Stop the in-flight turn (`chat.cancel`); with `text`, then send it as a
    * fresh prompt (stop-and-send). A `remote-operator` action (docs/04).
    * Extension-host only; unset → `session.stop` is unsupported.
    */
-  stop?: (params: { sessionId: string; text?: string }) => Promise<void>;
+  stop?: (params: {
+    sessionId: string;
+    text?: string;
+    traceId?: string;
+  }) => Promise<void>;
 }
 
 export interface BridgeOptions {
@@ -251,6 +269,13 @@ export async function handleMessage(
     return;
   }
 
+  // One structured line per RPC (op + the client traceId), correlating this hop
+  // with the web send + the actuator log for the same action.
+  deps.logger?.debug("rpc", {
+    op: request.op,
+    ...(request.traceId !== undefined ? { traceId: request.traceId } : {}),
+  });
+
   try {
     switch (request.op) {
       case "sessions.list": {
@@ -350,6 +375,9 @@ export async function handleMessage(
             ? { toolCallId: request.params.toolCallId }
             : {}),
           text: request.params.text,
+          ...(request.traceId !== undefined
+            ? { traceId: request.traceId }
+            : {}),
         });
         socket.send(
           JSON.stringify({
@@ -377,6 +405,9 @@ export async function handleMessage(
           sessionId: request.params.sessionId,
           toolCallId: request.params.toolCallId,
           decision: request.params.decision,
+          ...(request.traceId !== undefined
+            ? { traceId: request.traceId }
+            : {}),
         });
         socket.send(
           JSON.stringify({
@@ -406,6 +437,9 @@ export async function handleMessage(
           sessionId: request.params.sessionId,
           toolCallId: request.params.toolCallId,
           answers: request.params.answers,
+          ...(request.traceId !== undefined
+            ? { traceId: request.traceId }
+            : {}),
         });
         socket.send(
           JSON.stringify({
@@ -432,6 +466,9 @@ export async function handleMessage(
         await deps.steer({
           sessionId: request.params.sessionId,
           text: request.params.text,
+          ...(request.traceId !== undefined
+            ? { traceId: request.traceId }
+            : {}),
         });
         socket.send(
           JSON.stringify({ id: request.id, ok: true, op: "session.steer" }),
@@ -455,6 +492,9 @@ export async function handleMessage(
           sessionId: request.params.sessionId,
           ...(request.params.text !== undefined
             ? { text: request.params.text }
+            : {}),
+          ...(request.traceId !== undefined
+            ? { traceId: request.traceId }
             : {}),
         });
         socket.send(
