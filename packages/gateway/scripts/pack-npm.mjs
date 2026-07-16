@@ -53,6 +53,9 @@ cpSync(join(ASSEMBLED, "web"), join(OUT, "web"), { recursive: true });
 if (existsSync(join(PKG, "README.md"))) {
   cpSync(join(PKG, "README.md"), join(OUT, "README.md"));
 }
+if (existsSync(join(ROOT, "LICENSE"))) {
+  cpSync(join(ROOT, "LICENSE"), join(OUT, "LICENSE"));
+}
 
 // A clean, self-contained manifest: no dependencies (all bundled), not private,
 // bin/main point at the bundle. Optional fields are copied through when present.
@@ -63,7 +66,7 @@ const manifest = {
   type: "module",
   bin: { "cloakcode-gateway": "main.mjs" },
   main: "main.mjs",
-  files: ["main.mjs", "web", "README.md"],
+  files: ["main.mjs", "web", "README.md", "LICENSE"],
   engines: { node: ">=20" },
   repository: src.repository,
   homepage: src.homepage,

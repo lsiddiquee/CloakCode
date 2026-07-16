@@ -12,6 +12,7 @@
   "bugs": {
     "url": "https://github.com/lsiddiquee/CloakCode/issues"
   },
+  "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
