@@ -18,11 +18,10 @@ on:
 
 permissions:
   contents: write # push the release branch
-  pull-requests: write # open the PR
 
 jobs:
   prepare:
-    name: Bump + branch + PR
+    name: Bump + push release branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -36,23 +35,24 @@ jobs:
           node scripts/set-version.mjs "$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "release/v$VERSION"
+          git switch -C "release/v$VERSION"
           git commit -aqm "chore(release): v$VERSION"
-          git push -u origin "release/v$VERSION"
+          git push -f -u origin "release/v$VERSION"
 
-      - name: Open PR to main
+      # We don't call `gh pr create`: the default GITHUB_TOKEN is blocked from
+      # creating PRs unless a repo setting is enabled. Printing the compare link
+      # (one click to open the PR) is permission-free and always works.
+      - name: Release branch ready
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
         run: |
-          gh pr create --base main --head "release/v$VERSION" \
-            --title "chore(release): v$VERSION" \
-            --body "Automated release prep for **v$VERSION** (lockstep — extension + gateway share one version).
-
-          After merging, cut the release:
-
-          \`\`\`
-          git tag v$VERSION && git push origin v$VERSION
-          \`\`\`
-
-          The Release workflow verifies the tag matches the committed version, then builds, packages, and publishes to the gated targets."
+          URL="${{ github.server_url }}/${{ github.repository }}/compare/main...release/v$VERSION?expand=1"
+          {
+            echo "### Release v$VERSION prepared"
+            echo ""
+            echo "Branch \`release/v$VERSION\` pushed with the version bump (extension + gateway, lockstep)."
+            echo ""
+            echo "1. **Open the PR:** [$URL]($URL)"
+            echo "2. Review + merge it into \`main\`."
+            echo "3. Cut the release: \`git tag v$VERSION && git push origin v$VERSION\` → the Release workflow verifies the tag matches the committed version, then builds and publishes to the gated targets."
+          } >> "$GITHUB_STEP_SUMMARY"
