@@ -23,6 +23,15 @@ RUN pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/ \
 
 FROM node:24-slim AS runtime
 WORKDIR /app
+# OCI metadata: `source` links the image to the repo on GHCR (which then renders
+# this repo's gateway README on the package page), the rest populate the registry
+# listing. See packages/gateway/README.md for usage.
+LABEL org.opencontainers.image.title="CloakCode gateway" \
+      org.opencontainers.image.description="Run-it-yourself CloakCode gateway — serves the phone PWA + WebSocket hub for observing and steering GitHub Copilot from your phone." \
+      org.opencontainers.image.source="https://github.com/lsiddiquee/CloakCode" \
+      org.opencontainers.image.url="https://github.com/lsiddiquee/CloakCode" \
+      org.opencontainers.image.documentation="https://github.com/lsiddiquee/CloakCode/blob/main/packages/gateway/README.md" \
+      org.opencontainers.image.licenses="MIT"
 COPY --from=build /repo/packages/gateway/dist/main.mjs ./main.mjs
 COPY --from=build /repo/packages/web/dist ./web
 ENV CLOAKCODE_GATEWAY_HOST=0.0.0.0 \

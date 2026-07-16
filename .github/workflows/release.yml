@@ -145,4 +145,18 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/cloakcode-gateway:latest
             ghcr.io/${{ github.repository_owner }}/cloakcode-gateway:${{ github.ref_name }}
+
+      # Sync the gateway README to the Docker Hub repository's Overview (GHCR
+      # picks it up automatically from the image's org.opencontainers.image.source
+      # label). Gated on the same Docker Hub secret as the push above.
+      - name: Sync Docker Hub description
+        if: ${{ env.DOCKERHUB_TOKEN != '' }}
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway
+          readme-filepath: ./packages/gateway/README.md
+          short-description: "Run-it-yourself CloakCode gateway — drive GitHub Copilot from your phone."
