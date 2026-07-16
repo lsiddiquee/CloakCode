@@ -38,8 +38,9 @@ describe("sessionLogSink", () => {
       .split("\n")
       .map((l) => JSON.parse(l) as LogRecord);
     expect(a).toHaveLength(2);
-    expect(a[0]!.fields["action"]).toBe("steer");
-    expect(a[1]!.fields["action"]).toBe("stop");
+    // Fire-and-forget: both records land, but back-to-back append order isn't
+    // guaranteed (each call is its own mkdir→append chain), so assert the set.
+    expect(a.map((r) => r.fields["action"]).sort()).toEqual(["steer", "stop"]);
 
     const b = JSON.parse(
       (await fs.readFile(path.join(dir, "sessB.jsonl"), "utf8")).trim(),
