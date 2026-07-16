@@ -1,0 +1,58 @@
+name: Prepare release
+
+# One-click release prep. Run from the Actions tab (or `gh workflow run
+# prepare-release.yml -f version=0.1.0`) with a plain SemVer version. It creates
+# a `release/vX.Y.Z` branch, stamps the version into the shipped package.json
+# files (lockstep: extension + gateway share one version), commits, and opens a
+# PR to main. Review + merge, then cut the release by tagging:
+#     git tag vX.Y.Z && git push origin vX.Y.Z      # → release.yml publishes
+#
+# The release branch is a durable record of each cut (not just the tag).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Product version — plain SemVer, e.g. 0.1.0 (no -rc/-beta suffix)"
+        required: true
+        type: string
+
+permissions:
+  contents: write # push the release branch
+  pull-requests: write # open the PR
+
+jobs:
+  prepare:
+    name: Bump + branch + PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # set-version.mjs is stdlib-only Node; it validates SemVer and rejects
+      # pre-release suffixes (the Marketplace can't take them). Runner Node is fine.
+      - name: Stamp version + push release branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/set-version.mjs "$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/v$VERSION"
+          git commit -aqm "chore(release): v$VERSION"
+          git push -u origin "release/v$VERSION"
+
+      - name: Open PR to main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh pr create --base main --head "release/v$VERSION" \
+            --title "chore(release): v$VERSION" \
+            --body "Automated release prep for **v$VERSION** (lockstep — extension + gateway share one version).
+
+          After merging, cut the release:
+
+          \`\`\`
+          git tag v$VERSION && git push origin v$VERSION
+          \`\`\`
+
+          The Release workflow verifies the tag matches the committed version, then builds, packages, and publishes to the gated targets."

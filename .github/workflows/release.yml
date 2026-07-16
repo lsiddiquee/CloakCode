@@ -56,6 +56,26 @@ jobs:
         run: |
           printf 'registry=https://registry.npmjs.org/\n' > .npmrc
           pnpm install --frozen-lockfile
+
+      # The version ships from the committed package.json (vsce/npm read it), so
+      # the tag must match what was bumped on the release branch. Fail fast on
+      # drift (e.g. tagging a commit that was never bumped). Skipped on manual
+      # workflow_dispatch, which has no v* tag.
+      - name: Verify tag matches committed version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          TAG_VERSION="${REF#v}"
+          for pkg in package.json packages/extension/package.json packages/gateway/package.json; do
+            PKG_VERSION="$(node -p "require('./$pkg').version")"
+            if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+              echo "::error::Tag v$TAG_VERSION != $pkg version $PKG_VERSION. Run 'Prepare release', merge the PR, then tag." >&2
+              exit 1
+            fi
+          done
+          echo "Tag v$TAG_VERSION matches all committed manifests."
+
       - run: pnpm -r build
       - run: pnpm -r test # never cut a release on red
 
