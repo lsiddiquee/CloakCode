@@ -9,6 +9,11 @@ const common = {
   bundle: true,
   platform: "node",
   format: "cjs",
+  // Pin the runtime floor to the VS Code host's Node so the BUILD Node (24 in CI
+  // / the devcontainer) can never leak newer syntax into the .vsix. VS Code
+  // `^1.90` ships Electron/Node ~20; node18 is a safe conservative floor for both
+  // the extension host and the Copilot-spawned hook process. (Gateway pins node20.)
+  target: "node18",
   sourcemap: true,
 };
 
