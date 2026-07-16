@@ -38,24 +38,24 @@ jobs:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      # See ci.yml: the committed .npmrc/lockfile target an internal MS feed;
-      # resolve fresh from public npm on the runner.
+      # See ci.yml: the committed .npmrc targets an internal MS feed. Here we set
+      # the project registry to public npm (the release also publishes to it) and
+      # install the registry-portable lockfile with --frozen-lockfile (keeps pins).
       - name: Install deps (public npm)
         run: |
           printf 'registry=https://registry.npmjs.org/\n' > .npmrc
-          rm -f pnpm-lock.yaml
-          pnpm install
+          pnpm install --frozen-lockfile
       - run: pnpm -r build
       - run: pnpm -r test # never cut a release on red
 
@@ -70,7 +70,7 @@ jobs:
 
       # --- Always: a GitHub Release with the artifacts (no external secrets) ---
       - name: GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/extension/*.vsix
@@ -96,23 +96,23 @@ jobs:
       # --- Gated: Docker Hub + GHCR (self-contained build from repo root) ---
       - name: Set up Buildx
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Login to Docker Hub
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GHCR
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build & push gateway image
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: packages/gateway/Dockerfile

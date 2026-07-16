@@ -19,15 +19,15 @@ jobs:
     name: Node — build · typecheck · lint · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # pnpm BEFORE setup-node so the pnpm cache can be wired. Version comes from
       # the `packageManager` pin in package.json (pnpm@11.9.0).
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -52,11 +52,11 @@ jobs:
     name: pre-commit (gitleaks · markdownlint · prettier · ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -66,7 +66,13 @@ jobs:
       - name: Install deps (public npm)
         run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: pre-commit/action@v3.0.1
+      # pre-commit/action is frozen on Node 20; the pre-commit project recommends
+      # running the CLI directly. setup-python is already present, so install and
+      # run pre-commit ourselves (no Node-20 action).
+      - name: Run pre-commit
+        run: |
+          python -m pip install --upgrade pre-commit
+          pre-commit run --all-files --show-diff-on-failure --color=always
