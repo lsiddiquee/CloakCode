@@ -1,102 +1,103 @@
 # @cloakcode/gateway
 
-The **standalone CloakCode gateway** — a run-it-yourself hub (host binary / Docker image) that
-serves the PWA and multiplexes phone (**operator**) and extension (**provider**) connections on
-one `/bridge` endpoint, so the **leader is explicit**. See
-[docs/03 → Explicit gateway](../../docs/03-architecture.md#explicit-gateway-mvp-the-hub-you-run).
+The **standalone CloakCode gateway** — a run-it-yourself hub that serves the CloakCode phone app
+(PWA) and multiplexes your **phone** (operator) and your **VS Code extensions** (providers) onto one
+endpoint. Run it when you want several VS Code windows or machines to share **one** phone endpoint,
+or to keep the hub outside the editor.
 
-Holds **no `vscode`** — it's the `vscode`-free server core (it also owns `tunnel.ts` +
-`static-files.ts`; the extension's embedded mode imports them back).
+Pairs with the **[CloakCode VS Code extension](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode)**:
+the extension observes and steers your Copilot sessions; the gateway is the shared hub your phone
+connects to.
 
-## Run it standalone
+> Needs **Node ≥ 20**. There's no app-layer auth yet — keep it on loopback behind a private tunnel,
+> or only bind all interfaces on a trusted network (see [Security](#security)).
 
-**Quickest — assemble a copy-ready folder, then run it:**
+## Run it — `npx` (no install)
 
 ```bash
-# from the repo root: builds protocol + gateway + PWA and stages dist/gateway/
+npx @cloakcode/gateway
+```
+
+Serves the PWA + hub on `ws://127.0.0.1:3543` and prints the URLs to point your extension at. For
+phone access, add a **private** Dev Tunnel (needs the [`devtunnel`](https://aka.ms/DevTunnelCliInstall)
+CLI, signed in) — it prints a phone URL:
+
+```bash
+CLOAKCODE_TUNNEL=devtunnel npx @cloakcode/gateway
+```
+
+The published bin is `cloakcode-gateway`; it's configured entirely by
+[environment variables](#configuration-environment-variables).
+
+## Run it — Docker
+
+```bash
+docker run --rm -p 3543:3543 ghcr.io/lsiddiquee/cloakcode-gateway:latest
+# pin a version:  ...cloakcode-gateway:v0.1.1
+```
+
+The image serves the PWA + hub on `0.0.0.0:3543`. It does **not** bundle the `devtunnel` CLI — front
+it with your own private tunnel / ingress. Configure with `-e`:
+
+```bash
+docker run --rm -p 3543:3543 \
+  -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> \
+  ghcr.io/lsiddiquee/cloakcode-gateway:latest
+```
+
+## Connect your VS Code extension
+
+In VS Code settings, point the extension at the gateway (several windows can share one):
+
+```json
+"cloakcode.gatewayUrl": "ws://<gateway-host>:3543"
+```
+
+If you started the gateway with `CLOAKCODE_GATEWAY_TOKEN`, set the **same** value on the extension so
+it can register as a provider:
+
+```json
+"cloakcode.gatewayToken": "<shared-secret>"
+```
+
+For a gateway on **another machine or container**, run it with `CLOAKCODE_GATEWAY_HOST=0.0.0.0` and
+use that host's IP in `gatewayUrl` (loopback only accepts same-host clients).
+
+## Configuration (environment variables)
+
+| var                         | default                     | meaning                                                                 |
+| --------------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| `CLOAKCODE_GATEWAY_HOST`    | `127.0.0.1` (`0.0.0.0` image) | bind address; `0.0.0.0` to accept LAN / container / WSL clients          |
+| `CLOAKCODE_GATEWAY_PORT`    | `3543`                      | listen port — also the port segment of the Dev Tunnel URL; `0` = ephemeral |
+| `CLOAKCODE_TUNNEL`          | _(off)_                     | `devtunnel` → auto-host a **private** tunnel and print the phone URL     |
+| `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed → a **stable**, per-machine phone URL                   |
+| `CLOAKCODE_GATEWAY_TOKEN`   | _(off)_                     | provider↔gateway shared secret; extensions must present the same value  |
+| `CLOAKCODE_GATEWAY_LOG_FILE`| `./cloakcode-gateway.jsonl` | on-disk action log (JSONL); set empty to disable                        |
+| `CLOAKCODE_WEB_DIR`         | bundled `web/`              | PWA directory to serve (defaults to the bundled app)                    |
+| `CLOAKCODE_LOG_LEVEL`       | `info`                      | `trace`/`debug`/`info`/`warn`/`error` (`CLOAKCODE_VERBOSE=1` ⇒ `debug`) |
+
+The gateway logs **provider / operator connect + disconnect** by default; raise the level (or
+`CLOAKCODE_VERBOSE=1`) for per-RPC detail.
+
+## Security
+
+There is **no app-layer auth yet**. The safe postures are:
+
+- **Loopback + a private tunnel** (default host `127.0.0.1`; the Dev Tunnel is private, sign-in
+  required) — recommended.
+- **`0.0.0.0` on a trusted LAN only.** Do not expose it on an untrusted network.
+- Set `CLOAKCODE_GATEWAY_TOKEN` so only extensions holding the shared secret can register as
+  providers (machine-to-machine; never shown to the phone).
+
+## Build from source
+
+Requires the monorepo checkout ([lsiddiquee/CloakCode](https://github.com/lsiddiquee/CloakCode)):
+
+```bash
+# assemble a copy-ready folder (main.mjs + web/ + run.sh) into dist/gateway/
 pnpm --filter @cloakcode/gateway assemble
-
-# run it — serves the PWA + hub; --tunnel prints a phone URL
-cd dist/gateway
-./run.sh --tunnel
+cd dist/gateway && ./run.sh --tunnel      # run.sh is a flag-driven launcher (--host/--port/--tunnel…)
 ```
 
-`dist/gateway/` (`main.mjs` + `web/` + `run.sh`) is self-contained: copy it to any host with
-Node ≥ 20 and run `./run.sh` there.
-
-### `run.sh` options
-
-| flag                 | default        | meaning                                                               |
-| -------------------- | -------------- | --------------------------------------------------------------------- |
-| `--host <addr>`      | `127.0.0.1`    | bind address; use `0.0.0.0` to accept LAN / container / WSL clients   |
-| `--port <n>`         | `7900`         | listen port (also the port segment of the Dev Tunnel URL)             |
-| `--web-dir <path>`   | bundled `web/` | directory of the built PWA to serve                                   |
-| `--instance-id <id>` | `gateway`      | tunnel-name seed → a **stable** phone URL, distinct per machine       |
-| `--tunnel`           | off            | expose via a **private** Microsoft Dev Tunnel and print the phone URL |
-| `--no-tunnel`        | _(default)_    | local only                                                            |
-| `--verbose`          | off            | also log per-RPC detail (relay routing, `sessions.list` counts)       |
-| `-h`, `--help`       |                | print usage and exit                                                  |
-
-Each flag maps to a `CLOAKCODE_*` [environment variable](#environment-variables) (the flag wins when
-both are set). `run.sh` also preflights Node ≥ 20 and, for `--tunnel`, that `devtunnel` is installed
-and signed in — degrading to local-only with the exact fix if not.
-
-The gateway logs **provider / operator connect + disconnect** by default (so you can watch extensions
-and phones attach and drop); `--verbose` adds per-RPC detail (relay routing + `sessions.list` counts).
-
-**Reachable from another machine or container?** Bind all interfaces — loopback (`127.0.0.1`)
-only accepts same-host clients, so a separate container/VM connecting to the host IP is refused:
-
-```bash
-./run.sh --host 0.0.0.0 --tunnel      # clients use ws://<this-host-ip>:7900
-```
-
-There is no app-layer auth yet, so only bind `0.0.0.0` on a trusted network (otherwise keep it
-on loopback + a private tunnel).
-
-**Or run straight from the workspace, without assembling:**
-
-```bash
-pnpm --filter @cloakcode/protocol build
-pnpm --filter @cloakcode/web build
-pnpm --filter @cloakcode/gateway build
-
-CLOAKCODE_WEB_DIR=packages/web/dist \
-CLOAKCODE_TUNNEL=devtunnel \
-  pnpm --filter @cloakcode/gateway start
-```
-
-### Environment variables
-
-These drive the runner directly (`pnpm start`, Docker, or `main.mjs`); `run.sh` sets them from its
-flags.
-
-| var                      | default     | meaning                                                          |
-| ------------------------ | ----------- | ---------------------------------------------------------------- |
-| `CLOAKCODE_GATEWAY_HOST` | `127.0.0.1` | bind address (`0.0.0.0` in Docker)                               |
-| `CLOAKCODE_GATEWAY_PORT` | `7900`      | port                                                             |
-| `CLOAKCODE_WEB_DIR`      | _(unset)_   | directory of the built PWA to serve (WS-only if unset)           |
-| `CLOAKCODE_TUNNEL`       | _(unset)_   | `devtunnel` → auto-host a private tunnel and print the phone URL |
-| `CLOAKCODE_INSTANCE_ID`  | `gateway`   | tunnel-name seed                                                 |
-
-## Docker
-
-```bash
-# build context is the repo ROOT:
-docker build -f packages/gateway/Dockerfile -t cloakcode-gateway .
-docker run --rm -p 7900:7900 cloakcode-gateway
-```
-
-The image serves the PWA + hub on `0.0.0.0:7900`. It does **not** bundle the `devtunnel` CLI —
-front it with your own private tunnel/ingress (there's no app-layer auth yet).
-
-## Status
-
-- ✅ `ProviderRegistry` + `mergeSessions` — aggregate + de-dupe `sessions.list` across providers by
-  `(instanceId, sessionId)`, owned-preferred.
-- ✅ `startGateway` — serves the PWA + WS hub; `provider.hello` role split; operator `sessions.list`
-  relay. Integration-tested with real WebSockets.
-- ✅ `cloakcode-gateway` runner (`main.ts`) that owns the Dev Tunnel; ESM bundle + Dockerfile.
-
-**Next:** the streaming `session.subscribe` + actuator (`respond`/`decide`/`answer`) relay, and the
-extension **client mode** (`cloakcode.gatewayUrl`) that makes an extension connect in as a provider.
+`dist/gateway/` is self-contained — copy it to any host with Node ≥ 20 and run `./run.sh` there.
+`run.sh --help` lists the flags (each maps to a `CLOAKCODE_*` env var above).
