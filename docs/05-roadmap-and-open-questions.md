@@ -252,6 +252,35 @@ the critical path.
   gateway fix on the extension side: preserve the request id on a parse failure so a relayed error
   routes back instead of hanging.
 
+- **Stale devtunnel ports accumulate across reloads — cosmetic, PARKED post-MVP (2026-07-16).**
+  The managed `devtunnel` (`cloakcode.tunnel: devtunnel`) hosts a **persistent, named** tunnel
+  (`devTunnelName` → `cloakcode-<hash>`) and adds the bridge's forwarded port to it on each host.
+  With the stable **3543** port that's a no-op, but whenever the bridge falls back to an
+  **ephemeral** port (3543 busy, or `cloakcode.port: 0`), every reload adds a NEW port and the old
+  ones **never get removed** — observed live: **5 ports** (`3543` + four ephemeral leftovers) piled
+  up on one tunnel. Not breaking (only the current port serves traffic; unused ports are inert and
+  devtunnel expires ports/tunnels on its own, ~30 days), so it is cosmetic cruft.
+  - **devtunnel facts (verified 2026-07-16):** `devtunnel port list <name> --json` →
+    `{ "ports": [ { "portNumber", "protocol", "clientConnections" }, … ] }`; delete one with
+    `devtunnel port delete <name> -p <n>`. The listing comes from the **central** tunnel service.
+  - **The trap that makes a naive fix DANGEROUS (multi-instance):** the tunnel name follows a
+    deterministic **naming convention**, so **another window / machine can be hosting the SAME named
+    tunnel with its OWN live port.** The service lists _all_ ports on the name, and a listing alone
+    can't tell "mine" from "a sibling's" — so a blanket _"delete every port except the one I'm about
+    to use"_ would **evict a sibling's in-use port.** (The name should key off the **`workspaceHash`**
+    — `cloakcode-<workspaceHash>` — so instances on the same workspace deliberately share it; that
+    sharing is exactly what creates this hazard.)
+  - **Safe design when we build it:** never enumerate-and-delete. Instead delete **only the ONE port
+    THIS instance itself recorded forwarding on a prior run** — persist it in `globalState` keyed by
+    tunnel name (per machine) — and only when (1) the name carries the **`cloakcode-` convention** (so
+    we never touch a foreign tunnel) **and** (2) that port currently has **no `clientConnections`** (so
+    we never evict a live sibling). Prune our own previous port right after a successful host of the
+    new one.
+  - **Decision:** PARKED post-MVP — cosmetic, and the safe fix needs the per-instance recorded-port
+    bookkeeping above, not worth it before the tunnel/auth story (M4, Q9) settles. A prototype prune
+    (naming-convention + recorded-previous-port + `clientConnections` guards) was written then
+    **reverted** to keep the tree lean until this is scheduled.
+
 - **Stopped/cancelled tool leaks its spool file — no functional regression, minor disk cruft
   (2026-07-15).** The hook writes a spool entry on `PreToolUse` and deletes it on `PostToolUse`; a
   turn STOPPED mid-tool (force-stop button OR `workbench.action.chat.cancel`) never fires
