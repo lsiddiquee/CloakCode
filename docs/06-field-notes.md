@@ -173,6 +173,10 @@ Base: `~/.vscode-server/data/User/`
   (`pnpm install --offline --frozen-lockfile` validates it against the store); on public npm it reconstructs
   `<registry>/<name>/-/<name>-<ver>.tgz` and the **sha1 still matches** because the tarball bytes are identical
   to npmjs.org. This preserves every version pin — strictly better than CI's old `rm pnpm-lock.yaml` + fresh
-  install. CI + the gateway Dockerfile now write a public `.npmrc` and `pnpm install --frozen-lockfile`
-  (the committed `.npmrc` stays on the MS feed for this dev container). Still TODO before public: verify a
-  real public-npm `--frozen-lockfile` install where npmjs.org is actually reachable.
+  install. CI + the gateway Dockerfile now run `pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/`
+  — the `--registry` flag is the highest-precedence npm-config source, so it overrides just the registry
+  for that command and leaves the committed `.npmrc` (MS feed, for this dev container) and any other
+  settings in it untouched — strictly better than `printf … > .npmrc`, which clobbers the whole file.
+  (A scoped `@scope:registry=` override wouldn't work: deps span many scopes + unscoped packages, so the
+  global `registry`/`--registry` is required.) Still TODO before public: verify a real public-npm
+  `--frozen-lockfile` install where npmjs.org is actually reachable.

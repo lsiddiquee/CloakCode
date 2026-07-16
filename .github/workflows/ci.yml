@@ -34,13 +34,12 @@ jobs:
 
       # NOTE: the committed .npmrc targets an internal Microsoft package feed
       # (supply-chain screened) for the dev container; public GitHub runners can't
-      # reach it, so we swap in the public registry. The committed pnpm-lock.yaml is
-      # registry-portable (integrity-only, no absolute tarball URLs), so
-      # --frozen-lockfile resolves it from public npm while keeping every version pin.
+      # reach it, so --registry overrides just the registry for this install (highest
+      # -precedence npm-config source), leaving any other .npmrc settings intact. The
+      # committed pnpm-lock.yaml is registry-portable (integrity-only, no absolute
+      # tarball URLs), so --frozen-lockfile resolves it from public npm keeping every pin.
       - name: Install deps (public npm)
-        run: |
-          printf 'registry=https://registry.npmjs.org/\n' > .npmrc
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/
 
       # Topological order builds @cloakcode/protocol first, so the downstream
       # typechecks (which resolve its dist) pass.
@@ -61,13 +60,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # The local eslint/prettier hooks need node_modules present. Swap the
-      # internal feed for public npm (see the node job); the portable lockfile
-      # installs with --frozen-lockfile.
+      # The local eslint/prettier hooks need node_modules present. --registry
+      # overrides just the registry for this install (see the node job); the
+      # portable lockfile installs with --frozen-lockfile.
       - name: Install deps (public npm)
-        run: |
-          printf 'registry=https://registry.npmjs.org/\n' > .npmrc
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
