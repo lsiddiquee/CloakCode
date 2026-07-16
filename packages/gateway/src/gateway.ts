@@ -16,6 +16,7 @@ import { Relay } from "./relay.js";
 import { contentTypeFor, resolveStaticPath } from "./static-files.js";
 import { listenWithFallback } from "./listen.js";
 import { silentLogger } from "./console-logger.js";
+import { verifyGatewayToken, tokenFromRequestUrl } from "./auth.js";
 
 export interface GatewayOptions {
   /** Bind address. Defaults to `127.0.0.1` (front it with a tunnel for remote). */
@@ -36,6 +37,15 @@ export interface GatewayOptions {
    * logged at `debug` — raise the level to see it.
    */
   logger?: Logger;
+  /**
+   * Shared secret required on the `/bridge` WebSocket upgrade (as a `?token=`
+   * query param) from BOTH operators (phone/PWA) and providers (extensions).
+   * When set, an upgrade without a matching token is rejected `401`. Omit (or
+   * empty) to disable auth — the loopback-dev default. Verified timing-safe;
+   * front the gateway with a private tunnel regardless (this is what makes a
+   * shared / wider reach safe — docs/04).
+   */
+  token?: string;
 }
 
 export interface Gateway {
@@ -94,6 +104,15 @@ export async function startGateway(
 
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
+    // Auth at the upgrade: BOTH operators (PWA) and providers (extensions)
+    // present the shared secret as `?token=` on the `/bridge` URL. Rejected
+    // before any frame is exchanged. No-op when no token is configured.
+    if (!verifyGatewayToken(opts.token, tokenFromRequestUrl(req.url))) {
+      logger.warn("auth.reject");
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
     );

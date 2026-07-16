@@ -35,9 +35,11 @@ describe("fileLogSink", () => {
       .split("\n")
       .map((l) => JSON.parse(l) as LogRecord);
     expect(lines).toHaveLength(2);
-    expect(lines[0]!.event).toBe("rpc.relay");
-    expect(lines[0]!.fields["op"]).toBe("session.respond");
-    expect(lines[1]!.event).toBe("provider.connect");
+    // Fire-and-forget: both records land, but back-to-back append order isn't
+    // guaranteed (each call is its own mkdir→append chain), so assert the set.
+    const byEvent = new Map(lines.map((r) => [r.event, r]));
+    expect(byEvent.get("rpc.relay")?.fields["op"]).toBe("session.respond");
+    expect(byEvent.has("provider.connect")).toBe(true);
   });
 
   it("never throws on a bad path (best-effort — logging can't break the relay)", async () => {

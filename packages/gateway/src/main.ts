@@ -13,6 +13,7 @@
  *   CLOAKCODE_INSTANCE_ID    tunnel-name seed (default "gateway")
  *   CLOAKCODE_LOG_LEVEL      trace|debug|info|warn|error (default info; CLOAKCODE_VERBOSE=1 ⇒ debug)
  *   CLOAKCODE_GATEWAY_LOG_FILE  on-disk action log (JSONL); unset → ./cloakcode-gateway.jsonl; "" → off
+ *   CLOAKCODE_GATEWAY_TOKEN  shared secret required on the /bridge upgrade (?token=); unset → auth OFF
  *
  * Security: no app-layer auth yet (bridge auth is deferred) — keep it on
  * loopback + a PRIVATE tunnel; do not expose 0.0.0.0 on an untrusted network.
@@ -36,6 +37,9 @@ const verbose =
 // (the gateway relays remote-operator actions), overridable/disable-able via env.
 const logFile =
   process.env["CLOAKCODE_GATEWAY_LOG_FILE"] ?? "cloakcode-gateway.jsonl";
+// Shared secret for the /bridge upgrade (operators + providers present it as
+// `?token=`). Unset/empty → auth OFF (loopback dev); set it before any wider bind.
+const token = process.env["CLOAKCODE_GATEWAY_TOKEN"] || undefined;
 const logger = createConsoleLogger({
   level:
     parseLogLevel(process.env["CLOAKCODE_LOG_LEVEL"]) ??
@@ -50,6 +54,7 @@ const gateway = await startGateway({
   fallbackToEphemeral: portPlan.fallbackToEphemeral,
   logger,
   ...(serveDir ? { serveDir } : {}),
+  ...(token ? { token } : {}),
 });
 console.log(
   `[cloakcode-gateway] listening on ws://${host}:${gateway.port}` +
@@ -58,6 +63,13 @@ console.log(
 if (logFile) {
   console.log(`[cloakcode-gateway] action log → ${logFile}`);
 }
+console.log(
+  `[cloakcode-gateway] auth: ${
+    token
+      ? "ON (token required on /bridge)"
+      : "OFF (no token) — keep on loopback + a private tunnel"
+  }`,
+);
 
 // The URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where it
 // runs relative to this host (probed from the network interfaces).

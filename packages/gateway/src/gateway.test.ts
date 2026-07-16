@@ -287,3 +287,31 @@ describe("startGateway", () => {
     );
   });
 });
+
+describe("startGateway auth (token at the /bridge upgrade)", () => {
+  it("rejects an upgrade with no token when one is configured", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret" });
+    await expect(open(`ws://127.0.0.1:${gw.port}/bridge`)).rejects.toThrow();
+  });
+
+  it("rejects an upgrade with the WRONG token", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret" });
+    await expect(
+      open(`ws://127.0.0.1:${gw.port}/bridge?token=nope`),
+    ).rejects.toThrow();
+  });
+
+  it("accepts an upgrade with the matching token", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret" });
+    const ws = await open(`ws://127.0.0.1:${gw.port}/bridge?token=s3cret`);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("is OPEN when no token is configured (loopback-dev default)", async () => {
+    gw = await startGateway({ port: 0 });
+    const ws = await open(`ws://127.0.0.1:${gw.port}/bridge`);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+});
