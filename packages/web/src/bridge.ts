@@ -85,10 +85,11 @@ export type ConnState = "connecting" | "open" | "reconnecting" | "closed";
  * Subscribe to a session's live event stream. Calls `onEvent` for each
  * validated seq'd `SessionEvent` (history channel), `onPending` for each
  * live-pending snapshot (replace-semantics overlay), `onError` for server-side
- * RPC errors, and `onStatus` for the connection lifecycle. **Auto-reconnects**
- * with capped exponential backoff on drop, resuming from the last seq it saw so
- * only missed events replay. Returns an unsubscribe function that stops
- * reconnecting and closes the socket.
+ * RPC errors, `onStatus` for the connection lifecycle, and `onTurn` for the live
+ * mid-turn flag (so the composer flips steer/queue↔send without a list refresh).
+ * **Auto-reconnects** with capped exponential backoff on drop, resuming from the
+ * last seq it saw so only missed events replay. Returns an unsubscribe function
+ * that stops reconnecting and closes the socket.
  */
 export function subscribeSession(
   params: { sessionId: string; sinceSeq?: number },
@@ -97,6 +98,7 @@ export function subscribeSession(
   onError: (message: string) => void = () => {},
   onStatus: (status: ConnState) => void = () => {},
   url: string = bridgeUrl(),
+  onTurn: (inTurn: boolean) => void = () => {},
 ): () => void {
   let ws: WebSocket | null = null;
   let lastSeq = params.sinceSeq ?? 0;
@@ -141,8 +143,10 @@ export function subscribeSession(
           // Track the resume point so a reconnect replays only what we missed.
           if (event.seq >= lastSeq) lastSeq = event.seq + 1;
           onEvent(event);
-        } else {
+        } else if (frame.data.kind === "pending") {
           onPending(frame.data.blockers);
+        } else {
+          onTurn(frame.data.inTurn);
         }
         return;
       }

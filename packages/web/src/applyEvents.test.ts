@@ -7,6 +7,7 @@ const empty = {
   resolved: new Set<string>(),
   pending: [],
   error: null,
+  inTurn: false,
 };
 
 const md = (id: string, seq: number): SessionEvent => ({

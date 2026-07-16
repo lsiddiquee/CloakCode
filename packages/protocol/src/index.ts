@@ -369,11 +369,14 @@ export const sessionStopResponseSchema = z.object({
 export type SessionStopResponse = z.infer<typeof sessionStopResponseSchema>;
 
 /**
- * A streamed frame delivered for an active `session.subscribe`. Two separate
- * kinds share the one subscription: `event` is the seq'd, append-only history
- * log (resumable via `sinceSeq`); `pending` is a replace-snapshot of the live
- * blocker overlay from the hook. Keeping them distinct means the history
- * channel stays prefix-stable while the overlay updates idempotently.
+ * A streamed frame delivered for an active `session.subscribe`. Three kinds
+ * share the one subscription: `event` is the seq'd, append-only history log
+ * (resumable via `sinceSeq`); `pending` is a replace-snapshot of the live
+ * blocker overlay from the hook; `turn` is the live mid-turn flag (mirrors
+ * `SessionSummary.inTurn`) so the composer flips steer/queue↔send the moment the
+ * turn opens or closes, without waiting for a `sessions.list` refresh. Keeping
+ * them distinct means the history channel stays prefix-stable while the overlay
+ * and turn flag update idempotently.
  */
 export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -387,6 +390,12 @@ export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
     op: z.literal("session.subscribe"),
     kind: z.literal("pending"),
     blockers: z.array(pendingBlockerSchema),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.subscribe"),
+    kind: z.literal("turn"),
+    inTurn: z.boolean(),
   }),
 ]);
 export type SessionSubscribeEvent = z.infer<typeof sessionSubscribeEventSchema>;

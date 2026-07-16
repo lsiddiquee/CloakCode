@@ -133,8 +133,10 @@ native-suppression / permission-replication apparatus:
 flush `turn_end`; Copilot's post-`turn_end` placeholder `turn_start` is guarded in §4.28) — it queues or
 sends either way. All `remote-operator`, command-only, window-local/focus-dependent (docs/04). None leaves an on-disk
 marker — a steer reads as a plain `user.message`, a stop as a normal `turn_end` (LIVE-CONFIRMED).
-_Follow-up:_ `inTurn` rides the `sessions.list` snapshot today; streaming it live over
-`session.subscribe` would make the composer switch modes without a list refresh (deferred, YAGNI).
+_Follow-up (SHIPPED 2026-07-16):_ `inTurn` now **also streams live** over `session.subscribe`
+(`{kind:"turn", inTurn}`, emitted on transition) alongside the `sessions.list` snapshot, so the
+composer flips steer/queue↔send the moment the turn opens or closes without waiting for a list
+refresh. The transcript observer (`SessionFollower`) tracks the flag via `computeInTurn`.
 
 ### M4 — Secure tunnel + hardening
 

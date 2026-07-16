@@ -31,12 +31,14 @@ interface ViewState {
   resolved: Set<string>;
   pending: PendingBlocker[];
   error: string | null;
+  inTurn: boolean;
 }
 
 type ViewAction =
   | { type: "batch"; events: SessionEvent[] }
   | { type: "error"; message: string }
-  | { type: "pending"; blockers: PendingBlocker[] };
+  | { type: "pending"; blockers: PendingBlocker[] }
+  | { type: "turn"; inTurn: boolean };
 
 /**
  * Fold a batch of session events into the view state in one pass. Opening a long
@@ -85,6 +87,10 @@ export function applyEvents(
 function reducer(state: ViewState, action: ViewAction): ViewState {
   if (action.type === "error") return { ...state, error: action.message };
   if (action.type === "pending") return { ...state, pending: action.blockers };
+  if (action.type === "turn")
+    return action.inTurn === state.inTurn
+      ? state
+      : { ...state, inTurn: action.inTurn };
   return applyEvents(state, action.events);
 }
 
@@ -100,6 +106,7 @@ export function SessionView({
     resolved: new Set<string>(),
     pending: [],
     error: null,
+    inTurn: session.inTurn,
   });
   const [conn, setConn] = useState<ConnState>("connecting");
 
@@ -125,6 +132,8 @@ export function SessionView({
       (blockers) => dispatch({ type: "pending", blockers }),
       (message) => dispatch({ type: "error", message }),
       setConn,
+      undefined,
+      (inTurn) => dispatch({ type: "turn", inTurn }),
     );
     return () => {
       unsubscribe();
@@ -285,7 +294,7 @@ export function SessionView({
           you can view the transcript but not send, answer, or approve.
         </p>
       ) : (
-        <ChatComposer session={session} />
+        <ChatComposer session={session} inTurn={state.inTurn} />
       )}
     </div>
   );
@@ -694,11 +703,16 @@ function PendingCard({
   );
 }
 
-function ChatComposer({ session }: { session: SessionSummary }): JSX.Element {
+function ChatComposer({
+  session,
+  inTurn,
+}: {
+  session: SessionSummary;
+  inTurn: boolean;
+}): JSX.Element {
   const [msg, setMsg] = useState("");
   const { sending, error, send, steer, stop } = useRemoteSend(session);
   const ref = useRef<HTMLTextAreaElement>(null);
-  const inTurn = session.inTurn;
   const text = msg.trim();
   const hasText = text.length > 0;
 

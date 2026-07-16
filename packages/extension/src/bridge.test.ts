@@ -232,6 +232,63 @@ describe("startBridge", () => {
     }
   });
 
+  it("streams a live inTurn frame from the transcript turn state", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-turn-"));
+    const file = path.join(dir, "sessA.jsonl");
+    await fs.writeFile(
+      file,
+      [
+        JSON.stringify({ type: "user.message", data: { content: "go" } }),
+        JSON.stringify({
+          type: "assistant.turn_start",
+          data: { turnId: "t1" },
+          timestamp: "2026-07-16T00:00:01.000Z",
+        }),
+        JSON.stringify({
+          type: "assistant.message",
+          data: { content: "working" },
+        }),
+      ].join("\n"),
+    );
+    const bridge = await startBridge(
+      deps({ findTranscript: async () => file }),
+      { port: 0 },
+    );
+    try {
+      const turnFrame = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+          ws.on("open", () =>
+            ws.send(
+              JSON.stringify({
+                id: "7",
+                op: "session.subscribe",
+                params: { instanceId: "i", sessionId: "sessA" },
+              }),
+            ),
+          );
+          ws.on("message", (data) => {
+            const frame = JSON.parse(data.toString());
+            if (frame.kind === "turn") {
+              ws.close();
+              resolve(frame);
+            }
+          });
+          ws.on("error", reject);
+        },
+      );
+      expect(turnFrame).toMatchObject({
+        id: "7",
+        op: "session.subscribe",
+        kind: "turn",
+        inTurn: true,
+      });
+    } finally {
+      await bridge.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("errors when the subscribed session is not found", async () => {
     const bridge = await startBridge(deps(), { port: 0 });
     try {

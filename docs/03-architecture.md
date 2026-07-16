@@ -47,12 +47,13 @@ The shipping M3 actuator-precursor is a **notifier, not a gate**. Verified 2026-
 (empty `{}`) — local VS Code drives the native prompt exactly as configured — and its only job
 is to publish "this is pending" / "this resolved" for the phone.
 
-Two channels share the **one** `session.subscribe` stream, kept deliberately distinct:
+Three channels share the **one** `session.subscribe` stream, kept deliberately distinct:
 
 | Channel                  | Source              | Event                        | Semantics                                |
 | ------------------------ | ------------------- | ---------------------------- | ---------------------------------------- |
 | **History**              | transcript observer | `{kind:"event", event}`      | seq'd, append-only, `sinceSeq`-resumable |
 | **Live-pending overlay** | hook spool          | `{kind:"pending", blockers}` | replace-snapshot, idempotent, no seq     |
+| **Mid-turn flag**        | transcript observer | `{kind:"turn", inTurn}`      | latest-wins, emitted on transition only  |
 
 Flow: `PreToolUse` → hook appends a `pending` line to a local spool file (localhost/fs only,
 **no inbound network write** on the bridge) → the extension (the single merge point) tails the
@@ -399,11 +400,13 @@ the session URI, and none leaves a distinct on-disk marker (docs/02 §4.28):
 
 **Queue doubles as the stale-`inTurn` escape hatch:** `inTurn` can lag (editor-hosted
 sessions never flush `turn_end`, and Copilot's post-`turn_end` placeholder start is
-guarded against in docs/02 §4.28), and it rides the `sessions.list` snapshot today.
-Because Queue is `chat.open {query}` it works either way — it queues while a turn
-runs and just sends if the turn has already ended — so a stale `inTurn` never traps
-the operator. Streaming the flag live over `session.subscribe` is a deferred
-refinement (docs/05). The derivation + self-heal rules are in docs/02 §4.28.
+guarded against in docs/02 §4.28). Because Queue is `chat.open {query}` it works either
+way — it queues while a turn runs and just sends if the turn has already ended — so a
+stale `inTurn` never traps the operator. The flag now **also streams live** over
+`session.subscribe` (`{kind:"turn", inTurn}`, emitted on transition), so the composer
+flips steer/queue↔send the moment the turn opens or closes — not only on the next
+`sessions.list` refresh (SHIPPED 2026-07-16). The derivation + self-heal rules are in
+docs/02 §4.28.
 
 ## Data flows
 

@@ -203,6 +203,15 @@ export function parseTranscript(content: string): ParsedTranscript {
   };
 }
 
+/**
+ * Whether the transcript is currently mid-turn — the same flag
+ * `SessionSummary.inTurn` carries, exposed on its own so a live follower can
+ * stream turn open/close without recomputing the whole scan (docs/05 M3c).
+ */
+export function computeInTurn(content: string): boolean {
+  return parseTranscript(content).inTurn;
+}
+
 /** Liveness classification: mtime window + the blocker signature. */
 export function classifyStatus(
   idleSeconds: number,

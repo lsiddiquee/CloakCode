@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { PendingBlocker, SessionSummary } from "@cloakcode/protocol";
 import { SessionView } from "./SessionView";
 
@@ -7,6 +7,7 @@ import { SessionView } from "./SessionView";
 const h = vi.hoisted(() => ({
   status: "open" as string,
   pending: [] as PendingBlocker[],
+  emitTurn: (_inTurn: boolean) => {},
   respond: vi.fn(async (_params: unknown) => {}),
   steer: vi.fn(async (_params: unknown) => {}),
   stop: vi.fn(async (_params: unknown) => {}),
@@ -21,9 +22,12 @@ vi.mock("./bridge", () => ({
     onPending: (b: PendingBlocker[]) => void,
     _onError: unknown,
     onStatus: (s: string) => void = () => {},
+    _url?: unknown,
+    onTurn: (inTurn: boolean) => void = () => {},
   ) => {
     onStatus(h.status);
     onPending(h.pending);
+    h.emitTurn = onTurn;
     return () => {};
   },
   respondSession: h.respond,
@@ -36,6 +40,7 @@ vi.mock("./bridge", () => ({
 beforeEach(() => {
   h.status = "open";
   h.pending = [];
+  h.emitTurn = () => {};
   h.respond.mockClear();
   h.steer.mockClear();
   h.stop.mockClear();
@@ -108,6 +113,27 @@ describe("SessionView composer — mid-turn actions", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Steer/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Stop$/ })).toBeNull();
+  });
+
+  it("flips the composer live when an inTurn frame arrives (no list refresh)", () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: false })}
+        onBack={() => {}}
+      />,
+    );
+    // Starts out-of-turn: a plain queued Send, no steer UI.
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Steer/ })).toBeNull();
+
+    // A live turn frame flips it to the mid-turn composer.
+    act(() => h.emitTurn(true));
+    expect(screen.getByRole("button", { name: /Steer/ })).toBeTruthy();
+
+    // And back again when the turn closes.
+    act(() => h.emitTurn(false));
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Steer/ })).toBeNull();
   });
 
   it("mid-turn: Ctrl/Cmd+Enter steers into the running turn", () => {

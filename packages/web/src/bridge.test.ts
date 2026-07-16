@@ -166,4 +166,31 @@ describe("subscribeSession", () => {
     vi.advanceTimersByTime(60_000);
     expect(MockWebSocket.instances).toHaveLength(1); // nothing rescheduled
   });
+
+  it("reports live inTurn transitions via onTurn", () => {
+    const turns: boolean[] = [];
+    subscribeSession(
+      { sessionId: "s1" },
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      "ws://test/bridge",
+      (t) => turns.push(t),
+    );
+    socket(0).open();
+    socket(0).message({
+      id: "srv",
+      op: "session.subscribe",
+      kind: "turn",
+      inTurn: true,
+    });
+    socket(0).message({
+      id: "srv",
+      op: "session.subscribe",
+      kind: "turn",
+      inTurn: false,
+    });
+    expect(turns).toEqual([true, false]);
+  });
 });

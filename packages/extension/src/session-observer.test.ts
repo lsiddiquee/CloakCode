@@ -305,6 +305,51 @@ describe("SessionFollower", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ seq: 1, part: { text: "two" } });
   });
+
+  it("streams inTurn transitions via onTurn (open → close, only on change)", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "hi" } }]),
+    );
+    const turns: boolean[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      turnFile: file,
+      onTurn: (t) => turns.push(t),
+    });
+    await follower.start();
+    // No open turn in the transcript yet → the authoritative flag is false.
+    expect(turns).toEqual([false]);
+
+    // Assistant opens a turn AND does work → mid-turn.
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "assistant.turn_start",
+        data: { turnId: "t1" },
+        timestamp: "2026-07-16T00:00:01.000Z",
+      })}\n${JSON.stringify({
+        type: "assistant.message",
+        data: { content: "working" },
+      })}`,
+    );
+    await follower.refresh();
+    expect(turns).toEqual([false, true]);
+
+    // A second refresh with no change must NOT re-emit (idempotent).
+    await follower.refresh();
+    expect(turns).toEqual([false, true]);
+
+    // Turn ends → back to not-in-turn.
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "assistant.turn_end",
+        data: { turnId: "t1" },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(turns).toEqual([false, true, false]);
+  });
 });
 
 describe("findTranscript", () => {

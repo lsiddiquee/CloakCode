@@ -7,7 +7,7 @@ import type {
   SessionPart,
   ToolStatus,
 } from "@cloakcode/protocol";
-import { INTERACTIVE_TOOL_HINTS } from "./scanner.js";
+import { INTERACTIVE_TOOL_HINTS, computeInTurn } from "./scanner.js";
 
 /**
  * Port of `research/inspect_session.py`, mapping the on-disk event stream onto
@@ -520,6 +520,9 @@ export async function findTranscript(
 
 export type SessionEventSink = (event: SessionEvent) => void;
 
+/** Sink for live mid-turn transitions (only fired on change). */
+export type TurnSink = (inTurn: boolean) => void;
+
 /**
  * Tails a single transcript file: emits every event past `sinceSeq` on start,
  * then re-emits the growing tail on each change. Uses BOTH `fs.watch` (for
@@ -527,15 +530,25 @@ export type SessionEventSink = (event: SessionEvent) => void;
  * storage often sits on an overlay/volume where inotify events are missed or
  * delayed, which would otherwise stall the live mirror. Refreshes are serialized
  * on a promise queue, so watch + poll never double-emit or drop an event.
+ *
+ * When `turnFile` + `onTurn` are given, it ALSO tracks the transcript's mid-turn
+ * flag (`computeInTurn`) and fires `onTurn` on each transition — so the composer
+ * flips steer/queue↔send live (docs/05 M3c). `turnFile` is the transcript (turn
+ * boundaries live there); it may differ from the tailed conversation `filePath`
+ * (which can be the debug-log), so it is watched/polled independently.
  */
 export class SessionFollower {
   private emitted: number;
   private watcher: fsSync.FSWatcher | undefined;
+  private turnWatcher: fsSync.FSWatcher | undefined;
   private poller: ReturnType<typeof setInterval> | undefined;
   private queue: Promise<void> = Promise.resolve();
   private stopped = false;
+  private lastInTurn: boolean | undefined;
   private readonly pollIntervalMs: number;
   private readonly parse: (content: string) => SessionEvent[];
+  private readonly turnFile: string | undefined;
+  private readonly onTurn: TurnSink | undefined;
 
   constructor(
     private readonly filePath: string,
@@ -544,11 +557,15 @@ export class SessionFollower {
     options: {
       pollIntervalMs?: number;
       parse?: (content: string) => SessionEvent[];
+      turnFile?: string;
+      onTurn?: TurnSink;
     } = {},
   ) {
     this.emitted = sinceSeq;
     this.pollIntervalMs = options.pollIntervalMs ?? 400;
     this.parse = options.parse ?? parseSessionEvents;
+    this.turnFile = options.turnFile;
+    this.onTurn = options.onTurn;
   }
 
   async start(): Promise<void> {
@@ -560,6 +577,16 @@ export class SessionFollower {
       });
     } catch {
       // file removed between read and watch; nothing to tail
+    }
+    // Watch the transcript for turn transitions when it is a distinct file.
+    if (this.turnFile && this.onTurn && this.turnFile !== this.filePath) {
+      try {
+        this.turnWatcher = fsSync.watch(this.turnFile, () => {
+          void this.refresh();
+        });
+      } catch {
+        // not present yet; the poll fallback covers it
+      }
     }
     // Poll fallback: catches flushes when inotify events are missed/delayed.
     if (this.pollIntervalMs > 0) {
@@ -591,12 +618,39 @@ export class SessionFollower {
       if (event) this.sink(event);
     }
     if (events.length > this.emitted) this.emitted = events.length;
+    await this.pumpTurn(content);
+  }
+
+  /**
+   * Recompute the mid-turn flag and fire `onTurn` on a transition. Reads the
+   * transcript when it is a distinct file (debug-log-sourced session); otherwise
+   * reuses the content just read. Emits only on change, so it is idempotent
+   * under watch + poll.
+   */
+  private async pumpTurn(mainContent: string): Promise<void> {
+    if (!this.turnFile || !this.onTurn || this.stopped) return;
+    let content = mainContent;
+    if (this.turnFile !== this.filePath) {
+      try {
+        content = await fs.readFile(this.turnFile, "utf8");
+      } catch {
+        return; // transcript not readable yet; a later change retriggers
+      }
+    }
+    if (this.stopped) return;
+    const inTurn = computeInTurn(content);
+    if (inTurn !== this.lastInTurn) {
+      this.lastInTurn = inTurn;
+      this.onTurn(inTurn);
+    }
   }
 
   stop(): void {
     this.stopped = true;
     this.watcher?.close();
     this.watcher = undefined;
+    this.turnWatcher?.close();
+    this.turnWatcher = undefined;
     if (this.poller) {
       clearInterval(this.poller);
       this.poller = undefined;

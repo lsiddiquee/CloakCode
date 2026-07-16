@@ -326,6 +326,12 @@ export async function handleMessage(
         }
         // Dedupe: a re-subscribe for the same session replaces its follower.
         followers.get(request.params.sessionId)?.stop();
+        // The transcript carries the turn boundaries (§4.6) even when the
+        // conversation is sourced from the debug-log; resolve it once and reuse
+        // it for both live turn-tracking and the pending-overlay dedup. Fall
+        // back to the conversation log if no transcript exists yet.
+        const transcript =
+          (await deps.findTranscript(request.params.sessionId)) ?? log.file;
         const follower = new SessionFollower(
           log.file,
           (event) => {
@@ -339,7 +345,20 @@ export async function handleMessage(
             );
           },
           request.params.sinceSeq,
-          { parse: log.parse },
+          {
+            parse: log.parse,
+            turnFile: transcript,
+            onTurn: (inTurn) => {
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  op: "session.subscribe",
+                  kind: "turn",
+                  inTurn,
+                }),
+              );
+            },
+          },
         );
         followers.set(request.params.sessionId, follower);
         await follower.start();
@@ -349,10 +368,7 @@ export async function handleMessage(
         spoolFollowers.get(request.params.sessionId)?.stop();
         if (deps.spoolDir) {
           // The pending dedup joins on the TRANSCRIPT's tool ids (its format),
-          // independent of which log drives the conversation; fall back to the
-          // conversation log if no transcript exists (dedup then no-ops).
-          const transcript =
-            (await deps.findTranscript(request.params.sessionId)) ?? log.file;
+          // independent of which log drives the conversation.
           const spoolFollower = new SpoolFollower(
             deps.spoolDir,
             transcript,

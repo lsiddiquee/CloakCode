@@ -480,6 +480,16 @@ describe("response schemas", () => {
     expect(sessionSubscribeEventSchema.parse(frame)).toEqual(frame);
   });
 
+  it("parses a session.subscribe turn frame (live inTurn)", () => {
+    const frame = {
+      id: "2",
+      op: "session.subscribe" as const,
+      kind: "turn" as const,
+      inTurn: true,
+    };
+    expect(sessionSubscribeEventSchema.parse(frame)).toEqual(frame);
+  });
+
   it("discriminates subscribe frames by kind", () => {
     expect(
       sessionSubscribeEventSchema.safeParse({
