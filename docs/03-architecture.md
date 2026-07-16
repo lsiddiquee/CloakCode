@@ -728,7 +728,7 @@ whole product, so it is designed in from the first log line, not bolted on.
 | ------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------- |
 | **Logs** (ordered structured events) | "what happened, in order"                       | OutputChannel (live) + rotating JSONL file; web → `console` + optional ship-back |
 | **Metrics** (counters/gauges)        | "healthy? how much?"                            | in-memory, exposed via the diagnostics RPC; pushed to your infra at M4           |
-| **Session logs** (per-session)       | "what CloakCode did on this session"            | per-`sessionId` JSONL in CloakCode's workspace storage; local-only, provenance-stamped |
+| **Session logs** (per-session)       | "what CloakCode did on this session"            | per-`sessionId` JSONL in CloakCode's workspace storage; local-only, provenance-stamped. The **standalone gateway** persists its own relayed-action log to a JSONL file (`CLOAKCODE_GATEWAY_LOG_FILE`). |
 
 ### Structured logging (replaces `out.appendLine`)
 
@@ -788,6 +788,12 @@ a host / WSL install; in a container it rides the ephemeral overlay (docs/02 §4
 yourself if you want it to survive a rebuild. It pairs with the receiving-side actuation guard
 (see "Actuation routing & the receiving-side guard"): a `denied-by-guard` outcome is logged
 too, not silently dropped.
+
+When the hub runs as the **standalone gateway** (outside VS Code — Docker / host binary), it
+keeps the equivalent record on its side: every structured event, including each relayed
+`remote-operator` action (`rpc.relay` with its `op` + `traceId`), is appended as JSONL to an
+action-log file (`CLOAKCODE_GATEWAY_LOG_FILE`, default `./cloakcode-gateway.jsonl`; set it empty
+to disable). Same redaction-by-construction — primitive fields only, never the body.
 
 ### Health & diagnostics
 

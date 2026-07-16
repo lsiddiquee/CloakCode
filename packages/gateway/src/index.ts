@@ -27,6 +27,7 @@ export {
   formatRecord,
   parseLogLevel,
 } from "./console-logger.js";
+export { fileLogSink } from "./file-logger.js";
 export { startGateway, type Gateway, type GatewayOptions } from "./gateway.js";
 export { connectionUrls, type ConnectUrl } from "./connect-urls.js";
 export { WsProvider } from "./ws-provider.js";

@@ -12,6 +12,7 @@
  *   CLOAKCODE_TUNNEL         `devtunnel` to auto-host a private tunnel (optional)
  *   CLOAKCODE_INSTANCE_ID    tunnel-name seed (default "gateway")
  *   CLOAKCODE_LOG_LEVEL      trace|debug|info|warn|error (default info; CLOAKCODE_VERBOSE=1 ⇒ debug)
+ *   CLOAKCODE_GATEWAY_LOG_FILE  on-disk action log (JSONL); unset → ./cloakcode-gateway.jsonl; "" → off
  *
  * Security: no app-layer auth yet (bridge auth is deferred) — keep it on
  * loopback + a PRIVATE tunnel; do not expose 0.0.0.0 on an untrusted network.
@@ -31,11 +32,16 @@ const verbose =
   process.env["CLOAKCODE_VERBOSE"] === "1" ||
   process.env["CLOAKCODE_VERBOSE"] === "true";
 // Structured, local-only logger (docs/03). CLOAKCODE_VERBOSE=1 is shorthand for debug.
+// Running standalone (outside VS Code) it also persists its action log to a JSONL file
+// (the gateway relays remote-operator actions), overridable/disable-able via env.
+const logFile =
+  process.env["CLOAKCODE_GATEWAY_LOG_FILE"] ?? "cloakcode-gateway.jsonl";
 const logger = createConsoleLogger({
   level:
     parseLogLevel(process.env["CLOAKCODE_LOG_LEVEL"]) ??
     (verbose ? "debug" : "info"),
   base: { component: "gateway" },
+  ...(logFile ? { logFile } : {}),
 });
 
 const gateway = await startGateway({
@@ -49,6 +55,9 @@ console.log(
   `[cloakcode-gateway] listening on ws://${host}:${gateway.port}` +
     (serveDir ? ` (+ PWA from ${serveDir})` : " (WebSocket only)"),
 );
+if (logFile) {
+  console.log(`[cloakcode-gateway] action log → ${logFile}`);
+}
 
 // The URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where it
 // runs relative to this host (probed from the network interfaces).

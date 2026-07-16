@@ -5,7 +5,9 @@ import {
   type LogFields,
   type LogLevel,
   type LogRecord,
+  type LogSink,
 } from "@cloakcode/protocol";
+import { fileLogSink } from "./file-logger.js";
 
 /** Format one record to a single line: `<ts> <LEVEL> <event> k=v …`. */
 export function formatRecord(record: LogRecord): string {
@@ -28,24 +30,35 @@ export function parseLogLevel(value: string | undefined): LogLevel | undefined {
 
 /**
  * A {@link Logger} that writes formatted lines to `console` — the sink for the
- * STANDALONE gateway. This is the swap point: keep the callsites structured and
- * a richer sink (rotating file, etc.) drops in behind the same port later.
+ * STANDALONE gateway. When `logFile` is set, each record is ALSO persisted as
+ * JSONL to that file (the on-disk action log; see {@link fileLogSink}). This is
+ * the swap point: keep the callsites structured and a richer sink (rotating
+ * file, etc.) drops in behind the same port later.
  */
 export function createConsoleLogger(
   opts: {
     level?: LogLevel | (() => LogLevel);
     base?: LogFields;
     prefix?: string;
+    logFile?: string;
   } = {},
 ): Logger {
   const prefix = opts.prefix ?? "[cloakcode-gateway]";
+  const toConsole: LogSink = (record) => {
+    const line = `${prefix} ${formatRecord(record)}`;
+    if (record.level === "error") console.error(line);
+    else if (record.level === "warn") console.warn(line);
+    else console.log(line);
+  };
+  const persist = opts.logFile ? fileLogSink(opts.logFile) : undefined;
+  const sink: LogSink = persist
+    ? (record) => {
+        toConsole(record);
+        persist(record);
+      }
+    : toConsole;
   return createLogger({
-    sink: (record) => {
-      const line = `${prefix} ${formatRecord(record)}`;
-      if (record.level === "error") console.error(line);
-      else if (record.level === "warn") console.warn(line);
-      else console.log(line);
-    },
+    sink,
     ...(opts.level !== undefined ? { level: opts.level } : {}),
     ...(opts.base ? { base: opts.base } : {}),
   });
