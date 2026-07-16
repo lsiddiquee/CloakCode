@@ -44,7 +44,7 @@ See [all options](#configuration-environment-variables) below.
 
 ```bash
 docker run --rm -p 3543:3543 ghcr.io/lsiddiquee/cloakcode-gateway:latest
-# pin a version:  ...cloakcode-gateway:v0.1.1
+# pin a version:  ...cloakcode-gateway:v0.1.2
 ```
 
 The image serves the PWA + hub on `0.0.0.0:3543`. Configure with the same environment variables via
