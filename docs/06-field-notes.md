@@ -180,3 +180,16 @@ Base: `~/.vscode-server/data/User/`
   (A scoped `@scope:registry=` override wouldn't work: deps span many scopes + unscoped packages, so the
   global `registry`/`--registry` is required.) Still TODO before public: verify a real public-npm
   `--frozen-lockfile` install where npmjs.org is actually reachable.
+- **`devtunnel user show` exits 0 even when NOT signed in** (verified 2026-07-16, CLI v1.0.1972).
+  It prints `Logged in as <user> using <provider>.` vs `Not logged in.` but the **exit code is 0
+  either way**, so an `if devtunnel user show >/dev/null; then …signed in…` check is always-true and
+  useless. Detect login state from the **output text** instead: `devtunnel user show 2>/dev/null |
+  grep -q "Logged in as"`. Used by the gateway container entrypoint
+  (`packages/gateway/scripts/docker-entrypoint.sh`). Other verified devtunnel facts: tokens are
+  **file-based** (no keyring) under `$HOME/.local/share/DevTunnels/` (`devtunnels-tokens{,-github,-microsoft}`,
+  `devtunnels.json`); the .NET single-file self-extracts to `$HOME/.net/devtunnel/`; login flags are
+  `-d` device-code, `-g` GitHub, no flag = Microsoft. The Docker image downloads the binary directly
+  (arch-aware, `linux-x64`/`linux-arm64` from `tunnelsassetsprod.blob.core.windows.net/cli/<t>-devtunnel`)
+  rather than the `aka.ms/DevTunnelCliInstall` script (which does its own `sudo apt-get` + `~/bin` PATH
+  edits); runtime needs `libsecret-1-0`, and `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` avoids a libicu
+  dependency.

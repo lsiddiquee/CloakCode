@@ -47,9 +47,8 @@ docker run --rm -p 3543:3543 ghcr.io/lsiddiquee/cloakcode-gateway:latest
 # pin a version:  ...cloakcode-gateway:v0.1.1
 ```
 
-The image serves the PWA + hub on `0.0.0.0:3543`. It does **not** bundle the `devtunnel` CLI — front
-it with your own private tunnel / ingress. Configure with the same environment variables via `-e`,
-and map the port with `-p`:
+The image serves the PWA + hub on `0.0.0.0:3543`. Configure with the same environment variables via
+`-e`, and map the port with `-p`:
 
 ```bash
 docker run --rm -p 8080:8080 \
@@ -57,6 +56,26 @@ docker run --rm -p 8080:8080 \
   -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
+
+### Phone tunnel from the container
+
+The image **bundles the `devtunnel` CLI** (inert unless you enable it). To host a private Dev Tunnel
+straight from the container, enable it, pick a login provider (**required — no default**), and mount a
+volume for the token so you only sign in once:
+
+```bash
+docker run -it -p 3543:3543 \
+  -e CLOAKCODE_TUNNEL=devtunnel \
+  -e CLOAKCODE_TUNNEL_PROVIDER=github \
+  -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
+  ghcr.io/lsiddiquee/cloakcode-gateway:latest
+```
+
+On first run it prints a **device code + URL** to the console — open the URL in any browser, enter the
+code, and the tunnel starts (works detached too: read the code from `docker logs`). The token lives in
+the mounted volume, so later runs sign in silently. `CLOAKCODE_TUNNEL_PROVIDER` must be `github` or
+`microsoft`. The container runs as a non-root user (`app`). Prefer your own ingress instead? Leave the
+tunnel off and front the published port with Cloudflare Tunnel / Tailscale / a reverse proxy.
 
 ## Connect your VS Code extension
 
@@ -107,6 +126,7 @@ docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/
 | `CLOAKCODE_GATEWAY_HOST`    | `127.0.0.1` (`0.0.0.0` image) | bind address; `0.0.0.0` to accept LAN / container / WSL clients          |
 | `CLOAKCODE_GATEWAY_PORT`    | `3543`                      | listen port — also the port segment of the Dev Tunnel URL; `0` = ephemeral |
 | `CLOAKCODE_TUNNEL`          | _(off)_                     | `devtunnel` → auto-host a **private** tunnel and print the phone URL     |
+| `CLOAKCODE_TUNNEL_PROVIDER` | _(none)_                    | Docker only: `github` or `microsoft` for the container's device-code sign-in (required when the image must log in) |
 | `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed → a **stable**, per-machine phone URL                   |
 | `CLOAKCODE_GATEWAY_TOKEN`   | _(off)_                     | provider↔gateway shared secret; extensions must present the same value  |
 | `CLOAKCODE_GATEWAY_LOG_FILE`| `./cloakcode-gateway.jsonl` | on-disk action log (JSONL); set empty to disable                        |
