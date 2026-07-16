@@ -1,6 +1,6 @@
 {
   "name": "@cloakcode/extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "VS Code extension host: vscode.lm model access, transcript observer, and the localhost bridge server.",
   "type": "module",
