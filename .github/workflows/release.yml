@@ -150,9 +150,11 @@ jobs:
 
       # Sync the gateway README to the Docker Hub repository's Overview (GHCR
       # picks it up automatically from the image's org.opencontainers.image.source
-      # label). Gated on the same Docker Hub secret as the push above.
+      # label). Best-effort: editing the Overview needs a Docker Hub PAT with the
+      # right scope (a push-only token 403s), so never fail the release on it.
       - name: Sync Docker Hub description
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
