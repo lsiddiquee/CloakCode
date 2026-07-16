@@ -53,15 +53,39 @@ In VS Code settings, point the extension at the gateway (several windows can sha
 "cloakcode.gatewayUrl": "ws://<gateway-host>:3543"
 ```
 
-If you started the gateway with `CLOAKCODE_GATEWAY_TOKEN`, set the **same** value on the extension so
-it can register as a provider:
-
-```json
-"cloakcode.gatewayToken": "<shared-secret>"
-```
+If you started the gateway with a token, set the **same** value on the extension so it can register
+as a provider — see [Provider token](#provider-token-shared-secret) below.
 
 For a gateway on **another machine or container**, run it with `CLOAKCODE_GATEWAY_HOST=0.0.0.0` and
 use that host's IP in `gatewayUrl` (loopback only accepts same-host clients).
+
+## Provider token (shared secret)
+
+The gateway and every extension that connects to it authenticate the **provider↔gateway** link with
+one shared secret. **When you run the gateway separately, the token must be identical on both sides**
+and configured in both places — otherwise the gateway rejects the extension and its sessions never
+reach your phone.
+
+Set the **same** value on the gateway and on every VS Code window that connects:
+
+```bash
+# gateway (env) — npx
+CLOAKCODE_GATEWAY_TOKEN=<shared-secret> npx @cloakcode/gateway
+# gateway (env) — Docker
+docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/lsiddiquee/cloakcode-gateway:latest
+```
+
+```json
+// VS Code settings — must match the gateway's token exactly
+"cloakcode.gatewayToken": "<shared-secret>"
+```
+
+- **Machine-to-machine only.** The token is never sent to or shown on the phone (operator auth is
+  separate).
+- **Both unset = no auth** (fine for loopback dev). If the gateway has a token and the extension
+  doesn't — or they differ — the gateway logs `provider.auth_reject` and closes the connection.
+- Use any hard-to-guess value; e.g. `openssl rand -hex 32`. The `CLOAKCODE_GATEWAY_TOKEN` env var
+  overrides the `cloakcode.gatewayToken` setting on the extension side.
 
 ## Configuration (environment variables)
 
