@@ -260,7 +260,7 @@ loop (opt-in "live chat", docs/05).
 - **4.4** "The actuator is unsolved / needs owning the loop" → **SUPERSEDED.** Copilot Chat
   runs Claude-compatible **hooks** (`.github/hooks/*.json`). A `PreToolUse` hook that returns
   `permissionDecision: allow|deny` **deterministically drives tool approval** — no proposed
-  API, no owned loop. Verified 2026-07-09 by probe (`.local/hook-probe/`, gitignored).
+    API, no owned loop. Verified 2026-07-09 by a local hook probe (gitignored).
   - _A hook returning `allow` **bypasses VS Code's native approval entirely** — it
     auto-approves regardless of the user's "bypass approvals" setting. To stay a pure
     observer the hook must emit **no `permissionDecision`** (empty `{}`), which defers to VS
@@ -583,8 +583,7 @@ install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
   `transcripts/c62241fb….jsonl`, so the fork transcript is **never** created (not a lazy flush).
   The **detailed mechanism** (why a fork's transcript id and debug-log id diverge) and the **chosen
   surfacing approach** are **to be reviewed/finalized later** — tracked as **post-MVP** scope
-  (docs/05, _Surface forked conversations as distinct sessions_). Detailed working notes live in
-  `.local/research/forked-conversation-visibility.md` (local, pending that review).
+  (docs/05, _Surface forked conversations as distinct sessions_).
 
 - **4.28** _Mid-turn (in-flight) tracking, and why steer/queue/stop leave **no on-disk marker**._
   To offer the three panel actions (steer / queue / stop-and-send) the observer must know whether a
@@ -637,8 +636,7 @@ install lives under `…/Microsoft VS Code/<commit-prefix>/resources/app/`.
   the signature; use **never-typed** strings + a **long-run** requirement. ⇒ image bytes live only in
   the client `IImageVariableEntry.value` and stream to the model API; mirroring them needs a
   **renderer-side** read (same renderer-reachability question as the actuator). Recorded as a
-  **known limitation we cannot handle** from the on-disk observer (docs/05, _Known issues_). Working
-  notes: `.local/research/conversation-attachments-access.md`.
+  **known limitation we cannot handle** from the on-disk observer (docs/05, _Known issues_).
 
 ---
 
