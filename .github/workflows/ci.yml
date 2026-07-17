@@ -74,3 +74,64 @@ jobs:
         run: |
           python -m pip install --upgrade pre-commit
           pre-commit run --all-files --show-diff-on-failure --color=always
+
+  coverage:
+    name: Coverage → Code Quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      code-quality: write # upload coverage to GitHub Code Quality (no third party)
+    steps:
+      # Check out the PR head (not the merge commit) so coverage line numbers map
+      # to the diff for the github-code-quality[bot] PR comment.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      # protocol's dist is consumed by the downstream tests. Then run every
+      # package's tests with v8 coverage — the per-package thresholds (85%
+      # statements/lines/functions, 75% branches) FAIL this job on a regression,
+      # and each run emits a Cobertura report for the upload below.
+      - name: Test with coverage (enforces the 85% gate)
+        run: |
+          pnpm --filter @cloakcode/protocol build
+          pnpm -r test:coverage
+      # Upload each package's Cobertura report. No third party — the
+      # github-code-quality[bot] posts the coverage summary on the pull request.
+      # (Requires Code Quality enabled in the repo's Code security settings.)
+      - name: Upload protocol coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: packages/protocol/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/protocol
+      - name: Upload gateway coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: packages/gateway/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/gateway
+      - name: Upload web coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: packages/web/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/web
+      - name: Upload extension coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: packages/extension/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/extension

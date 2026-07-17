@@ -20,6 +20,7 @@ steer a session, rather than returning to find it waiting on a one-word answer.
 4. [04 — Security & compliance](04-security-and-compliance.md) — how the zero-code-sync guarantee is enforced, plus the prompt-injection provenance lesson.
 5. [05 — Roadmap & open questions](05-roadmap-and-open-questions.md) — what's proven, what's next, what's still unknown.
 6. [06 — Field notes](06-field-notes.md) — preserved raw working memory (the compressed field log behind 02).
+7. [07 — Deployment](07-deployment.md) — running it safely (embedded vs gateway, dev-container/WSL forwarding, host firewall).
 
 ## Fast orientation
 

@@ -2,34 +2,68 @@
 
 **Observe and drive GitHub Copilot from your phone — with zero code-sync to GitHub.**
 
-CloakCode is a local-to-remote bridge that lets you observe and drive GitHub Copilot in your
+[![CI](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml/badge.svg)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
+[![Coverage ≥85%](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/rexwel.cloakcode?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+CloakCode is a **local-to-remote bridge** that lets you observe and drive GitHub Copilot in your
 local VS Code from a **phone** (a React PWA) or another machine. Your code never syncs to GitHub or
-any third party; the session mirror crosses only a secure tunnel to your own devices.
+any third party — only prompts and minimal, redacted context ever cross the bridge, over a secure
+tunnel to your own devices.
 
-You keep VS Code's own Copilot chat — the interactive session you prefer, where you select code or
-text to discuss, point at specific things, and attach files or screenshots — which has no remote
-of its own. CloakCode adds one, and you switch fluidly between the desktop and your phone. When a
-long agent workflow **stalls on a blocker** — a confirmation, a multiple-choice question, or a
-tool-call approval — you get pinged and **answer it remotely** so the run keeps moving, instead of
-walking back hours later to find it waiting on a one-word answer (and without autopilot replying
-with a templated "user is away" default). It's the tool for the cases the web and CLI don't cover:
-your repo isn't on GitHub, you want to bring your own models, or you just prefer the VS Code
-Copilot UI — and Copilot CLI has no remote.
+You keep VS Code's own Copilot chat — the interactive session you prefer, where you select code, point
+at specific things, and attach files or screenshots — which has no remote of its own. CloakCode adds
+one, and you switch fluidly between the desktop and your phone. When a long agent run **stalls on a
+blocker** — a confirmation, a multiple-choice question, or a tool-call approval — you get pinged and
+**answer it remotely** so the run keeps moving, instead of walking back hours later to find it waiting
+on a one-word answer. It's the tool for the cases the web and CLI don't cover: your repo isn't on
+GitHub, you want to bring your own models, or you just prefer the VS Code Copilot UI.
 
-> Status: **M0 — dev experience + design.** The read/observe half (list sessions, live
-> mirror, blocker detection) is proven; the actuator (answering/steering remotely) is the
-> next build. See [docs/](docs/README.md).
+> **Status — M0 (dev experience + design).** The read/observe half (list sessions, live mirror,
+> blocker detection) is proven, and the answer/steer/stop actuator is wired end-to-end. The remaining
+> pre-release work is the **security core** (redaction/egress gate + bridge auth, M4). See
+> [docs/05 — Roadmap](docs/05-roadmap-and-open-questions.md).
 
 ## Why it works
 
 - **Models:** the stable `vscode.lm` API gives consented access to Copilot models.
-- **Observation:** Copilot writes a **live, structured transcript to disk** per session —
-  CloakCode tails it (works even for stock Copilot sessions).
-- **Blocker detection:** an awaiting-input prompt shows up as an _unmatched interactive
-  tool call_ carrying the full question + options — enough to render richly on a phone.
+- **Observation:** Copilot writes a **live, structured transcript to disk** per session — CloakCode
+  tails it (works even for stock Copilot sessions).
+- **Blocker detection:** an awaiting-input prompt shows up as an _unmatched interactive tool call_
+  carrying the full question + options — enough to render richly on a phone.
 
-Full empirical account (including the experiments and the wrong turns) is in
-[docs/02-research-findings.md](docs/02-research-findings.md).
+The full empirical account (experiments and wrong turns included) is in
+[docs/02 — Research findings](docs/02-research-findings.md).
+
+## Install
+
+- **Extension** (the desktop side): install **CloakCode** from the
+  [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode), or run
+  `code --install-extension rexwel.cloakcode`. Each window serves its own phone PWA + bridge on
+  loopback; run **CloakCode: Set Up Phone Tunnel** to get a phone-reachable URL.
+- **Gateway** (optional hub for many windows / machines):
+  [`@cloakcode/gateway`](packages/gateway/README.md) via `npx @cloakcode/gateway`, or the Docker
+  image. Point each window at it with `"cloakcode.gatewayUrl": "ws://<host>:3543"`.
+
+## Getting started (development)
+
+Open in the dev container (VS Code: **Dev Containers: Reopen in Container**). It mounts the repo at
+`/workspaces/cloakcode`, sets up a persisted cache volume, and installs Node + pnpm + tooling. Then:
+
+```bash
+pnpm install
+pnpm build
+pnpm -r test            # Vitest
+pnpm -r test:coverage   # coverage gate (85% statements/lines/functions, 75% branches)
+```
+
+Try the research tools against your local Copilot sessions:
+
+```bash
+python3 research/list_sessions.py
+python3 research/inspect_session.py <session-id-prefix>
+```
 
 ## Repository layout
 
@@ -42,124 +76,41 @@ packages/
   agent/           (planned) pausable tool-calling + confirmation loop — stub until the actuator (M4)
   extension/       VS Code host: vscode.lm + transcript observer + localhost bridge
   web/             Phone-first React/Vite PWA client
+  gateway/         Standalone hub: serves the PWA + a WebSocket hub for many windows
 ```
 
-## Getting started
+- Only `@cloakcode/extension` imports `vscode`; `protocol` and `agent` stay pure and unit-testable.
+- Shared types come from `@cloakcode/protocol` — never duplicated across packages.
 
-Open in the dev container (VS Code: **Dev Containers: Reopen in Container**). It mounts the
-repo at `/workspaces/cloakcode`, sets up a persisted cache volume, and installs Node LTS +
-pnpm + extension tooling. Then:
+## Deploying & security
 
-```bash
-pnpm install
-pnpm build
-```
+CloakCode binds `127.0.0.1` by **default** and reaches your phone through a **private tunnel** — so
+nothing sits on your LAN. Running the gateway wider (LAN / container / WSL) is **trusted-network-only**
+until the security core lands, so prefer **forward, don't widen**.
 
-Try the research tools against your local Copilot sessions:
-
-```bash
-python3 research/list_sessions.py
-python3 research/inspect_session.py <session-id-prefix>
-```
-
-## Deployment & security
-
-CloakCode runs in one of two shapes. **Embedded is the default and the safest.**
-
-- **Embedded (default).** Each VS Code window runs its own bridge on `127.0.0.1` and serves the
-  PWA; a **private** tunnel (VS Code port-forward or Dev Tunnel) exposes just that one port to your
-  phone. Nothing listens on your LAN, and there's nothing extra to run.
-- **Explicit gateway.** Run one hub — [`@cloakcode/gateway`](packages/gateway/README.md) — that many
-  windows connect to as **providers** (`cloakcode.gatewayUrl`), so a single phone URL sees every
-  environment (host, WSL, dev containers). Set its listen port with `--port` (default `7900`) and its
-  bind address with `--host`; how you bind it is where the security tradeoff lives.
-
-### Binding & network exposure
-
-The gateway/bridge binds `127.0.0.1` by **default** — reachable only from the same host. Letting
-another machine, WSL, or a container connect means binding wider, and **there is no app-layer auth
-yet** (see below), so treat a wide bind as _trusted-network-only_. In order of preference:
-
-1. **Loopback + a private tunnel** (default). The phone comes in through the tunnel's own sign-in;
-   nothing is on the LAN.
-2. **Bind only the virtual interface** your clients use — e.g. Docker's `docker0` (`172.17.0.1`) or
-   the WSL vEthernet — so containers/WSL reach it but the physical LAN NIC does not.
-3. **Bind `0.0.0.0` behind a host firewall** that admits only those virtual subnets (below).
-
-There is no single URL that works everywhere: a container uses `host.docker.internal`, WSL uses the
-host's gateway IP (or `localhost` in mirrored mode), and the phone uses the tunnel. The
-[gateway README](packages/gateway/README.md) has the per-client address table.
-
-### Locking down a wide bind (host firewall)
-
-If you must bind `0.0.0.0`, restrict the gateway's port (`7900` by default, or whatever you pass to
-`--port`) to the virtual subnets your clients use and keep it off the LAN. Adjust the ranges to your
-actual Docker/WSL subnets (`ipconfig` / `ip addr`).
-
-**Windows (PowerShell):**
-
-```powershell
-New-NetFirewallRule -DisplayName "CloakCode 7900 (virtual only)" `
-  -Direction Inbound -Protocol TCP -LocalPort 7900 -Action Allow `
-  -RemoteAddress 172.16.0.0/12,192.168.65.0/24 -Profile Any
-```
-
-Don't accept the generic "allow Node.js" popup — that opens the port on every profile.
-
-**Linux (ufw):**
-
-```bash
-sudo ufw default deny incoming
-sudo ufw allow from 172.16.0.0/12 to any port 7900 proto tcp   # Docker/WSL only
-```
-
-**Linux (nftables/iptables):**
-
-```bash
-sudo iptables -A INPUT -p tcp --dport 7900 -s 172.16.0.0/12 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 7900 -j DROP
-```
-
-**macOS** — the built-in Application Firewall is per-_app_, not per-port, so use `pf` for subnet
-scope. Sketch an anchor and reference it from `/etc/pf.conf`:
-
-```text
-# /etc/pf.anchors/cloakcode
-block in proto tcp to any port 7900
-pass  in proto tcp from 192.168.65.0/24 to any port 7900   # Docker Desktop VM subnet
-```
-
-On every OS the firewall is the _fallback_ — prefer loopback + a private tunnel, or a
-virtual-interface bind, and keep the phone on the tunnel rather than a LAN IP.
-
-### Security posture (today)
-
-- **Zero code-sync — structural.** No `git push` / GitHub-API / repo-upload path exists in the
-  codebase; CloakCode adds no new path that sends your code anywhere Copilot doesn't already.
-- **Localhost by default + a private tunnel.** The tunnel is never `--allow-anonymous`; its own
-  sign-in is the compensating control while app-auth is deferred.
-- **Bounded, self-owned egress & provenance.** CloakCode adds no new path that sends your code
-  anywhere Copilot doesn't already (it mirrors Copilot's transcript and relays your prompts into
-  Copilot; no auto-harvest); every message is provenance-tagged so staged/reflected text is never
-  treated as user intent.
-- **Provider↔gateway auth; operator via the tunnel (for now).** An extension registers with your
-  gateway only by presenting a shared secret (`CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`).
-  The phone (operator) link relies on the **private tunnel**'s own sign-in — an app-layer operator
-  PIN is deferred (docs/05 Q9) — so keep the loopback default + the firewall scoping above.
-
-Full model: [docs/04 — Security & compliance](docs/04-security-and-compliance.md).
-
-### Planned (post-MVP): authenticated, encrypted gateway↔bridge
-
-Binding wide stops being a risk once the links carry their own credential: a shared-secret/token
-handshake (laddering to TLS/mTLS) on both the **operator→gateway** and **gateway→provider (bridge)**
-connections, checked at the `hello` handshake and the PWA's `/bridge` upgrade. Tracked in
-[docs/05 — Roadmap (M4 + post-MVP)](docs/05-roadmap-and-open-questions.md).
+- **Deployment options** (embedded vs gateway, per-client addressing, dev-container / WSL forwarding,
+  host-firewall rules): [docs/07 — Deployment](docs/07-deployment.md).
+- **Security model** (zero code-sync, bounded egress, provenance tagging, threat model):
+  [docs/04 — Security & compliance](docs/04-security-and-compliance.md).
 
 ## Documentation
 
 - [Vision & requirements](docs/01-vision-and-requirements.md)
-- [Research findings](docs/02-research-findings.md)
+- [Research findings](docs/02-research-findings.md) — the empirical record (+ `02.x` topic files)
 - [Architecture](docs/03-architecture.md)
 - [Security & compliance](docs/04-security-and-compliance.md)
 - [Roadmap & open questions](docs/05-roadmap-and-open-questions.md)
+- [Field notes](docs/06-field-notes.md) — build/tooling gotchas & verified practices
+- [Deployment](docs/07-deployment.md)
+
+## Contributing
+
+Work milestone by milestone and slice by slice, following the dependency direction
+`protocol → agent/extension → web`. Write the failing test first (TDD), keep the pure packages highly
+covered, and run the narrowest relevant check before continuing (`pnpm --filter @cloakcode/... test`,
+`poetry run pytest research`). See [.github/copilot-instructions.md](.github/copilot-instructions.md)
+for the full engineering discipline and the non-negotiable security rules.
+
+## License
+
+[MIT](LICENSE)
