@@ -46,6 +46,18 @@ jobs:
       - run: pnpm -r lint
       - run: pnpm -r test
 
+  docker:
+    name: Gateway image — build · smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # The ONE way to build + smoke-test the gateway image, shared with the
+      # local WSL/host flow (scripts/docker-gateway.sh) so the two can't drift.
+      # Runners ship Docker + curl; the script builds from packages/gateway/
+      # Dockerfile and asserts the container serves the PWA (GET / → "CloakCode").
+      - name: Build & smoke-test the gateway image
+        run: bash scripts/docker-gateway.sh all
+
   hooks:
     name: pre-commit (gitleaks · markdownlint · prettier · ruff)
     runs-on: ubuntu-latest
