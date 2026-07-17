@@ -14,6 +14,22 @@ import {
   type SessionEvent,
   type SessionSummary,
 } from "@cloakcode/protocol";
+import {
+  authKind,
+  emitNeedsAuth,
+  getStoredToken,
+  tokenAuthFrame,
+} from "./auth";
+
+/**
+ * Send the operator `auth` resume frame first when a session token is stored, so
+ * a fresh socket is already authenticated before its op (docs/04, F2a). No-op
+ * without a token — the op then draws a `needsAuth` refusal that prompts a login.
+ */
+function sendAuthPrelude(ws: WebSocket): void {
+  const token = getStoredToken();
+  if (token) ws.send(tokenAuthFrame(token));
+}
 
 /**
  * Resolve the bridge WebSocket URL. Defaults to a **same-origin** `/bridge`
@@ -46,29 +62,38 @@ export function fetchSessions(
     }, 5000);
 
     ws.addEventListener("open", () => {
+      sendAuthPrelude(ws);
       ws.send(JSON.stringify({ id, op: "sessions.list" }));
     });
 
     ws.addEventListener("message", (ev) => {
-      clearTimeout(timer);
+      let raw: unknown;
       try {
-        const raw: unknown = JSON.parse(String(ev.data));
-        const ok = sessionsListResponseSchema.safeParse(raw);
-        if (ok.success) {
-          resolve(ok.data.result);
-          return;
-        }
-        const err = rpcErrorSchema.safeParse(raw);
-        reject(
-          new Error(
-            err.success ? err.data.error.message : "unexpected response",
-          ),
-        );
+        raw = JSON.parse(String(ev.data));
       } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-      } finally {
+        clearTimeout(timer);
         ws.close();
+        reject(e instanceof Error ? e : new Error(String(e)));
+        return;
       }
+      const kind = authKind(raw);
+      if (kind === "ack") return; // resume ack precedes the real reply; keep open
+      clearTimeout(timer);
+      ws.close();
+      if (kind === "needs") {
+        emitNeedsAuth();
+        reject(new Error("authentication required"));
+        return;
+      }
+      const ok = sessionsListResponseSchema.safeParse(raw);
+      if (ok.success) {
+        resolve(ok.data.result);
+        return;
+      }
+      const err = rpcErrorSchema.safeParse(raw);
+      reject(
+        new Error(err.success ? err.data.error.message : "unexpected response"),
+      );
     });
 
     ws.addEventListener("error", () => {
@@ -116,6 +141,7 @@ export function subscribeSession(
     socket.addEventListener("open", () => {
       attempt = 0;
       onStatus("open");
+      sendAuthPrelude(socket);
       socket.send(
         JSON.stringify({
           id,
@@ -134,6 +160,15 @@ export function subscribeSession(
       try {
         raw = JSON.parse(String(ev.data));
       } catch {
+        return;
+      }
+      const kind = authKind(raw);
+      if (kind === "ack") return; // resume ack precedes the subscribe reply
+      if (kind === "needs") {
+        // Refused: prompt the operator. Stay open (no reconnect storm) — the App
+        // re-subscribes once a token is obtained.
+        emitNeedsAuth();
+        onError("authentication required");
         return;
       }
       const frame = sessionSubscribeEventSchema.safeParse(raw);
@@ -197,28 +232,37 @@ function oneShotRpc(
     }, 5000);
 
     ws.addEventListener("open", () => {
+      sendAuthPrelude(ws);
       ws.send(JSON.stringify({ id, op, params, traceId: newTraceId() }));
     });
 
     ws.addEventListener("message", (ev) => {
-      clearTimeout(timer);
+      let raw: unknown;
       try {
-        const raw: unknown = JSON.parse(String(ev.data));
-        if (isOk(raw)) {
-          resolve();
-          return;
-        }
-        const err = rpcErrorSchema.safeParse(raw);
-        reject(
-          new Error(
-            err.success ? err.data.error.message : "unexpected response",
-          ),
-        );
+        raw = JSON.parse(String(ev.data));
       } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-      } finally {
+        clearTimeout(timer);
         ws.close();
+        reject(e instanceof Error ? e : new Error(String(e)));
+        return;
       }
+      const kind = authKind(raw);
+      if (kind === "ack") return; // resume ack precedes the real reply; keep open
+      clearTimeout(timer);
+      ws.close();
+      if (kind === "needs") {
+        emitNeedsAuth();
+        reject(new Error("authentication required"));
+        return;
+      }
+      if (isOk(raw)) {
+        resolve();
+        return;
+      }
+      const err = rpcErrorSchema.safeParse(raw);
+      reject(
+        new Error(err.success ? err.data.error.message : "unexpected response"),
+      );
     });
 
     ws.addEventListener("error", () => {

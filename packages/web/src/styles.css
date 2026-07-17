@@ -748,3 +748,48 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+/* Operator auth (TOTP) prompt */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 55%, transparent);
+  z-index: 50;
+}
+.modal.auth {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+}
+.modal.auth h2 {
+  margin: 0;
+}
+.auth-code {
+  font-size: 28px;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.auth-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.hint.error {
+  color: #f85149;
+}

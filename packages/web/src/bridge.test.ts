@@ -11,6 +11,7 @@ import {
   stopSession,
   subscribeSession,
 } from "./bridge";
+import { clearStoredToken, onNeedsAuth, storeToken } from "./auth";
 
 type Listener = (ev: unknown) => void;
 
@@ -335,5 +336,39 @@ describe("actuator one-shot RPCs", () => {
     const p = respondSession({ sessionId: "s", text: "x" }, "ws://test/bridge");
     vi.advanceTimersByTime(5000);
     await expect(p).rejects.toThrow("timed out");
+  });
+});
+
+describe("operator auth (F2a)", () => {
+  afterEach(() => clearStoredToken());
+
+  it("sends the token resume prelude before the op, ignoring the auth ack", async () => {
+    storeToken("tok-1");
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    // Frame 0 is the auth resume, frame 1 the actual op.
+    expect(JSON.parse(socket(0).sent[0]!).op).toBe("auth");
+    expect(JSON.parse(socket(0).sent[0]!).params).toEqual({ token: "tok-1" });
+    expect(JSON.parse(socket(0).sent[1]!).op).toBe("sessions.list");
+    // The auth ack must NOT resolve/close the call.
+    socket(0).message({ id: "auth-0", ok: true, op: "auth" });
+    socket(0).message({ id: "x", ok: true, op: "sessions.list", result: [] });
+    await expect(p).resolves.toEqual([]);
+  });
+
+  it("raises the needs-auth prompt and rejects on a needsAuth refusal", async () => {
+    const seen = vi.fn();
+    const off = onNeedsAuth(seen);
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    socket(0).message({
+      id: "x",
+      ok: false,
+      needsAuth: true,
+      error: { message: "authentication required" },
+    });
+    await expect(p).rejects.toThrow("authentication required");
+    expect(seen).toHaveBeenCalledTimes(1);
+    off();
   });
 });

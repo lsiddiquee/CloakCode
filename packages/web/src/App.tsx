@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { bridgeUrl, fetchSessions } from "./bridge";
+import { onNeedsAuth } from "./auth";
+import { AuthPrompt } from "./AuthPrompt";
 import { dotClass, statusLabel } from "./format";
 import { groupByWorkspace } from "./grouping";
 import { SessionView } from "./SessionView";
@@ -13,6 +15,7 @@ type LoadState =
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [selected, setSelected] = useState<SessionSummary | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
 
   async function load(): Promise<void> {
     setState({ kind: "loading" });
@@ -30,6 +33,21 @@ export function App(): JSX.Element {
   useEffect(() => {
     void load();
   }, []);
+
+  // Any socket refused with `needsAuth` raises the TOTP prompt (docs/04, F2a).
+  useEffect(() => onNeedsAuth(() => setAuthOpen(true)), []);
+
+  if (authOpen) {
+    return (
+      <AuthPrompt
+        onDone={() => {
+          setAuthOpen(false);
+          setSelected(null);
+          void load();
+        }}
+      />
+    );
+  }
 
   if (selected) {
     return <SessionView session={selected} onBack={() => setSelected(null)} />;
