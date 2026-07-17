@@ -193,7 +193,10 @@ export async function startBridge(
         res.writeHead(200, { "content-type": contentTypeFor(file) });
         res.end(data);
       },
-      () => res.writeHead(404).end(),
+      (err: NodeJS.ErrnoException) => {
+        // Missing file → 404; a real read error (permission/IO) → 500.
+        res.writeHead(err?.code === "ENOENT" ? 404 : 500).end();
+      },
     );
   });
   const wss = new WebSocketServer({
@@ -589,8 +592,20 @@ export async function handleMessage(
       JSON.stringify({
         id: request.id,
         ok: false,
-        error: { message: err instanceof Error ? err.message : String(err) },
+        error: { message: describeError(err) },
       }),
     );
+  }
+}
+
+/** Best-effort human message for an unknown throw — never "[object Object]"
+ *  (a non-Error object is JSON-serialized so a `{ code }` throw stays useful). */
+function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err) ?? "unknown error";
+  } catch {
+    return "unknown error";
   }
 }

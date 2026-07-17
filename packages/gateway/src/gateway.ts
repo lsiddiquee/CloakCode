@@ -102,7 +102,10 @@ export async function startGateway(
         res.writeHead(200, { "content-type": contentTypeFor(file) });
         res.end(data);
       },
-      () => res.writeHead(404).end(),
+      (err: NodeJS.ErrnoException) => {
+        // Missing file → 404; a real read error (permission/IO) → 500.
+        res.writeHead(err?.code === "ENOENT" ? 404 : 500).end();
+      },
     );
   });
 

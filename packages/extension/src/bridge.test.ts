@@ -549,6 +549,30 @@ describe("startBridge", () => {
     }
   });
 
+  it("serializes a non-Error throw without '[object Object]' (F8)", async () => {
+    const bridge = await startBridge(
+      deps({
+        isOwned: async () => true,
+        respond: async () => {
+          throw { code: "EBUSY" }; // a plain object, not an Error
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = (await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: { instanceId: "i", sessionId: "sessA", text: "hi" },
+      })) as { ok: boolean; error: { message: string } };
+      expect(res.ok).toBe(false);
+      expect(res.error.message).toContain("EBUSY");
+      expect(res.error.message).not.toContain("[object Object]");
+    } finally {
+      await bridge.close();
+    }
+  });
+
   it("routes session.decide to the decide dep and acks", async () => {
     let got:
       { sessionId: string; toolCallId: string; decision: string } | undefined;
