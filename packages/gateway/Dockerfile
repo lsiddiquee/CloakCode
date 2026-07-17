@@ -11,14 +11,22 @@
 # front the published port with your own private tunnel/ingress.
 FROM node:24-slim AS build
 WORKDIR /repo
+# Optional private/corporate npm registry for networks where the public
+# registry.npmjs.org is unreachable (e.g. a Microsoft package-feed proxy). Empty
+# ⇒ default public npm. Passed by `scripts/docker-gateway.sh --registry <url>`
+# (or NPM_REGISTRY); applies to BOTH corepack's pnpm download and pnpm install.
+ARG NPM_REGISTRY=
 RUN corepack enable
 COPY . .
-# The repo carries no .npmrc, so the default public npm registry applies here.
-# The committed pnpm-lock.yaml is registry-portable (integrity-only, no absolute
-# tarball URLs), so --frozen-lockfile installs it from public npm with every
-# version pin intact.
+# The repo carries no .npmrc, so the default public npm registry applies unless
+# NPM_REGISTRY overrides it. The committed pnpm-lock.yaml is registry-portable
+# (integrity-only, no absolute tarball URLs), so --frozen-lockfile installs from
+# ANY registry with every version pin intact.
 # pnpm 11.9 needs Node >=22.13 (why the base is node:24).
-RUN pnpm install --frozen-lockfile \
+RUN if [ -n "$NPM_REGISTRY" ]; then \
+      export COREPACK_NPM_REGISTRY="$NPM_REGISTRY" npm_config_registry="$NPM_REGISTRY"; \
+    fi \
+  && pnpm install --frozen-lockfile \
   && pnpm --filter @cloakcode/protocol build \
   && pnpm --filter @cloakcode/gateway bundle \
   && pnpm --filter @cloakcode/web build
