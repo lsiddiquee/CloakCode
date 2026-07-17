@@ -156,6 +156,9 @@ export function SessionView({
   const stickRef = useRef(true);
   const lastTopRef = useRef(0);
   const restoredRef = useRef(false);
+  // Show a "jump to latest" affordance whenever the view is parked away from the
+  // bottom (scrolled up, or a restored mid-conversation position on a long chat).
+  const [showJump, setShowJump] = useState(false);
 
   const handleScroll = (): void => {
     const el = scrollRef.current;
@@ -171,7 +174,16 @@ export function SessionView({
       stickRef.current = true;
     }
     lastTopRef.current = top;
+    setShowJump(el.scrollHeight - top - el.clientHeight > 120);
     writeScroll(session.sessionId, { top, atBottom: stickRef.current });
+  };
+
+  const jumpToBottom = (): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    setShowJump(false);
   };
 
   useEffect(() => {
@@ -258,6 +270,16 @@ export function SessionView({
           />
           {activity.label}
         </span>
+        {showJump && (
+          <button
+            className="icon-btn jump-btn"
+            onClick={jumpToBottom}
+            title="Jump to latest"
+            aria-label="Jump to latest"
+          >
+            ↓
+          </button>
+        )}
       </header>
 
       {conn !== "open" && (

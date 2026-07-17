@@ -828,3 +828,13 @@ body {
   padding: 0 6px;
   cursor: help;
 }
+
+/* Jump-to-latest button (appbar) — shown when parked away from the bottom */
+.jump-btn {
+  flex: none;
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
+  font-size: 16px;
+  line-height: 1;
+}

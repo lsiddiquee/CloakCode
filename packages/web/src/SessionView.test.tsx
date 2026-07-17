@@ -422,4 +422,30 @@ describe("PendingCard answer submit", () => {
     expect(bar?.textContent).toContain("5.00 AIU");
     expect(bar?.textContent).toContain("claude-opus-4.8");
   });
+
+  it("shows a jump-to-latest button when parked above the bottom, and returns on click", () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    const el = document.querySelector("main.transcript") as HTMLElement;
+    Object.defineProperty(el, "scrollHeight", {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(el, "clientHeight", {
+      value: 300,
+      configurable: true,
+    });
+    // Not shown while at/near the bottom.
+    expect(
+      screen.queryByRole("button", { name: /jump to latest/i }),
+    ).toBeNull();
+    // Scrolled up (distance-to-bottom 600 > 120) ⇒ the button appears.
+    el.scrollTop = 100;
+    fireEvent.scroll(el);
+    const jump = screen.getByRole("button", { name: /jump to latest/i });
+    fireEvent.click(jump);
+    expect(el.scrollTop).toBe(1000); // snapped to the bottom
+    expect(
+      screen.queryByRole("button", { name: /jump to latest/i }),
+    ).toBeNull();
+  });
 });
