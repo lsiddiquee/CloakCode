@@ -35,7 +35,7 @@
   "devDependencies": {
     "@types/node": "^20.19.43",
     "@types/ws": "^8.5.12",
-    "esbuild": "^0.21.5",
+    "esbuild": "0.25.12",
     "typescript": "^5.6.0",
     "vitest": "3.2.6"
   }
