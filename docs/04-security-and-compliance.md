@@ -210,8 +210,8 @@ Repository controls complement the runtime architecture; they do not add a produ
 **Maintainer follow-up after first deployment:** once CodeQL and dependency review have run from
 `main` and GitHub exposes their check contexts, add those two jobs to the branch's required status
 checks. GitHub cannot select a check context before it has been reported. Review and merge Dependabot
-security updates promptly; as of 2026-07-17, the initial backlog includes critical Vitest and
-high-severity Vite advisories.
+security updates promptly. The initial critical Vitest advisory was remediated on 2026-07-17 by
+pinning Vitest and its coverage provider to 3.2.6; high-severity Vite advisories remain to address.
 
 ## Threat-model quick list
 
