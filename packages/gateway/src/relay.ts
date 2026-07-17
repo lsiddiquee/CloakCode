@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 
 interface RelayEntry {
@@ -18,7 +19,6 @@ interface RelayEntry {
  */
 export class Relay {
   readonly #entries = new Map<string, RelayEntry>();
-  #seq = 0;
 
   /**
    * Forward one operator request under a fresh relay id via `send` (a provider
@@ -30,7 +30,7 @@ export class Relay {
     provider: object,
     send: (text: string) => void,
   ): void {
-    const relayId = `rl:${this.#seq++}`;
+    const relayId = `rl:${randomUUID()}`;
     this.#entries.set(relayId, { operator, originalId: request.id, provider });
     send(
       JSON.stringify({
@@ -44,10 +44,13 @@ export class Relay {
 
   /**
    * If `text` is a provider frame for an active relay, rewrite its id back to
-   * the operator's original and deliver it. Returns whether it was handled (so
-   * the caller can fall through to the provider's own request/response path).
+   * the operator's original and deliver it. `from` is the provider that sent the
+   * frame: only the provider a relay was routed to may answer it, so a frame
+   * carrying another provider's relay id is dropped, not delivered (F13).
+   * Returns whether it was handled (so the caller can fall through to the
+   * provider's own request/response path).
    */
-  routeProviderFrame(text: string): boolean {
+  routeProviderFrame(text: string, from: object): boolean {
     let msg: { id?: unknown };
     try {
       msg = JSON.parse(text) as { id?: unknown };
@@ -57,6 +60,9 @@ export class Relay {
     if (typeof msg.id !== "string") return false;
     const entry = this.#entries.get(msg.id);
     if (!entry) return false;
+    // Bind the reply to its provider: swallow (don't deliver) a relay-id frame
+    // that arrives from a different provider than the one it was routed to.
+    if (entry.provider !== from) return true;
     const out = { ...msg, id: entry.originalId };
     if (entry.operator.readyState === entry.operator.OPEN) {
       entry.operator.send(JSON.stringify(out));

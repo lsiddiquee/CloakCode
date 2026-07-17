@@ -367,7 +367,10 @@ export function isSuperseded(
  * Compute the live-pending overlay for one session: every spool record for that
  * session (each file = a live blocker), minus any already flushed to the
  * transcript (belt-and-suspenders dedup so a missed delete can't strand a card).
- * Replace-snapshot semantics — the caller pushes the whole list.
+ * Replace-snapshot semantics — the caller pushes the whole list. The overlay's
+ * place in the pipeline — a separate replace-channel riding alongside the seq'd
+ * history, deduped against the transcript — is the observer design in docs/03
+ * ("Rendering a long backlog" / the pending overlay).
  */
 export function computePendingBlockers(
   records: readonly SpoolRecord[],

@@ -35,20 +35,21 @@ def inspect(transcript: str) -> None:
     open_tools: dict[str, dict] = {}  # toolCallId -> {name, arguments, ts}
     type_counts: dict[str, int] = {}
     print(f"== transcript: {transcript} ==\n")
-    for line in open(transcript):
-        if not line.strip():
-            continue
-        event = json.loads(line)
-        etype, data = event.get("type"), event.get("data", {})
-        type_counts[etype] = type_counts.get(etype, 0) + 1
-        if etype == "tool.execution_start":
-            open_tools[data.get("toolCallId")] = {
-                "name": data.get("toolName"),
-                "arguments": data.get("arguments"),
-                "ts": event.get("timestamp"),
-            }
-        elif etype == "tool.execution_complete":
-            open_tools.pop(data.get("toolCallId"), None)
+    with open(transcript) as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            event = json.loads(line)
+            etype, data = event.get("type"), event.get("data", {})
+            type_counts[etype] = type_counts.get(etype, 0) + 1
+            if etype == "tool.execution_start":
+                open_tools[data.get("toolCallId")] = {
+                    "name": data.get("toolName"),
+                    "arguments": data.get("arguments"),
+                    "ts": event.get("timestamp"),
+                }
+            elif etype == "tool.execution_complete":
+                open_tools.pop(data.get("toolCallId"), None)
 
     print("event type counts:")
     for t, n in sorted(type_counts.items(), key=lambda kv: -kv[1]):

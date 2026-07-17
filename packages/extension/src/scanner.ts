@@ -372,49 +372,57 @@ export async function scanSessions(
     const workspace =
       opts.workspaceNames?.get(hashDir) ??
       (await readWorkspaceName(root, hashDir));
-    for (const file of files) {
-      if (!file.endsWith(".jsonl")) continue;
-      const full = path.join(transcriptsDir, file);
-      let content: string;
-      let mtimeMs: number;
-      try {
-        content = await fs.readFile(full, "utf8");
-        mtimeMs = (await fs.stat(full)).mtimeMs;
-      } catch {
-        continue;
-      }
-      const sessionId = file.slice(0, -".jsonl".length);
-      const { title, turns, openInteractiveTools, inTurn } =
-        parseTranscript(content);
-      // Prefer VS Code's own LLM-generated title (from the debug-log) over the
-      // first user message; fall back when there's no debug-log.
-      const generatedTitle = await debugLogTitle(debugLogsDir, sessionId);
-      const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
-      const live = idleSeconds < liveWindow;
-      rows.push({
-        mtimeMs,
-        summary: {
-          instanceId: opts.instanceId,
-          sessionId,
-          workspace,
-          workspaceHash: hashDir,
-          title: generatedTitle || title || "(no user message)",
-          turns,
-          status: classifyStatus(
-            idleSeconds,
-            openInteractiveTools.length > 0,
-            liveWindow,
-          ),
-          idleSeconds,
-          // Mid-turn only counts while live — a dormant transcript that ends at
-          // `turn_start` (never flushed `turn_end`, §4.10) must read idle.
-          inTurn: live && inTurn,
-          owned: opts.ownedWorkspaceHashes
-            ? opts.ownedWorkspaceHashes.has(hashDir)
-            : true,
-        },
-      });
-    }
+    // Read + parse this workspace's transcripts CONCURRENTLY (F12): the per-file
+    // readFile/stat/debug-log-title reads dominate the scan and are independent;
+    // the de-dup + sort below is order-free, so parallelism is safe. Concurrency
+    // is bounded to one workspace's session files (hash dirs stay sequential) to
+    // avoid EMFILE on a very large store.
+    await Promise.all(
+      files
+        .filter((file) => file.endsWith(".jsonl"))
+        .map(async (file) => {
+          const full = path.join(transcriptsDir, file);
+          let content: string;
+          let mtimeMs: number;
+          try {
+            content = await fs.readFile(full, "utf8");
+            mtimeMs = (await fs.stat(full)).mtimeMs;
+          } catch {
+            return;
+          }
+          const sessionId = file.slice(0, -".jsonl".length);
+          const { title, turns, openInteractiveTools, inTurn } =
+            parseTranscript(content);
+          // Prefer VS Code's own LLM-generated title (from the debug-log) over
+          // the first user message; fall back when there's no debug-log.
+          const generatedTitle = await debugLogTitle(debugLogsDir, sessionId);
+          const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
+          const live = idleSeconds < liveWindow;
+          rows.push({
+            mtimeMs,
+            summary: {
+              instanceId: opts.instanceId,
+              sessionId,
+              workspace,
+              workspaceHash: hashDir,
+              title: generatedTitle || title || "(no user message)",
+              turns,
+              status: classifyStatus(
+                idleSeconds,
+                openInteractiveTools.length > 0,
+                liveWindow,
+              ),
+              idleSeconds,
+              // Mid-turn only counts while live — a dormant transcript that ends
+              // at `turn_start` (never flushed `turn_end`, §4.10) must read idle.
+              inTurn: live && inTurn,
+              owned: opts.ownedWorkspaceHashes
+                ? opts.ownedWorkspaceHashes.has(hashDir)
+                : true,
+            },
+          });
+        }),
+    );
   }
 
   // De-dup by sessionId (a globally-unique UUID): one session can land under

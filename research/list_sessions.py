@@ -29,7 +29,8 @@ def workspace_name(hash_dir: str) -> str:
     p = os.path.join(ROOT, hash_dir, "workspace.json")
     if os.path.exists(p):
         try:
-            folder: str = json.load(open(p)).get("folder", "")
+            with open(p) as f:
+                folder: str = json.load(f).get("folder", "")
             return os.path.basename(folder.rstrip("/")) or folder[:16]
         except Exception:
             pass
@@ -45,19 +46,20 @@ def scan() -> list[dict]:
         session_id = os.path.basename(transcript)[:-6]
         title, turns, open_tools = "", 0, {}
         try:
-            for line in open(transcript):
-                if not line.strip():
-                    continue
-                event = json.loads(line)
-                etype, data = event.get("type"), event.get("data", {})
-                if etype == "user.message":
-                    turns += 1
-                    if not title:
-                        title = (data.get("content") or "").replace("\n", " ").strip()[:60]
-                elif etype == "tool.execution_start":
-                    open_tools[data.get("toolCallId")] = data.get("toolName")
-                elif etype == "tool.execution_complete":
-                    open_tools.pop(data.get("toolCallId"), None)
+            with open(transcript) as fh:
+                for line in fh:
+                    if not line.strip():
+                        continue
+                    event = json.loads(line)
+                    etype, data = event.get("type"), event.get("data", {})
+                    if etype == "user.message":
+                        turns += 1
+                        if not title:
+                            title = (data.get("content") or "").replace("\n", " ").strip()[:60]
+                    elif etype == "tool.execution_start":
+                        open_tools[data.get("toolCallId")] = data.get("toolName")
+                    elif etype == "tool.execution_complete":
+                        open_tools.pop(data.get("toolCallId"), None)
         except Exception:
             continue
 

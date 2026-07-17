@@ -153,7 +153,8 @@ export async function startGateway(
       const frame = m.toString();
       // A provider frame is either a relayed reply for an operator, or a response
       // to a gateway-initiated request (e.g. sessions.list).
-      if (!relay.routeProviderFrame(frame)) provider.handleMessage(frame);
+      if (!relay.routeProviderFrame(frame, provider))
+        provider.handleMessage(frame);
     });
     socket.on("close", () => {
       registry.remove(provider);
