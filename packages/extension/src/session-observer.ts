@@ -377,13 +377,41 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
   return events;
 }
 
-/** The first user-message text in an event list — the turn the log opens on. */
-function firstUserText(events: SessionEvent[]): string | undefined {
+/** The ordered user-message texts in an event list (the turns it opens on). */
+function userTexts(events: SessionEvent[]): string[] {
+  const texts: string[] = [];
   for (const e of events) {
     if (e.type === "append" && e.part.kind === "userMessage")
-      return e.part.text;
+      texts.push(e.part.text);
   }
-  return undefined;
+  return texts;
+}
+
+/**
+ * Index in `transcript` where the debug-log's user-message SEQUENCE first aligns
+ * (the earliest user-message append after which the transcript's user texts start
+ * with `dlTexts`). Aligning the whole sequence — not just the first text — is
+ * what disambiguates a REPEATED prompt: matching only `dlTexts[0]` would pick an
+ * earlier identical prompt and stitch at the wrong boundary (F7). Returns -1 when
+ * the debug-log's opening isn't found in the transcript.
+ */
+function alignBoundary(transcript: SessionEvent[], dlTexts: string[]): number {
+  const users: { index: number; text: string }[] = [];
+  transcript.forEach((e, i) => {
+    if (e.type === "append" && e.part.kind === "userMessage")
+      users.push({ index: i, text: e.part.text });
+  });
+  for (let p = 0; p < users.length; p++) {
+    let aligned = true;
+    for (let k = 0; k < dlTexts.length && p + k < users.length; k++) {
+      if (users[p + k]!.text !== dlTexts[k]) {
+        aligned = false;
+        break;
+      }
+    }
+    if (aligned) return users[p]!.index;
+  }
+  return -1;
 }
 
 /**
@@ -418,14 +446,9 @@ export function stitchEvents(
   transcript: SessionEvent[],
   debugLog: SessionEvent[],
 ): SessionEvent[] {
-  const anchor = firstUserText(debugLog);
-  if (anchor === undefined) return transcript;
-  const boundary = transcript.findIndex(
-    (e) =>
-      e.type === "append" &&
-      e.part.kind === "userMessage" &&
-      e.part.text === anchor,
-  );
+  const dlTexts = userTexts(debugLog);
+  if (dlTexts.length === 0) return transcript;
+  const boundary = alignBoundary(transcript, dlTexts);
   if (boundary <= 0) return debugLog;
   const prefix = retag(transcript.slice(0, boundary), "tx-", 0);
   return [...prefix, ...retag(debugLog, "dl-", prefix.length)];

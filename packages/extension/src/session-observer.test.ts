@@ -66,6 +66,43 @@ describe("stitchEvents", () => {
     const tx = [u("user-0", "q0"), m("msg-0")];
     expect(stitchEvents(tx, [])).toBe(tx);
   });
+
+  it("picks the RIGHT boundary when a prompt text repeats (F7)", () => {
+    // "A" appears twice in the transcript; the debug-log opens on the SECOND
+    // one. Matching only the first text would stitch at the earlier "A" and
+    // duplicate/omit history — aligning the sequence [A, q3] fixes it.
+    const tx = [
+      u("user-0", "q0"),
+      m("msg-0"),
+      u("user-1", "A"),
+      m("msg-1"),
+      u("user-2", "q1"),
+      m("msg-2"),
+      u("user-3", "A"),
+      m("msg-3"),
+      u("user-4", "q3"),
+      m("msg-4"),
+    ];
+    const dl = [u("user-0", "A"), m("msg-0"), u("user-1", "q3"), m("msg-1")];
+    const out = stitchEvents(tx, dl);
+    // Prefix = the 6 events before the SECOND "A" (index 6); then the debug-log.
+    expect(out).toHaveLength(6 + 4);
+    const ids = out.flatMap((e) => (e.type === "append" ? [e.part.id] : []));
+    expect(ids.slice(0, 6)).toEqual([
+      "tx-user-0",
+      "tx-msg-0",
+      "tx-user-1",
+      "tx-msg-1",
+      "tx-user-2",
+      "tx-msg-2",
+    ]);
+    expect(ids.slice(6)).toEqual([
+      "dl-user-0",
+      "dl-msg-0",
+      "dl-user-1",
+      "dl-msg-1",
+    ]);
+  });
 });
 
 const jsonl = (lines: object[]): string =>
