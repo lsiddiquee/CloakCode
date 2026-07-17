@@ -500,6 +500,55 @@ describe("startBridge", () => {
     }
   });
 
+  it("rejects an actuator targeting a session this window does not own (F3)", async () => {
+    // Defense-in-depth: even a direct RPC (bypassing the UI gating) must not
+    // actuate a foreign session — the respond dep must never be called.
+    let respondCalled = false;
+    const bridge = await startBridge(
+      deps({
+        isOwned: async () => false,
+        respond: async () => void (respondCalled = true),
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: { instanceId: "i", sessionId: "foreign", text: "hi" },
+      });
+      expect(res).toMatchObject({
+        ok: false,
+        error: { message: expect.stringContaining("not owned") },
+      });
+      expect(respondCalled).toBe(false);
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("allows an actuator when the session IS owned (F3)", async () => {
+    let respondCalled = false;
+    const bridge = await startBridge(
+      deps({
+        isOwned: async () => true,
+        respond: async () => void (respondCalled = true),
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: { instanceId: "i", sessionId: "sessA", text: "hi" },
+      });
+      expect(res).toMatchObject({ id: "9", ok: true, op: "session.respond" });
+      expect(respondCalled).toBe(true);
+    } finally {
+      await bridge.close();
+    }
+  });
+
   it("routes session.decide to the decide dep and acks", async () => {
     let got:
       { sessionId: string; toolCallId: string; decision: string } | undefined;

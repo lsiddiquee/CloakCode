@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   cloakcodeHelloSchema,
   connectionHelloSchema,
+  MAX_WS_PAYLOAD_BYTES,
   rpcRequestSchema,
   type CloakcodeHello,
   type GatewayInfo,
@@ -102,7 +103,10 @@ export async function startGateway(
     );
   });
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
+  });
   server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),

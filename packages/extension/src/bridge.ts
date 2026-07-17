@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   rpcRequestSchema,
   DEFAULT_PORT,
+  MAX_WS_PAYLOAD_BYTES,
   type Decision,
   type Logger,
   type QuestionAnswer,
@@ -32,6 +33,14 @@ export interface BridgeDeps {
   findSessionLog: (sessionId: string) => Promise<SessionLog | undefined>;
   /** Resolve a sessionId to its on-disk transcript path in this environment. */
   findTranscript: (sessionId: string) => Promise<string | undefined>;
+  /**
+   * Whether the target session is OWNED (actuatable) by this window. Every
+   * actuator RPC is gated on it: the web UI hides controls for foreign sessions,
+   * but a direct RPC must be rejected here too (defense-in-depth — a
+   * remote-operator action must never land in a window that doesn't own the
+   * session; docs/04). Unset → no gating (the pure dev-server / tests).
+   */
+  isOwned?: (sessionId: string) => Promise<boolean>;
   /**
    * Absolute path to the hook spool DIRECTORY (the live-pending source; one
    * file per blocker). When unset, the observer still works fully — there is
@@ -184,7 +193,10 @@ export async function startBridge(
       () => res.writeHead(404).end(),
     );
   });
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
+  });
   server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
@@ -298,6 +310,20 @@ export async function handleMessage(
     ...(request.traceId !== undefined ? { traceId: request.traceId } : {}),
   });
 
+  // Gate every actuator on ownership: reject an action aimed at a session this
+  // window does not own (defense-in-depth beyond the UI hiding the controls).
+  const requireOwned = async (sessionId: string): Promise<boolean> => {
+    if (!deps.isOwned || (await deps.isOwned(sessionId))) return true;
+    socket.send(
+      JSON.stringify({
+        id: request.id,
+        ok: false,
+        error: { message: "session is read-only in this window (not owned)" },
+      }),
+    );
+    return false;
+  };
+
   try {
     switch (request.op) {
       case "sessions.list": {
@@ -395,6 +421,7 @@ export async function handleMessage(
         break;
       }
       case "session.respond": {
+        if (!(await requireOwned(request.params.sessionId))) break;
         // A remote-operator answer (docs/04) — delivered via the extension
         // host's `respond` (chat.open). Never treated as genuine-local intent.
         if (!deps.respond) {
@@ -427,6 +454,7 @@ export async function handleMessage(
         break;
       }
       case "session.decide": {
+        if (!(await requireOwned(request.params.sessionId))) break;
         // A remote-operator allow/deny for a held tool call (docs/04), recorded
         // as the hook's on-disk decision file. Never genuine-local intent.
         if (!deps.decide) {
@@ -457,6 +485,7 @@ export async function handleMessage(
         break;
       }
       case "session.answer": {
+        if (!(await requireOwned(request.params.sessionId))) break;
         // A remote-operator structured answer to a pending question carousel
         // (docs/02 §4.16) — resolves the tool with `{answers}`, never chat text.
         if (!deps.answer) {
@@ -489,6 +518,7 @@ export async function handleMessage(
         break;
       }
       case "session.steer": {
+        if (!(await requireOwned(request.params.sessionId))) break;
         // A remote-operator redirect injected INTO the running turn (docs/04),
         // via the extension host's `steer`. Never genuine-local intent.
         if (!deps.steer) {
@@ -514,6 +544,7 @@ export async function handleMessage(
         break;
       }
       case "session.stop": {
+        if (!(await requireOwned(request.params.sessionId))) break;
         // A remote-operator cancel (optionally cancel-then-send), via the
         // extension host's `stop`. Never genuine-local intent.
         if (!deps.stop) {

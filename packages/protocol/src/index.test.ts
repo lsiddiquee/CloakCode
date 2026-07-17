@@ -15,6 +15,7 @@ import {
   sessionSteerResponseSchema,
   sessionStopResponseSchema,
   DEFAULT_PORT,
+  MAX_RPC_TEXT_LEN,
   providerInfoSchema,
   cloakcodeHelloSchema,
   connectionHelloSchema,
@@ -127,6 +128,24 @@ describe("rpcRequestSchema", () => {
     if (parsed.op === "session.respond") {
       expect(parsed.params.text).toContain("scratch.txt");
     }
+  });
+
+  it("rejects operator text over MAX_RPC_TEXT_LEN (F2b input bound)", () => {
+    const tooLong = "x".repeat(MAX_RPC_TEXT_LEN + 1);
+    const res = rpcRequestSchema.safeParse({
+      id: "3",
+      op: "session.respond",
+      params: { sessionId: "sessA", text: tooLong },
+    });
+    expect(res.success).toBe(false);
+    // A value exactly at the bound is accepted.
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "3",
+        op: "session.respond",
+        params: { sessionId: "sessA", text: "x".repeat(MAX_RPC_TEXT_LEN) },
+      }).success,
+    ).toBe(true);
   });
 
   it("parses a session.respond chat message with no toolCallId", () => {

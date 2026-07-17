@@ -254,18 +254,24 @@ export async function activate(
     .then(() => webDir)
     .catch(() => undefined);
 
+  const listSessions = () => {
+    const { hashes, names } = resolveOwnedHashes(context, root);
+    return scanSessions({
+      instanceId,
+      root,
+      ownedWorkspaceHashes: hashes,
+      workspaceNames: names,
+    });
+  };
+
   const deps: BridgeDeps = {
-    listSessions: () => {
-      const { hashes, names } = resolveOwnedHashes(context, root);
-      return scanSessions({
-        instanceId,
-        root,
-        ownedWorkspaceHashes: hashes,
-        workspaceNames: names,
-      });
-    },
+    listSessions,
     findSessionLog: (sessionId) => findSessionLog(root, sessionId),
     findTranscript: (sessionId) => findTranscript(root, sessionId),
+    // Gate actuators on ownership: only a session THIS window owns is actuatable
+    // (defense-in-depth beyond the UI — F3). Reuses the same scan the list uses.
+    isOwned: async (sessionId) =>
+      (await listSessions()).some((s) => s.sessionId === sessionId && s.owned),
     spoolDir,
     logger: log,
     ...(surfaceDebounceMs !== undefined ? { surfaceDebounceMs } : {}),

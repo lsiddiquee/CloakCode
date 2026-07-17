@@ -9,6 +9,20 @@ import { z } from "zod";
  */
 export const DEFAULT_PORT = 3543;
 
+/**
+ * Upper bound (chars) for operator-supplied free text — answers, chat prompts,
+ * steer/stop text. Defense-in-depth against unbounded input at the operator
+ * ingress (docs/04); generous for pasted content but not unbounded.
+ */
+export const MAX_RPC_TEXT_LEN = 100_000;
+
+/**
+ * Max WebSocket frame size accepted at either ingress (bytes), applied via the
+ * `ws` `maxPayload` option on the bridge and gateway servers so a single frame
+ * can't exhaust memory. 4 MiB is generous for transcript event frames.
+ */
+export const MAX_WS_PAYLOAD_BYTES = 4 * 1024 * 1024;
+
 // The ILogger-style logger port + traceId helper (pure; local-only output).
 export * from "./logger.js";
 
@@ -187,7 +201,7 @@ export type PendingBlocker = z.infer<typeof pendingBlockerSchema>;
  */
 export const questionAnswerSchema = z.object({
   selected: z.array(z.string()),
-  freeText: z.string().nullable().optional(),
+  freeText: z.string().max(MAX_RPC_TEXT_LEN).nullable().optional(),
   // When true the question is multi-select — the extension delivers `selected`
   // as `selectedValues` (not a single `selectedValue`) so VS Code renders it.
   multiSelect: z.boolean().optional(),
@@ -226,7 +240,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       // Present when answering a specific pending blocker; omitted for a
       // free-form chat message. Either way it's injected into the active chat.
       toolCallId: z.string().optional(),
-      text: z.string().min(1),
+      text: z.string().min(1).max(MAX_RPC_TEXT_LEN),
     }),
   }),
   z.object({
@@ -264,7 +278,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       // The extension prefills the composer (`chat.open {isPartialQuery}`) then
       // fires `steerWithMessage` (docs/02 §4.28 / research §7). Only meaningful
       // while the session is mid-turn (`SessionSummary.inTurn`).
-      text: z.string().min(1),
+      text: z.string().min(1).max(MAX_RPC_TEXT_LEN),
     }),
   }),
   z.object({
@@ -276,7 +290,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       // Optional follow-up: present = STOP-AND-SEND (cancel the in-flight turn
       // via `chat.cancel`, THEN send this as a fresh prompt); absent = a pure
       // stop (cancel only). A remote-operator action (docs/04).
-      text: z.string().min(1).optional(),
+      text: z.string().min(1).max(MAX_RPC_TEXT_LEN).optional(),
     }),
   }),
 ]);
