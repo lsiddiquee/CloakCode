@@ -88,6 +88,18 @@ repos:
   # ---------------------------------------------------------------------------
   - repo: local
     hooks:
+      # pnpm-lock.yaml — keep it registry-portable. `pnpm install` against a
+      # non-default registry (e.g. an internal proxy in ~/.npmrc) writes absolute
+      # `tarball:` URLs that other registries/runners can't reach; strip them
+      # (integrity is kept) so the committed lockfile installs from ANY registry.
+      - id: pnpm-lock-portable
+        name: Strip registry tarball URLs from pnpm-lock.yaml
+        language: system
+        stages: [pre-commit]
+        files: '^pnpm-lock\.yaml$'
+        pass_filenames: false
+        entry: bash scripts/strip-lockfile-tarballs.sh
+
       # ESLint — lint + auto-fix staged TS/JS/MJS repo-wide (eslint.config.mjs).
       - id: eslint
         name: ESLint

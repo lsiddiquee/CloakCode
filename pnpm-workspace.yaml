@@ -4,12 +4,13 @@ packages:
   - packages/*
 
 # Use the installed pnpm instead of downloading the version pinned in
-# package.json's `packageManager` field. The Microsoft package-feed proxy (.npmrc)
-# is a whole-package-metadata mirror — it 404s the per-version manifest and
-# redirects tarballs — so pnpm/corepack self-provisioning can't work against it.
-# The pin matches the base-image pnpm today, but keep `ignore` so any drift (a
-# base-image bump, a dev's machine) never breaks every pnpm command. pnpm-v11
-# replacement for the removed `managePackageManagerVersions: false`.
+# package.json's `packageManager` field. When resolving through the Microsoft
+# package-feed proxy (set in your user ~/.npmrc) — a whole-package-metadata
+# mirror that 404s the per-version manifest and redirects tarballs — pnpm/corepack
+# self-provisioning can't work. The pin matches the base-image pnpm today, but
+# keep `ignore` so any drift (a base-image bump, a dev's machine) never breaks
+# every pnpm command. pnpm-v11 replacement for the removed
+# `managePackageManagerVersions: false`.
 pmOnFail: ignore
 
 # pnpm 11 build-script allowlist (replaces the removed onlyBuiltDependencies /

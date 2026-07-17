@@ -35,10 +35,11 @@ git config --global core.editor "code --wait" || true
 # 3. pnpm --------------------------------------------------------------------
 # Use the pnpm that ships in the base image (a real install that sits ahead of
 # any corepack shim on PATH). We deliberately do NOT corepack-provision the pinned
-# `packageManager` version: the Microsoft package-feed proxy (.npmrc) is a
-# whole-package-metadata mirror that 404s the per-version manifest and redirects
-# tarballs, so corepack/pnpm self-provisioning can't fetch pnpm from it. Instead
-# `pmOnFail: ignore` (pnpm-workspace.yaml) makes pnpm use the installed version.
+# `packageManager` version: when resolving through the Microsoft package-feed proxy
+# (set in your user ~/.npmrc) — a whole-package-metadata mirror that 404s the
+# per-version manifest and redirects tarballs — corepack/pnpm self-provisioning
+# can't fetch pnpm from it. Instead `pmOnFail: ignore` (pnpm-workspace.yaml) makes
+# pnpm use the installed version.
 echo "==> pnpm: using base-image pnpm ($(pnpm --version 2>/dev/null || echo '?'))"
 pnpm config set store-dir "${CACHE_DIR}/pnpm-store" || true
 

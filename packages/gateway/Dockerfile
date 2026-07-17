@@ -10,14 +10,12 @@ FROM node:24-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY . .
-# The committed .npmrc targets an internal Microsoft feed unreachable from a
-# public Docker build (Docker Hub / a user's machine), so --registry overrides
-# just the registry for this install (highest-precedence npm-config source),
-# leaving any other .npmrc settings intact. The committed pnpm-lock.yaml is
-# registry-portable (integrity-only, no absolute tarball URLs), so
-# --frozen-lockfile installs it from public npm with every version pin intact.
+# The repo carries no .npmrc, so the default public npm registry applies here.
+# The committed pnpm-lock.yaml is registry-portable (integrity-only, no absolute
+# tarball URLs), so --frozen-lockfile installs it from public npm with every
+# version pin intact.
 # pnpm 11.9 needs Node >=22.13 (why the base is node:24).
-RUN pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/ \
+RUN pnpm install --frozen-lockfile \
   && pnpm --filter @cloakcode/protocol build \
   && pnpm --filter @cloakcode/gateway bundle \
   && pnpm --filter @cloakcode/web build

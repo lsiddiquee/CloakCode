@@ -23,6 +23,12 @@ out/
 .env.*
 !.env.example
 
+# npm/pnpm registry config is ENV-SPECIFIC (e.g. an internal supply-chain proxy).
+# Keep it in your user ~/.npmrc, never in the repo — a committed registry breaks
+# every contributor who can't reach it. The lockfile stays registry-portable via
+# the `pnpm-lock-portable` pre-commit hook.
+.npmrc
+
 # Logs
 *.log
 

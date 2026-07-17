@@ -160,26 +160,27 @@ Base: `~/.vscode-server/data/User/`
   host to match the pin; or `.npmrc` `manage-package-manager-versions=false` (and don't `corepack
   enable`) so the local pnpm is used; or point `COREPACK_NPM_REGISTRY` / `npm_config_registry` at an
   internal mirror; or pre-warm the corepack cache while online.
-- **Registry-portable `pnpm-lock.yaml` from an internal feed: strip the tarball URLs, keep integrity.**
-  This container resolves through the Microsoft package-feed proxy (`.npmrc` `registry=…microsoft.io`),
-  so the committed lockfile carried ~674 absolute `tarball: https://ms-feed-{2,12,25}.pkgs.visualstudio.com/…`
-  URLs that public runners can't reach. Two facts: (1) pnpm's `lockfileIncludeTarballUrl: false` does **not**
-  drop them here — the feed serves tarballs from non-standard, load-balanced `ms-feed-N` hosts that differ
-  from the registry path, so pnpm records the resolved URL because it can't reconstruct it (regenerating even
-  errors: "tarball URL … does not match the registry's published metadata"). (2) The fix is to strip only the
-  URL fragment, keeping `integrity:` — `sed -E 's/, tarball: https:[^}]*\}/}/' pnpm-lock.yaml` (NOT
-  `/tarball:/d`, which deletes the whole `resolution:` line incl. integrity; and it's `sed -i` on Linux, not
-  the macOS `sed -i ''`). Result: `resolution: {integrity: sha1-…}`. pnpm accepts the integrity-only lockfile
-  (`pnpm install --offline --frozen-lockfile` validates it against the store); on public npm it reconstructs
-  `<registry>/<name>/-/<name>-<ver>.tgz` and the **sha1 still matches** because the tarball bytes are identical
-  to npmjs.org. This preserves every version pin — strictly better than CI's old `rm pnpm-lock.yaml` + fresh
-  install. CI + the gateway Dockerfile now run `pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/`
-  — the `--registry` flag is the highest-precedence npm-config source, so it overrides just the registry
-  for that command and leaves the committed `.npmrc` (MS feed, for this dev container) and any other
-  settings in it untouched — strictly better than `printf … > .npmrc`, which clobbers the whole file.
-  (A scoped `@scope:registry=` override wouldn't work: deps span many scopes + unscoped packages, so the
-  global `registry`/`--registry` is required.) Still TODO before public: verify a real public-npm
-  `--frozen-lockfile` install where npmjs.org is actually reachable.
+- **Registry-portable `pnpm-lock.yaml`: keep the registry out of the repo, strip tarball URLs on commit.**
+  A dev machine may resolve through a non-default registry (here: the Microsoft package-feed proxy) which
+  makes pnpm record ~674 absolute `tarball: https://ms-feed-{2,12,25}.pkgs.visualstudio.com/…` URLs that
+  public runners / other contributors can't reach. Two facts: (1) pnpm's `lockfileIncludeTarballUrl: false`
+  does **not** drop them here — the feed serves tarballs from non-standard, load-balanced `ms-feed-N` hosts
+  that differ from the registry path, so pnpm records the resolved URL because it can't reconstruct it
+  (regenerating even errors: "tarball URL … does not match the registry's published metadata"). (2) The fix
+  is to strip only the URL fragment, keeping `integrity:` — `sed -E 's/, tarball: https:[^}]*\}/}/'
+  pnpm-lock.yaml` (NOT `/tarball:/d`, which deletes the whole `resolution:` line incl. integrity; and it's
+  `sed -i` on Linux, not the macOS `sed -i ''`). Result: `resolution: {integrity: sha1-…}`. pnpm accepts the
+  integrity-only lockfile (validates it against the store); on public npm it reconstructs
+  `<registry>/<name>/-/<name>-<ver>.tgz` and the **sha1 still matches** because the tarball bytes are
+  identical to npmjs.org, so every version pin is preserved.
+  **Current model (2026-07-17): the registry config is NOT committed.** The repo has **no `.npmrc`** (it's
+  gitignored); the internal proxy lives only in each dev's user `~/.npmrc`, so public contributors and CI
+  default to the public npm registry with zero overrides. The lockfile is kept portable automatically by the
+  `pnpm-lock-portable` **pre-commit hook** (`scripts/strip-lockfile-tarballs.sh`) — so CI, `release.yml`, and
+  the gateway `Dockerfile` now just run `pnpm install --frozen-lockfile` (the old `--registry=…npmjs.org/`
+  flags and `printf … > .npmrc` step were removed). Do **not** re-commit an `.npmrc` or re-add a `--registry`
+  override; if you resolve through a private feed, put it in `~/.npmrc` and let the hook clean the lockfile.
+- **`devtunnel user show` exits 0 even when NOT signed in** (verified 2026-07-16, CLI v1.0.1972).
 - **`devtunnel user show` exits 0 even when NOT signed in** (verified 2026-07-16, CLI v1.0.1972).
   It prints `Logged in as <user> using <provider>.` vs `Not logged in.` but the **exit code is 0
   either way**, so an `if devtunnel user show >/dev/null; then …signed in…` check is always-true and

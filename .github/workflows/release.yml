@@ -49,13 +49,11 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      # See ci.yml: the committed .npmrc targets an internal MS feed. Here we set
-      # the project registry to public npm (the release also publishes to it) and
-      # install the registry-portable lockfile with --frozen-lockfile (keeps pins).
-      - name: Install deps (public npm)
-        run: |
-          printf 'registry=https://registry.npmjs.org/\n' > .npmrc
-          pnpm install --frozen-lockfile
+      # No committed .npmrc, so the default public npm registry applies (the
+      # release also publishes there). The registry-portable lockfile installs
+      # with --frozen-lockfile, keeping every pin.
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
 
       # The version ships from the committed package.json (vsce/npm read it), so
       # the tag must match what was bumped on the release branch. Fail fast on
