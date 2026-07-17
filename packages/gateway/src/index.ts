@@ -46,6 +46,7 @@ export {
   type CodeResult,
   type GateDecision,
 } from "./operator-auth.js";
+export { mfaEnabledFromMode } from "./operator-secret.js";
 export { startGateway, type Gateway, type GatewayOptions } from "./gateway.js";
 export { connectionUrls, type ConnectUrl } from "./connect-urls.js";
 export { WsProvider } from "./ws-provider.js";

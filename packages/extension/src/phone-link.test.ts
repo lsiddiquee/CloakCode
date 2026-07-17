@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isLoopback, phoneLinkHtml, qrSvg } from "./phone-link.js";
+import {
+  isLoopback,
+  mfaPairingHtml,
+  phoneLinkHtml,
+  qrSvg,
+} from "./phone-link.js";
 
 describe("qrSvg", () => {
   it("returns inline SVG markup for the text", () => {
@@ -24,6 +29,24 @@ describe("phoneLinkHtml", () => {
 
   it("escapes HTML in the URL (no markup injection)", () => {
     const html = phoneLinkHtml('https://x/">-<script>alert(1)</script>');
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("mfaPairingHtml", () => {
+  it("embeds the otpauth QR and the base32 secret under a strict CSP", () => {
+    const html = mfaPairingHtml(
+      "otpauth://totp/CloakCode:gateway?secret=ABC234",
+      "ABC234",
+    );
+    expect(html).toContain("<svg");
+    expect(html).toContain("ABC234");
+    expect(html).toContain("default-src 'none'");
+  });
+
+  it("escapes HTML in the secret (no markup injection)", () => {
+    const html = mfaPairingHtml("otpauth://x", '"><script>alert(1)</script>');
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
   });

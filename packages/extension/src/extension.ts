@@ -28,10 +28,13 @@ import {
   removeSpoolForSession,
   stableHookPath,
 } from "./hook-spool.js";
-import { phoneLinkHtml, isLoopback } from "./phone-link.js";
+import { phoneLinkHtml, mfaPairingHtml, isLoopback } from "./phone-link.js";
 import {
   devTunnelInstallHint,
   devTunnelName,
+  mfaEnabledFromMode,
+  OperatorAuth,
+  otpauthUri,
   parseLogLevel,
   resolvePortPlan,
   startDevTunnel,
@@ -42,6 +45,7 @@ import {
 } from "@cloakcode/gateway";
 import { classifyRemote, parseDevcontainerName } from "./identity.js";
 import { tunnelFixAction } from "./tunnel-policy.js";
+import { embeddedExposed, loadOrCreateOperatorSecret } from "./operator-mfa.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -288,6 +292,37 @@ export async function activate(
     }),
   };
 
+  // Operator app-layer auth (F2a): the embedded bridge binds loopback, so a phone
+  // only reaches it through a tunnel — auto-require TOTP when one is configured
+  // (`cloakcode.mfa: auto`), or force/disable it. The secret lives in
+  // SecretStorage; a fresh one auto-opens the pairing QR. Built once and reused
+  // (its replay guard persists across bridge restarts); undefined ⇒ auth off.
+  let operatorAuth: OperatorAuth | undefined;
+  let operatorSecret: string | undefined;
+  const resolveOperatorAuth = async (
+    cfgNow: vscode.WorkspaceConfiguration,
+  ): Promise<OperatorAuth | undefined> => {
+    const exposed = embeddedExposed({
+      tunnel: cfgNow.get<string>("tunnel"),
+      publicUrl: process.env["CLOAKCODE_PUBLIC_URL"],
+    });
+    if (!mfaEnabledFromMode(cfgNow.get<string>("mfa"), exposed))
+      return undefined;
+    if (!operatorSecret) {
+      const { secret, created } = await loadOrCreateOperatorSecret(
+        context.secrets,
+      );
+      operatorSecret = secret;
+      if (created) {
+        log.info("operator.mfa_provisioned");
+        showMfaPairing(secret);
+      }
+    }
+    if (!operatorAuth)
+      operatorAuth = new OperatorAuth({ secret: operatorSecret });
+    return operatorAuth;
+  };
+
   // Always-visible one-click entry to the phone link (QR) — the low-friction way
   // in, instead of hunting the command palette. Its tooltip reflects the live
   // connection; establishConnection() refreshes it on every (re)connect.
@@ -325,6 +360,9 @@ export async function activate(
       process.env["CLOAKCODE_GATEWAY_TOKEN"] ||
       undefined;
     const gatewayUrl = plan.kind === "gateway" ? plan.url : undefined;
+    // Operator TOTP for the embedded bridge (gateway/client mode authenticates
+    // the operator at the hub instead). Resolved from the current settings.
+    const opAuth = gatewayUrl ? undefined : await resolveOperatorAuth(cfgNow);
     if (gatewayUrl) {
       // Client mode (docs/03 "Explicit gateway"): connect OUT as a provider; the
       // gateway serves the PWA + owns the phone link. Unreachable → embedded.
@@ -347,6 +385,7 @@ export async function activate(
           serveDir,
           instanceId,
           log,
+          await resolveOperatorAuth(cfgNow),
         );
       }
     } else {
@@ -356,6 +395,7 @@ export async function activate(
         serveDir,
         instanceId,
         log,
+        opAuth,
       );
     }
     status.tooltip = gatewayClient
@@ -588,6 +628,15 @@ export async function activate(
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.showMfaPairing", async () => {
+      // Re-show the operator-TOTP pairing QR (SecretStorage secret), generating
+      // one if none exists yet. Operator-facing; the secret stays in this window.
+      const { secret } = await loadOrCreateOperatorSecret(context.secrets);
+      showMfaPairing(secret);
+    }),
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.setupTunnel", async () => {
       // In gateway mode the hub owns the tunnel — nothing to host in this window.
       if (gatewayClient) {
@@ -666,6 +715,7 @@ async function startEmbeddedBridge(
   serveDir: string | undefined,
   instanceId: string,
   log: Logger,
+  operatorAuth?: OperatorAuth,
 ): Promise<Bridge | undefined> {
   try {
     const b = await startBridge(deps, {
@@ -673,11 +723,13 @@ async function startEmbeddedBridge(
       port: portPlan.port,
       fallbackToEphemeral: portPlan.fallbackToEphemeral,
       ...(serveDir ? { serveDir } : {}),
+      ...(operatorAuth ? { operatorAuth } : {}),
     });
     log.info("bridge.listen", {
       port: b.port,
       pwa: Boolean(serveDir),
       instanceId,
+      mfa: Boolean(operatorAuth),
     });
     return b;
   } catch (err) {
@@ -832,6 +884,21 @@ function showLinkPanel(url: string): void {
     .then((pick) => {
       if (pick === "Copy") void vscode.env.clipboard.writeText(url);
     });
+}
+
+/**
+ * Show the operator-TOTP pairing webview (QR + secret) so the operator can enrol
+ * an authenticator app. Operator-facing only — the secret never leaves this
+ * window (docs/04, F2a).
+ */
+function showMfaPairing(secretBase32: string): void {
+  const panel = vscode.window.createWebviewPanel(
+    "cloakcodeMfaPairing",
+    "CloakCode — Pair Operator Access",
+    vscode.ViewColumn.Active,
+    { enableScripts: false },
+  );
+  panel.webview.html = mfaPairingHtml(otpauthUri(secretBase32), secretBase32);
 }
 
 /** Default instanceId: `<env-kind>:<workspace-or-devcontainer-name>`. */

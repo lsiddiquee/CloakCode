@@ -79,6 +79,11 @@
         "command": "cloakcode.setInstanceId",
         "title": "Set Instance ID",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.showMfaPairing",
+        "title": "Pair Operator Access (TOTP)",
+        "category": "CloakCode"
       }
     ],
     "configuration": {
@@ -140,6 +145,17 @@
           "default": "",
           "scope": "machine-overridable",
           "markdownDescription": "Shared secret for the **provider↔gateway** link. When your standalone gateway runs with `CLOAKCODE_GATEWAY_TOKEN` set, this extension must present the **same** value to register as a provider. Machine-to-machine only — it is **never** shown to or used by the phone (operator auth is separate). Empty (default) = no provider auth (loopback dev). The `CLOAKCODE_GATEWAY_TOKEN` env var overrides this setting. A shared token is right-sized for a gateway you run; mTLS is a post-MVP option (docs/04)."
+        },
+        "cloakcode.mfa": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "required",
+            "off"
+          ],
+          "default": "auto",
+          "scope": "machine",
+          "markdownDescription": "Operator **two-factor auth** (TOTP) for the phone → embedded-bridge connection (docs/04, F2a). `auto` (default): require a code **only when the bridge is exposed** — i.e. a tunnel is configured (`cloakcode.tunnel: devtunnel` or a `CLOAKCODE_PUBLIC_URL`); off for pure loopback dev. `required`: always require it. `off`: never (loopback + a private tunnel only). On first enable, CloakCode generates a secret (stored in the OS keychain via SecretStorage) and opens a **pairing QR** — scan it with an authenticator app; run **CloakCode: Pair Operator Access (TOTP)** to show it again. The phone then enters the 6-digit code once and resumes with a saved token. The secret is never sent to the phone or logged."
         }
       }
     }

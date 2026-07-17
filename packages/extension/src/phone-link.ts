@@ -75,3 +75,39 @@ export function phoneLinkHtml(url: string): string {
   </body>
 </html>`;
 }
+
+/**
+ * Self-contained HTML for the operator-TOTP **pairing** webview (docs/04, F2a):
+ * the `otpauth://` QR to scan into an authenticator app, plus the base32 secret
+ * as selectable text for manual entry. Same strict CSP as the phone link (inline
+ * SVG QR, no scripts). Pure, so it is unit-tested without a webview. The secret
+ * is shown only in this operator-facing panel, never sent to the phone or logged.
+ */
+export function mfaPairingHtml(
+  otpauthUri: string,
+  secretBase32: string,
+): string {
+  const safeSecret = escapeHtml(secretBase32);
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';" />
+    <style>
+      body { font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); text-align: center; padding: 24px; }
+      .qr { background: #fff; display: inline-block; padding: 12px; border-radius: 8px; }
+      .qr svg { width: 260px; height: 260px; }
+      code { background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 4px; word-break: break-all; user-select: all; }
+      .hint { opacity: 0.7; font-size: 0.85em; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <h2>Pair CloakCode operator access</h2>
+    <p>Scan with an authenticator app (Google Authenticator, 1Password, …):</p>
+    <div class="qr">${qrSvg(otpauthUri)}</div>
+    <p>Or enter this secret manually:</p>
+    <p><code>${safeSecret}</code></p>
+    <p class="hint">Your phone then enters the 6-digit code once to sign in. This secret stays on this machine — never sent to the phone or logged.</p>
+  </body>
+</html>`;
+}

@@ -32,15 +32,16 @@ export function isExposed(host: string, env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Decide whether operator MFA is on. `CLOAKCODE_MFA`: `off`/`false`/`0` → off;
- * `required`/`on`/`true`/`1` → on; unset → **secure by exposure** (on when the
- * hub is exposed, off for pure loopback dev).
+ * Map an MFA **mode** to on/off against a computed `exposed` signal: `off`/
+ * `false`/`0`/`disabled` → off; `required`/`on`/`true`/`1` → on; anything else
+ * (incl. `auto`/unset) → **secure by exposure**. Shared by the standalone gateway
+ * (mode from `CLOAKCODE_MFA`) and the embedded bridge (mode from `cloakcode.mfa`).
  */
-export function operatorMfaEnabled(
-  env: NodeJS.ProcessEnv,
+export function mfaEnabledFromMode(
+  mode: string | undefined,
   exposed: boolean,
 ): boolean {
-  const v = (env["CLOAKCODE_MFA"] ?? "").trim().toLowerCase();
+  const v = (mode ?? "").trim().toLowerCase();
   if (v === "off" || v === "false" || v === "0" || v === "disabled") {
     return false;
   }
@@ -48,6 +49,17 @@ export function operatorMfaEnabled(
     return true;
   }
   return exposed;
+}
+
+/**
+ * Decide whether operator MFA is on for the **standalone gateway**.
+ * `CLOAKCODE_MFA`: `off` → off; `required` → on; unset → secure by exposure.
+ */
+export function operatorMfaEnabled(
+  env: NodeJS.ProcessEnv,
+  exposed: boolean,
+): boolean {
+  return mfaEnabledFromMode(env["CLOAKCODE_MFA"], exposed);
 }
 
 /**
