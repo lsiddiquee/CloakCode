@@ -3,7 +3,12 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
-import { startGateway, silentLogger, type Gateway } from "@cloakcode/gateway";
+import {
+  OperatorAuth,
+  startGateway,
+  silentLogger,
+  type Gateway,
+} from "@cloakcode/gateway";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { connectGateway, type GatewayClient } from "./gateway-client.js";
 import { parseSessionEvents } from "./session-observer.js";
@@ -55,6 +60,49 @@ function operator(
       if (frames.length >= count) {
         ws.close();
         resolve(frames);
+      }
+    });
+    ws.on("error", reject);
+  });
+}
+
+/**
+ * Authenticate an operator socket with a TOTP `code`, then run `list` +
+ * `subscribe` on the SAME connection (one code — the replay guard rejects reuse
+ * across sockets) and resolve with both replies.
+ */
+function authedListAndSubscribe(
+  port: number,
+  code: string,
+  sessionId: string,
+): Promise<{ list: Record<string, unknown>; event: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    let list: Record<string, unknown> | undefined;
+    ws.on("open", () =>
+      ws.send(JSON.stringify({ id: "auth", op: "auth", params: { code } })),
+    );
+    ws.on("message", (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.id === "auth") {
+        if (!msg.ok) return reject(new Error(`auth failed: ${data}`));
+        ws.send(JSON.stringify({ id: "1", op: "sessions.list" }));
+        return;
+      }
+      if (msg.id === "1") {
+        list = msg;
+        ws.send(
+          JSON.stringify({
+            id: "2",
+            op: "session.subscribe",
+            params: { sessionId },
+          }),
+        );
+        return;
+      }
+      if (msg.id === "2") {
+        ws.close();
+        resolve({ list: list!, event: msg });
       }
     });
     ws.on("error", reject);
@@ -124,6 +172,69 @@ describe("e2e: transcript → provider → gateway → operator", () => {
     });
     expect(frames[1]).toMatchObject({
       event: { type: "append", part: { kind: "toolCall" } },
+    });
+  });
+
+  it("gates the whole chain: provider TOTP token + operator TOTP", async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-e2e-"));
+    const file = path.join(dir, "sessE2E.jsonl");
+    await fs.writeFile(
+      file,
+      JSON.stringify({ type: "user.message", data: { content: "go" } }),
+    );
+    const deps: BridgeDeps = {
+      listSessions: async () => [summary],
+      findTranscript: async () => file,
+      findSessionLog: async () => ({ file, parse: parseSessionEvents }),
+    };
+
+    // RFC 6238 seed as base32; code "287082" is valid at t=59s. Public vector.
+    const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // gitleaks:allow
+    const now = () => 59_000;
+    // The provider's stored token (issued by a code exchange), verified by the
+    // gateway's operator secret — the extension never holds the secret itself.
+    const providerToken = new OperatorAuth({
+      secret,
+      now,
+      confirmed: true,
+    }).submitCode("287082").token;
+
+    gateway = await startGateway({
+      host: "127.0.0.1",
+      port: 0,
+      fallbackToEphemeral: true,
+      logger: silentLogger(),
+      operatorAuth: new OperatorAuth({ secret, now, confirmed: true }),
+    });
+    client = await connectGateway(
+      `ws://127.0.0.1:${gateway.port}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      providerToken,
+    );
+
+    // An UNauthenticated operator is refused — the relay is genuinely gated.
+    const [refused] = await operator(
+      gateway.port,
+      { id: "0", op: "sessions.list" },
+      1,
+    );
+    expect(refused).toMatchObject({ id: "0", ok: false, needsAuth: true });
+
+    // A TOTP-authenticated operator lists + streams through the relay, proving
+    // the provider registered with its token AND the operator gate lets it flow.
+    const { list, event } = await authedListAndSubscribe(
+      gateway.port,
+      "287082",
+      "sessE2E",
+    );
+    expect(list).toMatchObject({ id: "1", ok: true, op: "sessions.list" });
+    expect((list.result as SessionSummary[])[0]?.sessionId).toBe("sessE2E");
+    expect(event).toMatchObject({
+      id: "2",
+      event: { type: "append", part: { kind: "userMessage" } },
     });
   });
 });
