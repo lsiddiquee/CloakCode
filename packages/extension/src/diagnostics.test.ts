@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatDiagnostics, type DiagnosticsSnapshot } from "./diagnostics.js";
+import {
+  collectCloakcodeEnv,
+  formatDiagnostics,
+  type DiagnosticsSnapshot,
+} from "./diagnostics.js";
 
 function snapshot(
   over: Partial<DiagnosticsSnapshot> = {},
@@ -111,5 +115,54 @@ describe("formatDiagnostics", () => {
     expect(formatDiagnostics(snapshot({ bridgePort: null }))).toContain(
       "bridge port:       not listening (configured 7803)",
     );
+  });
+});
+
+describe("collectCloakcodeEnv", () => {
+  it("REDACTS secret-bearing values but keeps the key visible", () => {
+    const got = collectCloakcodeEnv({
+      CLOAKCODE_GATEWAY_TOKEN: "s3cr3t-shared-secret",
+      CLOAKCODE_GATEWAY_PORT: "3543",
+    });
+    const token = got.find((e) => e.key === "CLOAKCODE_GATEWAY_TOKEN");
+    expect(token).toEqual({
+      key: "CLOAKCODE_GATEWAY_TOKEN",
+      value: "<redacted>",
+    });
+    // The secret value must never appear.
+    expect(JSON.stringify(got)).not.toContain("s3cr3t");
+    // Non-secret vars pass through untouched.
+    expect(got).toContainEqual({
+      key: "CLOAKCODE_GATEWAY_PORT",
+      value: "3543",
+    });
+  });
+
+  it("only includes CLOAKCODE_* vars and sorts them", () => {
+    const got = collectCloakcodeEnv({
+      PATH: "/usr/bin",
+      HOME: "/home/u",
+      CLOAKCODE_TUNNEL: "devtunnel",
+      CLOAKCODE_INSTANCE_ID: "ext-dev",
+    });
+    expect(got.map((e) => e.key)).toEqual([
+      "CLOAKCODE_INSTANCE_ID",
+      "CLOAKCODE_TUNNEL",
+    ]);
+  });
+
+  it("redacts any future *_SECRET / *_KEY / *_PASSWORD var too", () => {
+    const got = collectCloakcodeEnv({
+      CLOAKCODE_API_KEY: "abc",
+      CLOAKCODE_DB_PASSWORD: "pw",
+      CLOAKCODE_CLIENT_SECRET: "cs",
+    });
+    expect(got.every((e) => e.value === "<redacted>")).toBe(true);
+  });
+
+  it("leaves an unset/empty value as empty (not '<redacted>')", () => {
+    expect(collectCloakcodeEnv({ CLOAKCODE_GATEWAY_TOKEN: "" })).toEqual([
+      { key: "CLOAKCODE_GATEWAY_TOKEN", value: "" },
+    ]);
   });
 });

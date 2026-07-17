@@ -14,6 +14,7 @@ import {
 } from "./scanner.js";
 import { findSessionLog, findTranscript } from "./session-observer.js";
 import {
+  collectCloakcodeEnv,
   formatDiagnostics,
   type DiagnosticsSnapshot,
   type ScannedHash,
@@ -586,10 +587,7 @@ export async function activate(
         "hooks",
         "cloakcode.json",
       ),
-      cloakcodeEnv: Object.entries(process.env)
-        .filter(([k]) => k.startsWith("CLOAKCODE_"))
-        .map(([key, value]) => ({ key, value: value ?? "" }))
-        .sort((a, b) => a.key.localeCompare(b.key)),
+      cloakcodeEnv: collectCloakcodeEnv(process.env),
     };
   };
 

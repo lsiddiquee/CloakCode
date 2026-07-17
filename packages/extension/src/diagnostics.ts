@@ -59,7 +59,8 @@ export interface DiagnosticsSnapshot {
   configuredPort: number;
   spoolDir: string;
   hookConfigPath: string;
-  // selected non-secret env (allow-list of CLOAKCODE_* only)
+  // selected non-secret env: CLOAKCODE_* only, with secret-bearing values
+  // (e.g. CLOAKCODE_GATEWAY_TOKEN) redacted — see collectCloakcodeEnv.
   cloakcodeEnv: { key: string; value: string }[];
 }
 
@@ -144,7 +145,7 @@ export function formatDiagnostics(s: DiagnosticsSnapshot): string {
   L.push(row("spool dir", s.spoolDir));
   L.push(row("hook config", s.hookConfigPath));
 
-  L.push("", "[env] (CLOAKCODE_* only — no secrets)");
+  L.push("", "[env] (CLOAKCODE_* only — secrets redacted)");
   if (s.cloakcodeEnv.length === 0) {
     L.push("  (none set)");
   } else {
@@ -152,4 +153,32 @@ export function formatDiagnostics(s: DiagnosticsSnapshot): string {
   }
 
   return L.join("\n");
+}
+
+/**
+ * `CLOAKCODE_*` env keys whose VALUE is a credential and must never be shown.
+ * Matches `CLOAKCODE_GATEWAY_TOKEN` today and any future *_TOKEN / *_SECRET /
+ * *_KEY / *_PASSWORD / *_CRED… by construction (fail-safe for new vars).
+ */
+const SECRET_ENV_RE = /TOKEN|SECRET|KEY|PASSWORD|CRED/i;
+
+/**
+ * Collect the `CLOAKCODE_*` environment for diagnostics, REDACTING the value of
+ * any secret-bearing key to `<redacted>` — the key's presence is shown (useful
+ * to confirm a token IS set), its value never is (no-log-secrets rule #5). Pure,
+ * so it's unit-testable without an extension host.
+ */
+export function collectCloakcodeEnv(
+  env: Record<string, string | undefined>,
+): { key: string; value: string }[] {
+  return Object.entries(env)
+    .filter(([k]) => k.startsWith("CLOAKCODE_"))
+    .map(([key, raw]) => {
+      const value = raw ?? "";
+      return {
+        key,
+        value: value !== "" && SECRET_ENV_RE.test(key) ? "<redacted>" : value,
+      };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key));
 }
