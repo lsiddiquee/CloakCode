@@ -39,7 +39,7 @@ docs/              Design & the full research record (read docs/README.md first)
 research/          Validated Python PoCs (session lister + blocker detector)
 packages/
   protocol/        SessionPart union + RPC schema (zod) — the contract
-  agent/           Pausable tool-calling + confirmation loop (pure TS)
+  agent/           (planned) pausable tool-calling + confirmation loop — stub until the actuator (M4)
   extension/       VS Code host: vscode.lm + transcript observer + localhost bridge
   web/             Phone-first React/Vite PWA client
 ```
