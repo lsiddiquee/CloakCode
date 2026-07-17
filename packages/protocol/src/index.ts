@@ -26,6 +26,9 @@ export const MAX_WS_PAYLOAD_BYTES = 4 * 1024 * 1024;
 // The ILogger-style logger port + traceId helper (pure; local-only output).
 export * from "./logger.js";
 
+// Token-bucket rate limiter for bounding operator ingress (docs/04, F2b).
+export * from "./rate-limit.js";
+
 /**
  * Liveness-derived session status. Per research (docs/02 §3.3) this comes from
  * file mtime + the blocker signature, never from the last event type.

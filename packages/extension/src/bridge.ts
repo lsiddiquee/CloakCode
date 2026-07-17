@@ -5,6 +5,9 @@ import {
   rpcRequestSchema,
   DEFAULT_PORT,
   MAX_WS_PAYLOAD_BYTES,
+  OPERATOR_MSG_BURST,
+  OPERATOR_MSG_RATE_PER_SEC,
+  RateLimiter,
   type Decision,
   type Logger,
   type QuestionAnswer,
@@ -216,10 +219,19 @@ export async function startBridge(
       spoolFollowers: new Map(),
     };
     connections.set(socket, conn);
+    // Per-connection rate limit: bound a flood of operator frames (F2b).
+    const limit = new RateLimiter(
+      OPERATOR_MSG_BURST,
+      OPERATOR_MSG_RATE_PER_SEC,
+    );
     socket.on("pong", () => {
       conn.alive = true;
     });
     socket.on("message", (raw) => {
+      if (!limit.take()) {
+        deps.logger?.debug("operator.rate_limited");
+        return;
+      }
       void handleMessage(socket, raw.toString(), deps, conn);
     });
     socket.on("close", () => cleanup(socket, conn));

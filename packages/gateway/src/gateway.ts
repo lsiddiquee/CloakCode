@@ -5,6 +5,9 @@ import {
   cloakcodeHelloSchema,
   connectionHelloSchema,
   MAX_WS_PAYLOAD_BYTES,
+  OPERATOR_MSG_BURST,
+  OPERATOR_MSG_RATE_PER_SEC,
+  RateLimiter,
   rpcRequestSchema,
   type CloakcodeHello,
   type GatewayInfo,
@@ -176,11 +179,19 @@ export async function startGateway(
       }
       // Operator path: ack an operator knock, else treat the first frame as RPC.
       logger.info("operator.connect");
-      socket.on(
-        "message",
-        (m) =>
-          void handleOperator(socket, registry, relay, m.toString(), logger),
+      // Per-connection rate limit: bound a flood of operator frames (F2b).
+      const opLimit = new RateLimiter(
+        OPERATOR_MSG_BURST,
+        OPERATOR_MSG_RATE_PER_SEC,
       );
+      const onOperatorFrame = (frame: string): void => {
+        if (!opLimit.take()) {
+          logger.debug("operator.rate_limited");
+          return;
+        }
+        void handleOperator(socket, registry, relay, frame, logger);
+      };
+      socket.on("message", (m) => onOperatorFrame(m.toString()));
       socket.on("close", () => {
         relay.dropOperator(socket);
         logger.info("operator.disconnect");
@@ -188,7 +199,7 @@ export async function startGateway(
       if (knock?.role === "operator") {
         send(socket, cloakcodeHello("gateway"));
       } else {
-        void handleOperator(socket, registry, relay, first, logger);
+        onOperatorFrame(first);
       }
     });
   });
