@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
 import type { SessionSummary } from "@cloakcode/protocol";
+import { OperatorAuth } from "@cloakcode/gateway";
 import { startBridge, type BridgeDeps } from "./bridge.js";
 import { parseSessionEvents } from "./session-observer.js";
 
@@ -894,6 +895,90 @@ describe("bridge teardown / re-establish (reconnect contract)", () => {
     } finally {
       await bridge2.close();
       await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("startBridge operator auth (F2a — TOTP)", () => {
+  // RFC 6238 seed "12345678901234567890" as base32; code "287082" valid at t=59s.
+  // Public test vector, not a real secret.
+  const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // gitleaks:allow
+  const operatorAuth = (): OperatorAuth =>
+    new OperatorAuth({ secret, now: () => 59_000 });
+
+  /** Open a persistent socket and exchange frames turn-by-turn. */
+  function chat(port: number): {
+    send: (payload: unknown) => void;
+    next: () => Promise<Record<string, unknown>>;
+    close: () => void;
+  } {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const queue: Record<string, unknown>[] = [];
+    const waiters: ((m: Record<string, unknown>) => void)[] = [];
+    ws.on("message", (d) => {
+      const m = JSON.parse(d.toString());
+      const w = waiters.shift();
+      if (w) w(m);
+      else queue.push(m);
+    });
+    const ready = new Promise<void>((r) => ws.on("open", () => r()));
+    return {
+      send: (payload) =>
+        void ready.then(() => ws.send(JSON.stringify(payload))),
+      next: () =>
+        new Promise((resolve) => {
+          const m = queue.shift();
+          if (m) resolve(m);
+          else waiters.push(resolve);
+        }),
+      close: () => ws.close(),
+    };
+  }
+
+  it("refuses a session op with needsAuth until the operator authenticates", async () => {
+    const bridge = await startBridge(deps(), {
+      port: 0,
+      operatorAuth: operatorAuth(),
+    });
+    try {
+      const c = chat(bridge.port);
+      c.send({ id: "1", op: "sessions.list" });
+      const res = await c.next();
+      expect(res).toMatchObject({ id: "1", ok: false, needsAuth: true });
+      c.close();
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("authenticates on a valid code, returns a token, then serves sessions.list", async () => {
+    const bridge = await startBridge(deps(), {
+      port: 0,
+      operatorAuth: operatorAuth(),
+    });
+    try {
+      const c = chat(bridge.port);
+      c.send({ id: "a", op: "auth", params: { code: "287082" } });
+      const ack = await c.next();
+      expect(ack).toMatchObject({ id: "a", ok: true, op: "auth" });
+      expect(typeof ack["token"]).toBe("string");
+
+      c.send({ id: "2", op: "sessions.list" });
+      const list = await c.next();
+      expect(list).toMatchObject({ id: "2", ok: true, op: "sessions.list" });
+      c.close();
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("serves normally when operator auth is disabled (loopback default)", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = await request(bridge.port, { id: "1", op: "sessions.list" });
+      expect(res).toMatchObject({ id: "1", ok: true, op: "sessions.list" });
+    } finally {
+      await bridge.close();
     }
   });
 });

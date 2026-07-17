@@ -137,10 +137,21 @@ CloakCode has two trust boundaries, authenticated **differently** — do not con
   gateway you run; **mTLS** is a post-MVP hardening (per-provider identity + revocation) and, because
   the token rides the hello frame rather than the transport, swapping to it doesn't churn the app
   protocol.
-- **Gateway ↔ operator (the human/phone).** A **separate**, user-facing auth — a PIN / OTP /
-  device-pairing ladder (docs/05 Q9). **Deferred**: the interim compensating control is the
-  **authenticated private tunnel** (its own sign-in) plus the loopback default; do not expose a wide
-  bind on an untrusted network until this lands.
+- **Gateway ↔ operator (the human/phone).** A **separate**, user-facing auth: **operator TOTP**
+  (F2a). When enabled, an operator connection starts **unauthenticated** — every session RPC is
+  refused with `needsAuth` until the operator sends an `auth` op carrying a 6-digit TOTP `code` (or
+  resumes with a previously-issued session `token`). A valid code issues a signed bearer **session
+  token** (HMAC over the secret; **12h** default, **30d** with "remember this device") the client
+  stores to resume without re-entering a code. Defense-in-depth beyond the tunnel's own sign-in: a
+  **replay guard** (each 30s TOTP step is accepted at most once) and per-connection **lockout**
+  (close after 5 bad codes). The gate is shared (`OperatorAuth`/`OperatorGate` in
+  `@cloakcode/gateway`) and identical for the embedded bridge and the standalone hub; unset ⇒ open
+  (the loopback-only default). **Enabled by exposure** (wide bind / live tunnel), off for pure
+  loopback. **Secret provisioning is per-host** (being wired): the **embedded** bridge keeps the
+  base32 secret in VS Code **SecretStorage** (OS keychain), provisioned via a QR webview + confirm;
+  the **hosted** gateway keeps it in `CLOAKCODE_MFA_SECRET_FILE` (`~/.cloakcode/`, `0600`; a mounted
+  volume in Docker), toggled by `CLOAKCODE_MFA=off|required`, printed once as a console QR. The
+  secret is **never** sent to the operator, embedded in a link/QR beyond first-run pairing, or logged.
 
 ## Threat-model quick list
 
@@ -148,7 +159,7 @@ CloakCode has two trust boundaries, authenticated **differently** — do not con
 | --------------------------- | ------------------------------------------------------------------------------------------ |
 | Code exfiltration           | No sync path; no new code→model path (mirror/relay, no auto-harvest); localhost bridge + your tunnel. |
 | Reflected prompt injection  | Provenance tagging; distinguish staged vs human input; native tool approval gates destructive calls. |
-| Unauthorized remote control | Provider↔gateway shared-secret (in the hello, timing-safe); operator via the private tunnel (app-layer PIN deferred, Q9); localhost-only bind. |
+| Unauthorized remote control | Provider↔gateway shared-secret (in the hello, timing-safe); operator **TOTP** (F2a — `auth` op, session token 12h/30d, replay guard + lockout) enabled by exposure, over the private tunnel; localhost-only bind. |
 | Rogue local gateway (discovery) | Discovery off by default; local-only candidates; no network/tunnel scan; hub auth at M4. |
 | Sensitive data in prompts   | Secret/entropy scan blocks before send; session action log.                                |
 | Tool output tampering       | Treat tool/log content as untrusted input; validate at the boundary (zod).                 |

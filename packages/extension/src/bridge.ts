@@ -19,6 +19,8 @@ import {
   contentTypeFor,
   listenWithFallback,
   resolveStaticPath,
+  OperatorGate,
+  type OperatorAuth,
 } from "@cloakcode/gateway";
 
 /**
@@ -142,6 +144,13 @@ export interface BridgeOptions {
    * client never sends a close frame (crash, sleep, network/tunnel drop).
    */
   heartbeatMs?: number;
+  /**
+   * Operator app-layer auth (docs/04, F2a). When set, an operator must present a
+   * TOTP code (or resume with a session token) via the `auth` op before any
+   * session RPC is served. Omit to disable — the loopback-only default; the
+   * extension enables it whenever the window is exposed (wide bind / live tunnel).
+   */
+  operatorAuth?: OperatorAuth;
 }
 
 export interface Bridge {
@@ -155,6 +164,8 @@ export interface Connection {
   followers: Map<string, SessionFollower>;
   /** Live-pending overlay follower, paired 1:1 with `followers`. */
   spoolFollowers: Map<string, SpoolFollower>;
+  /** Per-connection operator auth gate (F2a); open when auth is disabled. */
+  gate: OperatorGate;
 }
 
 /** Stop + clear a connection's followers (subscription teardown). */
@@ -220,6 +231,7 @@ export async function startBridge(
       alive: true,
       followers: new Map(),
       spoolFollowers: new Map(),
+      gate: new OperatorGate(opts.operatorAuth),
     };
     connections.set(socket, conn);
     // Per-connection rate limit: bound a flood of operator frames (F2b).
@@ -324,6 +336,19 @@ export async function handleMessage(
     op: request.op,
     ...(request.traceId !== undefined ? { traceId: request.traceId } : {}),
   });
+
+  // Operator app-layer auth gate (F2a): until this connection authenticates, the
+  // `auth` op is processed here and every other op is refused with `needsAuth`.
+  // No-op (always "proceed") when operatorAuth is unset (loopback default).
+  const decision = conn.gate.check(request);
+  if (decision.kind !== "proceed") {
+    socket.send(JSON.stringify(decision.response));
+    if (decision.kind === "close") {
+      deps.logger?.warn("operator.auth_lockout");
+      socket.close();
+    }
+    return;
+  }
 
   // Gate every actuator on ownership: reject an action aimed at a session this
   // window does not own (defense-in-depth beyond the UI hiding the controls).

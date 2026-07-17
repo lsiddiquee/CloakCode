@@ -21,6 +21,7 @@ import { contentTypeFor, resolveStaticPath } from "./static-files.js";
 import { listenWithFallback } from "./listen.js";
 import { silentLogger } from "./console-logger.js";
 import { verifyGatewayToken } from "./auth.js";
+import { OperatorGate, type OperatorAuth } from "./operator-auth.js";
 
 export interface GatewayOptions {
   /** Bind address. Defaults to `127.0.0.1` (front it with a tunnel for remote). */
@@ -50,6 +51,13 @@ export interface GatewayOptions {
    * mTLS is a post-MVP hardening (docs/04).
    */
   token?: string;
+  /**
+   * Operator app-layer auth (docs/04, F2a). When set, every **operator** (phone)
+   * connection must authenticate with a TOTP code (or a resumed session token)
+   * via the `auth` op before any session RPC is served. Omit to disable — the
+   * loopback-only default; slice-3 wiring enables it whenever the hub is exposed.
+   */
+  operatorAuth?: OperatorAuth;
 }
 
 export interface Gateway {
@@ -188,12 +196,14 @@ export async function startGateway(
         OPERATOR_MSG_BURST,
         OPERATOR_MSG_RATE_PER_SEC,
       );
+      // Per-connection auth gate (F2a). Open when operatorAuth is unset.
+      const gate = new OperatorGate(opts.operatorAuth);
       const onOperatorFrame = (frame: string): void => {
         if (!opLimit.take()) {
           logger.debug("operator.rate_limited");
           return;
         }
-        void handleOperator(socket, registry, relay, frame, logger);
+        void handleOperator(socket, registry, relay, frame, logger, gate);
       };
       socket.on("message", (m) => onOperatorFrame(m.toString()));
       socket.on("close", () => {
@@ -281,6 +291,7 @@ async function handleOperator(
   relay: Relay,
   text: string,
   logger: Logger,
+  gate: OperatorGate,
 ): Promise<void> {
   let json: unknown;
   try {
@@ -303,6 +314,18 @@ async function handleOperator(
       });
     }
     logger.debug("rpc.invalid");
+    return;
+  }
+  // Operator app-layer auth gate (F2a): until this connection authenticates, the
+  // `auth` op is processed here and every other op is refused with `needsAuth`.
+  // No-op (always "proceed") when operatorAuth is unset.
+  const decision = gate.check(req.data);
+  if (decision.kind !== "proceed") {
+    send(socket, decision.response);
+    if (decision.kind === "close") {
+      logger.warn("operator.auth_lockout");
+      socket.close();
+    }
     return;
   }
   const { id, op } = req.data;

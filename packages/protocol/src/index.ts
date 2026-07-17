@@ -296,6 +296,19 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       text: z.string().min(1).max(MAX_RPC_TEXT_LEN).optional(),
     }),
   }),
+  z.object({
+    id: z.string(),
+    traceId: z.string().optional(),
+    op: z.literal("auth"),
+    params: z.object({
+      // Operator app-layer auth (docs/04, F2a): a 6-digit TOTP `code` to log in,
+      // OR a previously-issued session `token` to resume — at least one. On a
+      // code login `remember` extends the returned token's TTL (this device).
+      code: z.string().max(16).optional(),
+      token: z.string().max(512).optional(),
+      remember: z.boolean().optional(),
+    }),
+  }),
 ]);
 export type RpcRequest = z.infer<typeof rpcRequestSchema>;
 
@@ -304,8 +317,27 @@ export const rpcErrorSchema = z.object({
   id: z.string(),
   ok: z.literal(false),
   error: z.object({ message: z.string() }),
+  // Set when the ingress requires operator auth and this connection isn't
+  // authenticated yet — the client should prompt for a TOTP code / resume with a
+  // stored token via the `auth` op (docs/04, F2a).
+  needsAuth: z.boolean().optional(),
 });
 export type RpcError = z.infer<typeof rpcErrorSchema>;
+
+/**
+ * Ack for `auth` — the operator authenticated (a TOTP code or a valid session
+ * token). A **code** login returns a fresh short-lived bearer `token` (+
+ * `expiresAt`, ms epoch) the client stores to resume without re-entering a code;
+ * a token-only resume returns no new token. docs/04, F2a.
+ */
+export const sessionAuthResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("auth"),
+  token: z.string().optional(),
+  expiresAt: z.number().optional(),
+});
+export type SessionAuthResponse = z.infer<typeof sessionAuthResponseSchema>;
 
 /** Successful `sessions.list` response. */
 export const sessionsListResponseSchema = z.object({

@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { WebSocket } from "ws";
+import { Secret } from "otpauth";
 import { startGateway, type Gateway } from "./gateway.js";
+import { OperatorAuth } from "./operator-auth.js";
 import {
   createLogger,
   type LogRecord,
@@ -351,5 +353,69 @@ describe("startGateway provider auth (token in the provider hello)", () => {
     );
     await waitFor(() => gw!.registry.all().length === 1);
     ws.close();
+  });
+});
+
+describe("startGateway operator auth (F2a — TOTP)", () => {
+  // RFC 6238 seed; code "287082" is valid at t=59s.
+  const secret = Secret.fromLatin1("12345678901234567890").base32;
+  const operatorAuth = (): OperatorAuth =>
+    new OperatorAuth({ secret, now: () => 59_000 });
+
+  it("refuses a session op with needsAuth until the operator authenticates", async () => {
+    gw = await startGateway({ port: 0, operatorAuth: operatorAuth() });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    operator.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
+    const res = await nextMessage(operator);
+    expect(res["ok"]).toBe(false);
+    expect(res["needsAuth"]).toBe(true);
+    operator.close();
+  });
+
+  it("authenticates on a valid code, returns a token, then serves sessions.list", async () => {
+    gw = await startGateway({ port: 0, operatorAuth: operatorAuth() });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+
+    operator.send(
+      JSON.stringify({ id: "a", op: "auth", params: { code: "287082" } }),
+    );
+    const ack = await nextMessage(operator);
+    expect(ack).toMatchObject({ id: "a", ok: true, op: "auth" });
+    expect(typeof ack["token"]).toBe("string");
+
+    operator.send(JSON.stringify({ id: "2", op: "sessions.list", params: {} }));
+    const list = await nextMessage(operator);
+    expect(list["ok"]).toBe(true);
+    expect(list["op"]).toBe("sessions.list");
+    operator.close();
+  });
+
+  it("resumes with a previously-issued session token (no code)", async () => {
+    const auth = operatorAuth();
+    const { token } = auth.submitCode("287082");
+    gw = await startGateway({ port: 0, operatorAuth: auth });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+
+    operator.send(JSON.stringify({ id: "r", op: "auth", params: { token } }));
+    const ack = await nextMessage(operator);
+    expect(ack).toMatchObject({ id: "r", ok: true, op: "auth" });
+
+    operator.send(JSON.stringify({ id: "2", op: "sessions.list", params: {} }));
+    expect((await nextMessage(operator))["ok"]).toBe(true);
+    operator.close();
+  });
+
+  it("closes the connection after too many bad codes (lockout)", async () => {
+    gw = await startGateway({ port: 0, operatorAuth: operatorAuth() });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    const closed = new Promise<void>((r) => operator.once("close", () => r()));
+    for (let i = 0; i < 5; i++) {
+      operator.send(
+        JSON.stringify({ id: `${i}`, op: "auth", params: { code: "000000" } }),
+      );
+      await nextMessage(operator).catch(() => undefined);
+    }
+    await closed;
+    expect(operator.readyState).toBe(WebSocket.CLOSED);
   });
 });

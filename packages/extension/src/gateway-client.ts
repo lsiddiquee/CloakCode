@@ -4,6 +4,7 @@ import {
   type GatewayInfo,
   type ProviderInfo,
 } from "@cloakcode/protocol";
+import { OperatorGate } from "@cloakcode/gateway";
 import {
   handleMessage,
   stopFollowers,
@@ -72,6 +73,9 @@ export function connectGateway(
         alive: true,
         followers: new Map(),
         spoolFollowers: new Map(),
+        // The gateway authenticates the operator before relaying; the provider
+        // link is machine-authed by the provider token, so its gate is open.
+        gate: new OperatorGate(undefined),
       };
       socket = s;
       conn = c;
