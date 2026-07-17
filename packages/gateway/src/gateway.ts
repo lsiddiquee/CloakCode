@@ -20,7 +20,7 @@ import { Relay } from "./relay.js";
 import { contentTypeFor, resolveStaticPath } from "./static-files.js";
 import { listenWithFallback } from "./listen.js";
 import { silentLogger } from "./console-logger.js";
-import { verifyGatewayToken } from "./auth.js";
+import { verifyProviderCredential } from "./auth.js";
 import { OperatorGate, type OperatorAuth } from "./operator-auth.js";
 
 export interface GatewayOptions {
@@ -139,11 +139,22 @@ export async function startGateway(
       socket.close(); // knocked as a provider but didn't complete the hello
       return;
     }
-    // Provider↔gateway auth: the extension presents the shared secret in its
-    // hello (machine-to-machine, never operator-facing). Rejected before it can
-    // register or serve any RPC. No-op when no token is configured (loopback dev).
-    if (!verifyGatewayToken(opts.token, hello.token)) {
+    // Provider↔gateway auth: the extension presents a credential in its hello —
+    // a TOTP-issued session token (the default, from a code entered once in VS
+    // Code) and/or the static shared secret (the demoted escape hatch). Rejected
+    // before it can register. When neither is configured it's open (loopback dev).
+    // On reject, signal `provider.auth_required` so the extension prompts + retries
+    // instead of reconnect-looping (docs/04, F2a slice 2).
+    if (
+      !verifyProviderCredential(hello.token, {
+        staticToken: opts.token,
+        verifyToken: opts.operatorAuth
+          ? (t) => opts.operatorAuth!.verifyToken(t)
+          : undefined,
+      })
+    ) {
       logger.warn("provider.auth_reject");
+      send(socket, { type: "provider.auth_required" });
       socket.close();
       return;
     }

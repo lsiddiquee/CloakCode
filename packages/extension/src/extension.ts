@@ -52,6 +52,11 @@ import {
   markOperatorConfirmed,
   resetOperatorSecret,
 } from "./operator-mfa.js";
+import {
+  exchangeCodeForToken,
+  resolveProviderCredential,
+  storeProviderToken,
+} from "./provider-auth.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -343,6 +348,21 @@ export async function activate(
     return operatorAuth;
   };
 
+  // Offer gateway sign-in when the hub refuses our provider credential (F2a slice
+  // 2): a one-click path to enter a code once and exchange it for a stored token.
+  const promptGatewaySignIn = (gatewayUrl: string): void => {
+    void vscode.window
+      .showWarningMessage(
+        `CloakCode: the gateway (${gatewayUrl}) requires sign-in — enter a code ` +
+          `from your authenticator to connect this window as a provider.`,
+        "Sign In",
+      )
+      .then((pick) => {
+        if (pick === "Sign In")
+          void vscode.commands.executeCommand("cloakcode.signInGateway");
+      });
+  };
+
   // Always-visible one-click entry to the phone link (QR) — the low-friction way
   // in, instead of hunting the command palette. Its tooltip reflects the live
   // connection; establishConnection() refreshes it on every (re)connect.
@@ -386,6 +406,14 @@ export async function activate(
     if (gatewayUrl) {
       // Client mode (docs/03 "Explicit gateway"): connect OUT as a provider; the
       // gateway serves the PWA + owns the phone link. Unreachable → embedded.
+      // Present the resolved credential: a stored TOTP-issued token (from a code
+      // entered once, `cloakcode.signInGateway`) if we have one, else the static
+      // token. If the gateway refuses, prompt the user to sign in (docs/04, F2a).
+      const credential = await resolveProviderCredential(
+        context.secrets,
+        gatewayUrl,
+        gatewayToken,
+      );
       try {
         gatewayClient = await connectGateway(
           gatewayUrl,
@@ -393,7 +421,8 @@ export async function activate(
           deps,
           (m) => log.debug("gateway.client", { msg: m }),
           undefined,
-          gatewayToken,
+          credential,
+          () => promptGatewaySignIn(gatewayUrl),
         );
       } catch (err) {
         log.warn("gateway.unreachable", {
@@ -674,6 +703,47 @@ export async function activate(
       void vscode.window.showInformationMessage(
         "CloakCode operator TOTP reset — open the app to re-pair.",
       );
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.signInGateway", async () => {
+      // Provider sign-in (F2a slice 2): exchange a TOTP code for a provider token
+      // stored per gateway, then reconnect so the hello presents it. Gateway mode
+      // only — the embedded bridge authenticates the operator, not a provider.
+      const cfgNow = vscode.workspace.getConfiguration("cloakcode");
+      const plan = resolveConnectionPlan({
+        gatewayUrl: cfgNow.get<string>("gatewayUrl"),
+        envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
+      });
+      if (plan.kind !== "gateway") {
+        void vscode.window.showInformationMessage(
+          "CloakCode: set cloakcode.gatewayUrl first — sign-in applies only to gateway mode.",
+        );
+        return;
+      }
+      const code = await vscode.window.showInputBox({
+        title: "CloakCode: Gateway sign-in",
+        prompt: "Enter the 6-digit code from your authenticator app",
+        ignoreFocusOut: true,
+        validateInput: (v) =>
+          /^\d{6,8}$/.test(v.trim()) ? undefined : "Enter the 6-digit code",
+      });
+      if (!code) return;
+      try {
+        const token = await exchangeCodeForToken(plan.url, code.trim(), true);
+        await storeProviderToken(context.secrets, plan.url, token);
+        await reconnect("gateway-signin");
+        void vscode.window.showInformationMessage(
+          "CloakCode: signed in to the gateway.",
+        );
+      } catch (e) {
+        void vscode.window.showErrorMessage(
+          `CloakCode: gateway sign-in failed — ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
     }),
   );
 

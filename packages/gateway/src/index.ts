@@ -28,7 +28,7 @@ export {
   parseLogLevel,
 } from "./console-logger.js";
 export { fileLogSink } from "./file-logger.js";
-export { verifyGatewayToken } from "./auth.js";
+export { verifyGatewayToken, verifyProviderCredential } from "./auth.js";
 export {
   generateTotpSecret,
   otpauthUri,

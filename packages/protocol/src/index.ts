@@ -545,3 +545,16 @@ export const gatewayInfoSchema = z.object({
   phoneUrl: z.string().url().optional(),
 });
 export type GatewayInfo = z.infer<typeof gatewayInfoSchema>;
+
+/**
+ * Gateway → provider control frame sent (just before the socket is closed) when
+ * a provider's hello credential is missing or invalid and the gateway requires
+ * provider auth (docs/04, F2a slice 2). It lets the extension distinguish "wrong
+ * / no credential" from "unreachable", so it can prompt for a TOTP code once,
+ * exchange it for a provider token, and reconnect — instead of silently
+ * reconnect-looping. Carries no secret.
+ */
+export const providerAuthRequiredSchema = z.object({
+  type: z.literal("provider.auth_required"),
+});
+export type ProviderAuthRequired = z.infer<typeof providerAuthRequiredSchema>;

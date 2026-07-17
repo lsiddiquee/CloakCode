@@ -463,3 +463,56 @@ describe("startGateway operator enrolment (F2a — unconfirmed)", () => {
     operator.close();
   });
 });
+
+describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
+  const secret = Secret.fromLatin1("12345678901234567890").base32;
+
+  async function knockProvider(url: string): Promise<WebSocket> {
+    const ws = await open(url);
+    ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
+    await nextMessage(ws); // the gateway's answering knock
+    return ws;
+  }
+
+  it("registers a provider presenting a valid TOTP-issued session token", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { token } = operatorAuth.submitCode("287082", true);
+    gw = await startGateway({ port: 0, operatorAuth });
+    const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "p1" },
+        token,
+      }),
+    );
+    await waitFor(() => gw!.registry.all().length === 1);
+    ws.close();
+  });
+
+  it("rejects a bad credential with provider.auth_required, then closes", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    gw = await startGateway({ port: 0, operatorAuth });
+    const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "p2" },
+        token: "bogus",
+      }),
+    );
+    expect(await nextMessage(ws)).toEqual({ type: "provider.auth_required" });
+    await new Promise<void>((r) => ws.once("close", () => r()));
+    expect(gw!.registry.all().length).toBe(0);
+  });
+});

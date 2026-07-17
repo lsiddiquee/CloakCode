@@ -126,17 +126,28 @@ mTLS) before a provider hands over any session data.
 
 ## Authentication (two separate boundaries)
 
-CloakCode has two trust boundaries, authenticated **differently** — do not conflate them:
+CloakCode has two trust boundaries. They stay **separate blast radii**, but the standalone gateway
+now authenticates **both** against the **same operator TOTP secret** (F2a slice 2) — the operator
+enters a code on their phone, a provider enters one once in VS Code; neither ever holds the secret,
+only a derived token.
 
-- **Provider ↔ gateway (machine-to-machine).** An extension registers with your standalone
-  gateway by presenting a **shared secret** in its `provider` hello (`CLOAKCODE_GATEWAY_TOKEN` on
-  the gateway; `cloakcode.gatewayToken` / the same env on the extension). The gateway verifies it
-  **timing-safe** (`verifyGatewayToken`) and closes the connection on mismatch, before the provider
-  can register or serve any RPC. It is **never** exchanged with, embedded in a link/QR for, or shown
-  to the operator. Off when no token is set (loopback dev). A shared token is right-sized for a
-  gateway you run; **mTLS** is a post-MVP hardening (per-provider identity + revocation) and, because
-  the token rides the hello frame rather than the transport, swapping to it doesn't churn the app
-  protocol.
+- **Provider ↔ gateway (extension → hub).** An extension registers by presenting a credential in its
+  `provider` hello, verified by `verifyProviderCredential` before it can register or serve any RPC.
+  Two accepted forms:
+  - **TOTP→token (default, interactive).** A human runs **CloakCode: Sign in to Gateway**, enters a
+    6-digit code once; the extension exchanges it (via the gateway's operator `auth` handshake) for a
+    long-lived (30d) **session token**, stores it in SecretStorage (per gateway), and presents it in
+    the hello. The provider **never holds the TOTP secret** — only a token the operator secret
+    issued — so the secret's blast radius stays gateway+phone. On refusal the gateway sends
+    `provider.auth_required` so the extension prompts + retries instead of reconnect-looping.
+  - **Static shared secret (demoted escape hatch).** `CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`
+    still works, verified **timing-safe** (`verifyGatewayToken`) — for headless / automation /
+    bootstrap setups where interactive sign-in isn't practical.
+  When **neither** is configured the provider link is open (loopback dev). The **embedded** bridge
+  has no provider link at all — the operator TOTP is its whole story. The credential is **never**
+  exchanged with, embedded in a link/QR for, or shown to the operator. **mTLS** (per-provider
+  identity and revocation) remains a post-MVP hardening; because credentials ride the hello frame
+  rather than the transport, swapping to it doesn't churn the app protocol.
 - **Gateway ↔ operator (the human/phone).** A **separate**, user-facing auth: **operator TOTP**
   (F2a). When enabled, an operator connection starts **unauthenticated** — every session RPC is
   refused with `needsAuth` until the operator sends an `auth` op carrying a 6-digit TOTP `code` (or

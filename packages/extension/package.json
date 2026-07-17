@@ -89,6 +89,11 @@
         "command": "cloakcode.resetMfa",
         "title": "Reset Operator Access (TOTP)",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.signInGateway",
+        "title": "Sign in to Gateway",
+        "category": "CloakCode"
       }
     ],
     "configuration": {
@@ -149,7 +154,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "Shared secret for the **provider↔gateway** link. When your standalone gateway runs with `CLOAKCODE_GATEWAY_TOKEN` set, this extension must present the **same** value to register as a provider. Machine-to-machine only — it is **never** shown to or used by the phone (operator auth is separate). Empty (default) = no provider auth (loopback dev). The `CLOAKCODE_GATEWAY_TOKEN` env var overrides this setting. A shared token is right-sized for a gateway you run; mTLS is a post-MVP option (docs/04)."
+          "markdownDescription": "**Optional** shared secret for the **provider↔gateway** link — the demoted escape hatch for headless/automation setups. The default interactive path is **CloakCode: Sign in to Gateway** (enter a TOTP code once; the extension stores the issued token). Set this only when your standalone gateway runs with `CLOAKCODE_GATEWAY_TOKEN` and you'd rather present a static secret than sign in. Machine-to-machine — it is **never** shown to or used by the phone. Empty (default) = no static token. The `CLOAKCODE_GATEWAY_TOKEN` env var overrides this setting. Inert in embedded (no gateway link)."
         },
         "cloakcode.mfa": {
           "type": "string",

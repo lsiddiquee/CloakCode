@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import {
   gatewayInfoSchema,
+  providerAuthRequiredSchema,
   type GatewayInfo,
   type ProviderInfo,
 } from "@cloakcode/protocol";
@@ -39,6 +40,7 @@ export function connectGateway(
   log: (line: string) => void,
   firstConnectTimeoutMs = 4000,
   token?: string,
+  onAuthRequired?: () => void,
 ): Promise<GatewayClient> {
   return new Promise((resolve, reject) => {
     let closed = false;
@@ -120,6 +122,21 @@ export function connectGateway(
         // through the RPC handler. The FIRST such frame also confirms the gateway
         // accepted our hello and registered us — only now is the connection
         // truly established.
+        if (tryProviderAuthRequired(text)) {
+          // The gateway requires provider auth and our credential was missing /
+          // invalid. Surface it so the user can sign in (enter a code once), then
+          // reject so the caller falls back to embedded until they do.
+          log(`gateway: ${url} requires provider sign-in`);
+          onAuthRequired?.();
+          if (!settled) {
+            settled = true;
+            clearTimeout(firstTimer);
+            reject(new Error(`gateway ${url} requires provider sign-in`));
+          }
+          closed = true; // don't reconnect-loop with the same bad credential
+          s.close();
+          return;
+        }
         const info = tryGatewayInfo(text);
         if (info) {
           phoneUrl = info.phoneUrl;
@@ -174,4 +191,15 @@ function tryGatewayInfo(text: string): GatewayInfo | undefined {
   }
   const parsed = gatewayInfoSchema.safeParse(json);
   return parsed.success ? parsed.data : undefined;
+}
+
+/** True when a frame is the gateway's `provider.auth_required` control message. */
+function tryProviderAuthRequired(text: string): boolean {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  return providerAuthRequiredSchema.safeParse(json).success;
 }
