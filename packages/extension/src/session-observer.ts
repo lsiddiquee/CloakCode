@@ -221,7 +221,13 @@ interface RawSpan {
   type?: string;
   name?: string;
   spanId?: string;
+  dur?: number;
   attrs?: Record<string, unknown>;
+}
+
+/** A finite number, or undefined for anything else (missing/null/string). */
+function numAttr(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
 /** Parse a JSON-encoded attribute string, tolerant of a plain value. */
@@ -313,6 +319,7 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
   };
   let userIdx = 0;
   let msgIdx = 0;
+  let usageIdx = 0;
 
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
@@ -367,6 +374,29 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
             status: attrs["error"] ? "error" : "done",
           });
         }
+        break;
+      }
+      case "llm_request": {
+        // Per-request telemetry (docs/02 §4.14): a `usage` metadata part the
+        // client aggregates into a session total. Skip a span with no model.
+        const model = String(attrs["model"] ?? "").trim();
+        if (!model) break;
+        const ttft = numAttr(attrs["ttft"]);
+        const dur = numAttr(raw.dur);
+        const nanoAiu = numAttr(attrs["copilotUsageNanoAiu"]);
+        const credits = numAttr(attrs["copilotCredits"]);
+        append({
+          kind: "usage",
+          id: `usage-${usageIdx++}`,
+          model,
+          inputTokens: numAttr(attrs["inputTokens"]) ?? 0,
+          outputTokens: numAttr(attrs["outputTokens"]) ?? 0,
+          cachedTokens: numAttr(attrs["cachedTokens"]) ?? 0,
+          ...(ttft !== undefined ? { ttftMs: ttft } : {}),
+          ...(dur !== undefined ? { durationMs: dur } : {}),
+          ...(nanoAiu !== undefined ? { nanoAiu } : {}),
+          ...(credits !== undefined ? { credits } : {}),
+        });
         break;
       }
       default:

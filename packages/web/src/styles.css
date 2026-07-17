@@ -804,3 +804,27 @@ body {
 .hint.error {
   color: #f85149;
 }
+
+/* Session telemetry bar */
+.usage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--muted, #8b949e);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.usage-bar .usage-model {
+  color: var(--text);
+  font-weight: 600;
+}
+.usage-bar .usage-partial {
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  border-radius: 6px;
+  padding: 0 6px;
+  cursor: help;
+}

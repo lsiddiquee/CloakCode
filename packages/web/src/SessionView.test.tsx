@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   status: "open" as string,
   pending: [] as PendingBlocker[],
   emitTurn: (_inTurn: boolean) => {},
+  emitEvent: (_e: unknown) => {},
   respond: vi.fn(async (_params: unknown) => {}),
   steer: vi.fn(async (_params: unknown) => {}),
   stop: vi.fn(async (_params: unknown) => {}),
@@ -30,6 +31,7 @@ vi.mock("./bridge", () => ({
     onStatus(h.status);
     onPending(h.pending);
     h.emitTurn = onTurn;
+    h.emitEvent = _onEvent as (e: unknown) => void;
     return () => {};
   },
   respondSession: h.respond,
@@ -43,6 +45,7 @@ beforeEach(() => {
   h.status = "open";
   h.pending = [];
   h.emitTurn = () => {};
+  h.emitEvent = () => {};
   h.respond.mockClear();
   h.steer.mockClear();
   h.stop.mockClear();
@@ -388,5 +391,35 @@ describe("PendingCard answer submit", () => {
       sessionId: "sess-1",
       toolCallId: "tc-q__vscode-2",
     });
+  });
+
+  it("renders the telemetry bar from usage events, with a partial note when stitched", async () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    act(() => {
+      h.emitEvent({
+        type: "append",
+        seq: 0,
+        part: { kind: "markdown", id: "tx-msg-0", text: "old history" },
+      });
+      h.emitEvent({
+        type: "append",
+        seq: 1,
+        part: {
+          kind: "usage",
+          id: "dl-usage-0",
+          model: "claude-opus-4.8",
+          inputTokens: 1000,
+          outputTokens: 100,
+          cachedTokens: 900,
+          nanoAiu: 5_000_000_000,
+        },
+      });
+    });
+    // Events flush on the next animation frame — wait for the bar to render.
+    await screen.findByText("partial");
+    const bar = document.querySelector(".usage-bar");
+    expect(bar?.textContent).toContain("1.0K in");
+    expect(bar?.textContent).toContain("5.00 AIU");
+    expect(bar?.textContent).toContain("claude-opus-4.8");
   });
 });

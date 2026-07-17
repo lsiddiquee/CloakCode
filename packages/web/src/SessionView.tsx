@@ -25,6 +25,12 @@ import {
 } from "./format";
 import { Markdown } from "./Markdown";
 import { nextScrollAction, readScroll, writeScroll } from "./scroll";
+import {
+  compactTokens,
+  formatAiu,
+  summarizeUsage,
+  type UsageSummary,
+} from "./telemetry";
 
 interface ViewState {
   parts: SessionPart[];
@@ -227,6 +233,9 @@ export function SessionView({
   // gated in the UI; a receiving-side guard lands with the gateway (docs/03).
   const readOnly = !session.owned;
 
+  // Session telemetry (docs/02 §4.14): aggregate the debug-log `usage` parts.
+  const usage = useMemo(() => summarizeUsage(state.parts), [state.parts]);
+
   return (
     <div className="app">
       <header className="appbar">
@@ -260,6 +269,8 @@ export function SessionView({
               : "Connecting…"}
         </div>
       )}
+
+      {usage && <UsageBar usage={usage} />}
 
       <main
         className="content transcript"
@@ -300,14 +311,54 @@ export function SessionView({
   );
 }
 
+/**
+ * Compact session-telemetry bar (docs/02 §4.14): total tokens, AI Units, request
+ * count, and the model(s). Shows a "partial" note when the stream carries
+ * transcript-stitched history whose turns predate the debug-log's telemetry.
+ */
+function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
+  return (
+    <div className="usage-bar">
+      <span title="input tokens">{compactTokens(usage.inputTokens)} in</span>
+      <span title="output tokens">{compactTokens(usage.outputTokens)} out</span>
+      <span title="cached input tokens">
+        {compactTokens(usage.cachedTokens)} cached
+      </span>
+      {usage.aiu !== undefined && (
+        <span title="AI Units (copilotUsageNanoAiu ÷ 1e9)">
+          {formatAiu(usage.aiu)} AIU
+        </span>
+      )}
+      {usage.credits !== undefined && (
+        <span title="Copilot credits">{usage.credits} cr</span>
+      )}
+      <span title="llm_request spans">{usage.requests} req</span>
+      <span className="usage-model" title={usage.models.join(", ")}>
+        {usage.models[0]}
+        {usage.models.length > 1 ? ` +${usage.models.length - 1}` : ""}
+      </span>
+      {usage.partial && (
+        <span
+          className="usage-partial"
+          title="Earlier history predates this session's telemetry log, so these totals cover the recent turns only."
+        >
+          partial
+        </span>
+      )}
+    </div>
+  );
+}
+
 const Part = memo(function Part({
   part,
   resolved,
 }: {
   part: SessionPart;
   resolved: boolean;
-}): JSX.Element {
+}): JSX.Element | null {
   switch (part.kind) {
+    case "usage":
+      return null; // metadata — aggregated into the UsageBar, not rendered inline
     case "userMessage":
       return (
         <>

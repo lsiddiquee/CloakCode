@@ -429,7 +429,15 @@ describe("parseDebugLogEvents", () => {
       {
         type: "llm_request",
         name: "chat:claude-opus-4.8",
-        attrs: { model: "claude-opus-4.8", inputTokens: "100" },
+        dur: 4903,
+        attrs: {
+          model: "claude-opus-4.8",
+          inputTokens: 100,
+          outputTokens: 42,
+          cachedTokens: 80,
+          ttft: 3266,
+          copilotUsageNanoAiu: 18901475000,
+        },
       },
       {
         type: "tool_call",
@@ -467,12 +475,25 @@ describe("parseDebugLogEvents", () => {
       },
     ]);
     const events = parseDebugLogEvents(content);
-    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5]);
     expect(events[0]).toMatchObject({
       type: "append",
       part: { kind: "userMessage", text: "Refactor auth" },
     });
     expect(events[1]).toMatchObject({
+      type: "append",
+      part: {
+        kind: "usage",
+        model: "claude-opus-4.8",
+        inputTokens: 100,
+        outputTokens: 42,
+        cachedTokens: 80,
+        ttftMs: 3266,
+        durationMs: 4903,
+        nanoAiu: 18901475000,
+      },
+    });
+    expect(events[2]).toMatchObject({
       type: "append",
       part: {
         kind: "toolCall",
@@ -481,15 +502,15 @@ describe("parseDebugLogEvents", () => {
         input: { p: "x" },
       },
     });
-    expect(events[2]).toMatchObject({
+    expect(events[3]).toMatchObject({
       type: "append",
       part: { kind: "toolCall", name: "run_in_terminal", status: "error" },
     });
-    expect(events[3]).toMatchObject({
+    expect(events[4]).toMatchObject({
       type: "append",
       part: { kind: "thinking", text: "planning" },
     });
-    expect(events[4]).toMatchObject({
+    expect(events[5]).toMatchObject({
       type: "append",
       part: { kind: "markdown", text: "Doing it now." },
     });

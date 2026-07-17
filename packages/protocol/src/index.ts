@@ -139,6 +139,25 @@ export const sessionPartSchema = z.discriminatedUnion("kind", [
     input: z.unknown(),
     status: toolStatusSchema,
   }),
+  z.object({
+    // Per-`llm_request` telemetry from the debug-log (docs/02 §4.14): model +
+    // token counts + timing + billing. A **metadata** part — the client
+    // aggregates these into a session total (not rendered inline). Only the
+    // debug-log carries it, so a stitched session's transcript-sourced history
+    // (`tx-` ids) has none → the client shows a "partial totals" disclaimer.
+    kind: z.literal("usage"),
+    id: z.string(),
+    model: z.string(),
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cachedTokens: z.number(),
+    ttftMs: z.number().optional(),
+    durationMs: z.number().optional(),
+    // `copilotUsageNanoAiu` verbatim (AI Units × 1e9; AIU = nanoAiu / 1e9).
+    nanoAiu: z.number().optional(),
+    // `copilotCredits` when present (Windows store); absent on other platforms.
+    credits: z.number().optional(),
+  }),
   confirmationPartSchema,
 ]);
 export type SessionPart = z.infer<typeof sessionPartSchema>;
