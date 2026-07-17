@@ -22,10 +22,19 @@
   ],
   "keywords": [
     "copilot",
+    "github copilot",
     "remote",
+    "remote control",
     "mobile",
+    "phone",
     "chat",
-    "observability"
+    "agent",
+    "tunnel",
+    "gateway",
+    "notifications",
+    "observability",
+    "pair programming",
+    "steer"
   ],
   "main": "dist/extension.cjs",
   "engines": {
