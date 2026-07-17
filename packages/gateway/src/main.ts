@@ -10,7 +10,7 @@
  *   CLOAKCODE_GATEWAY_PORT   port: unset → 3543 (ephemeral if taken); 0 → ephemeral; N → lock N
  *   CLOAKCODE_WEB_DIR        directory of the built PWA to serve (optional)
  *   CLOAKCODE_TUNNEL         `devtunnel` to auto-host a private tunnel (optional)
- *   CLOAKCODE_INSTANCE_ID    tunnel-name seed + authenticator label (default "gateway"; e.g. office/home)
+ *   CLOAKCODE_INSTANCE_ID    identity: tunnel-name seed + authenticator label + phone name (default: machine hostname; e.g. office/home)
  *   CLOAKCODE_LOG_LEVEL      trace|debug|info|warn|error (default info; CLOAKCODE_VERBOSE=1 ⇒ debug)
  *   CLOAKCODE_GATEWAY_LOG_FILE  on-disk action log (JSONL); unset → ./cloakcode-gateway.jsonl; "" → off
  *   CLOAKCODE_GATEWAY_TOKEN  provider↔gateway shared secret (extensions present it in their hello); unset → off
@@ -32,6 +32,7 @@ import { connectionUrls } from "./connect-urls.js";
 import { createConsoleLogger, parseLogLevel } from "./console-logger.js";
 import { startGateway } from "./gateway.js";
 import { resolvePortPlan } from "./listen.js";
+import { resolveInstanceId } from "./instance-id.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
 import { OperatorAuth } from "./operator-auth.js";
 import { otpauthUri } from "./totp.js";
@@ -45,9 +46,12 @@ import {
 import { qrTerminal } from "./qr-terminal.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
-// Per-instance identifier: the Dev-Tunnel name seed AND the authenticator label
-// (so multiple gateways are distinguishable in the app — e.g. "office" vs "home").
-const seed = process.env["CLOAKCODE_INSTANCE_ID"] || "gateway";
+// Per-instance identifier: the Dev-Tunnel name seed, the authenticator label AND
+// the name shown to the phone (so multiple gateways are distinguishable — e.g.
+// "office" vs "home"). An explicit CLOAKCODE_INSTANCE_ID wins; otherwise it
+// defaults to the machine hostname (the Windows computer/NetBIOS name, or the
+// Unix hostname), never a generic "gateway".
+const seed = resolveInstanceId(process.env["CLOAKCODE_INSTANCE_ID"]);
 // unset → 3543 then ephemeral; 0 → ephemeral; N → lock N (same rule as embedded).
 const portPlan = resolvePortPlan(process.env["CLOAKCODE_GATEWAY_PORT"]);
 // Serve the PWA from CLOAKCODE_WEB_DIR, else a `web/` folder colocated with the
@@ -111,10 +115,15 @@ const gateway = await startGateway({
   port: portPlan.port,
   fallbackToEphemeral: portPlan.fallbackToEphemeral,
   logger,
+  instanceId: seed,
   ...(serveDir ? { serveDir } : {}),
   ...(token ? { token } : {}),
   ...(operatorAuth ? { operatorAuth } : {}),
 });
+logger.info("gateway.start", { instanceId: seed });
+console.log(
+  `[cloakcode-gateway] instance: ${seed} (authenticator label + tunnel seed + phone name)`,
+);
 console.log(
   `[cloakcode-gateway] listening on ws://${host}:${gateway.port}` +
     (serveDir ? ` (+ PWA from ${serveDir})` : " (WebSocket only)"),

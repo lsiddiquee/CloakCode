@@ -11,7 +11,7 @@ import { SessionView } from "./SessionView";
 type LoadState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; sessions: SessionSummary[] };
+  | { kind: "ready"; sessions: SessionSummary[]; gateway?: string };
 
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
@@ -22,8 +22,12 @@ export function App(): JSX.Element {
   async function load(): Promise<void> {
     setState({ kind: "loading" });
     try {
-      const sessions = await fetchSessions();
-      setState({ kind: "ready", sessions });
+      const { sessions, gateway } = await fetchSessions();
+      setState({
+        kind: "ready",
+        sessions,
+        ...(gateway ? { gateway } : {}),
+      });
     } catch (e) {
       setState({
         kind: "error",
@@ -82,7 +86,9 @@ export function App(): JSX.Element {
           CloakCode
           <div className="sub">
             {state.kind === "ready"
-              ? `${state.sessions.length} sessions${
+              ? `${state.gateway ? `${state.gateway} · ` : ""}${
+                  state.sessions.length
+                } sessions${
                   blockedCount ? ` · ${blockedCount} needs input` : ""
                 }`
               : state.kind === "loading"

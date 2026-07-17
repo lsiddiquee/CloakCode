@@ -454,6 +454,17 @@ describe("response schemas", () => {
     expect(sessionsListResponseSchema.parse(res)).toEqual(res);
   });
 
+  it("carries an optional gateway display name (the hub's instance id)", () => {
+    const res = {
+      id: "1",
+      ok: true as const,
+      op: "sessions.list" as const,
+      result: [validSummary],
+      gateway: "office",
+    };
+    expect(sessionsListResponseSchema.parse(res)).toEqual(res);
+  });
+
   it("parses a session.subscribe event frame", () => {
     const frame = {
       id: "2",

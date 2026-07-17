@@ -35,7 +35,9 @@ fi
 HOST="${CLOAKCODE_GATEWAY_HOST:-127.0.0.1}"
 PORT="${CLOAKCODE_GATEWAY_PORT:-7900}"
 WEB_DIR="${CLOAKCODE_WEB_DIR:-$WEB_DEFAULT}"
-INSTANCE_ID="${CLOAKCODE_INSTANCE_ID:-gateway}"
+# Empty by default so the gateway resolves the machine hostname as its instance
+# id (see resolveInstanceId); only a user-set value overrides it.
+INSTANCE_ID="${CLOAKCODE_INSTANCE_ID:-}"
 TUNNEL="${CLOAKCODE_TUNNEL:-}"   # "devtunnel" to enable
 VERBOSE="${CLOAKCODE_VERBOSE:-}" # "1" to also log per-RPC detail
 
@@ -58,7 +60,7 @@ Options:
   --host <addr>        bind address (default 127.0.0.1; 0.0.0.0 for LAN)
   --port <n>           port (default 7900)
   --web-dir <path>     PWA directory to serve (default: the bundled web/)
-  --instance-id <id>   tunnel-name seed for a STABLE phone URL (default "gateway")
+  --instance-id <id>   identity: authenticator label + tunnel-name seed + phone name (default: machine hostname)
   --tunnel             expose via a PRIVATE Microsoft Dev Tunnel
   --no-tunnel          local only (default)
   --verbose            also log per-RPC detail (relay routing, sessions.list)
@@ -149,7 +151,7 @@ echo "  bundle : $MAIN"
 echo "  host   : $HOST"
 echo "  port   : $PORT"
 echo "  web    : $WEB_DIR"
-echo "  tunnel : ${TUNNEL:-off}  (instance-id: $INSTANCE_ID)"
+echo "  tunnel : ${TUNNEL:-off}  (instance-id: ${INSTANCE_ID:-<hostname>})"
 [[ -n "$VERBOSE" ]] && echo "  verbose: on"
 if [[ "$HOST" == "0.0.0.0" ]]; then
   echo "  note   : binding 0.0.0.0 exposes the gateway on your network; there is no" >&2
@@ -159,7 +161,8 @@ fi
 export CLOAKCODE_GATEWAY_HOST="$HOST"
 export CLOAKCODE_GATEWAY_PORT="$PORT"
 export CLOAKCODE_WEB_DIR="$WEB_DIR"
-export CLOAKCODE_INSTANCE_ID="$INSTANCE_ID"
+# Export only when set; empty ⇒ let the gateway default to the machine hostname.
+if [ -n "$INSTANCE_ID" ]; then export CLOAKCODE_INSTANCE_ID="$INSTANCE_ID"; fi
 export CLOAKCODE_TUNNEL="$TUNNEL"
 export CLOAKCODE_VERBOSE="$VERBOSE"
 

@@ -236,7 +236,20 @@ describe("fetchSessions", () => {
     socket(0).open();
     expect(JSON.parse(socket(0).sent[0]!).op).toBe("sessions.list");
     socket(0).message({ id: "x", ok: true, op: "sessions.list", result: [] });
-    await expect(p).resolves.toEqual([]);
+    await expect(p).resolves.toEqual({ sessions: [] });
+  });
+
+  it("surfaces the gateway display name when the hub reports one", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    socket(0).message({
+      id: "x",
+      ok: true,
+      op: "sessions.list",
+      result: [],
+      gateway: "office",
+    });
+    await expect(p).resolves.toEqual({ sessions: [], gateway: "office" });
   });
 
   it("rejects with the server error message", async () => {
@@ -353,7 +366,7 @@ describe("operator auth (F2a)", () => {
     // The auth ack must NOT resolve/close the call.
     socket(0).message({ id: "auth-0", ok: true, op: "auth" });
     socket(0).message({ id: "x", ok: true, op: "sessions.list", result: [] });
-    await expect(p).resolves.toEqual([]);
+    await expect(p).resolves.toEqual({ sessions: [] });
   });
 
   it("raises the needs-auth prompt and rejects on a needsAuth refusal", async () => {

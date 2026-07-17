@@ -44,6 +44,14 @@ function summary(over: Partial<SessionSummary>): SessionSummary {
   };
 }
 
+/** Wrap session rows in the `fetchSessions` result envelope (optional gateway name). */
+function listResult(
+  sessions: SessionSummary[],
+  gateway?: string,
+): { sessions: SessionSummary[]; gateway?: string } {
+  return gateway ? { sessions, gateway } : { sessions };
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -57,10 +65,12 @@ describe("App", () => {
   });
 
   it("renders the session list with counts and a blocked badge", async () => {
-    fetchSessionsMock.mockResolvedValue([
-      summary({ sessionId: "s1", status: "blocked" }),
-      summary({ sessionId: "s2" }),
-    ]);
+    fetchSessionsMock.mockResolvedValue(
+      listResult([
+        summary({ sessionId: "s1", status: "blocked" }),
+        summary({ sessionId: "s2" }),
+      ]),
+    );
     render(<App />);
 
     expect(await screen.findByText(/2 sessions · 1 needs input/)).toBeTruthy();
@@ -69,14 +79,22 @@ describe("App", () => {
     expect(screen.getByText(/workspace repo/)).toBeTruthy();
   });
 
+  it("shows the gateway name in the header when the hub reports one", async () => {
+    fetchSessionsMock.mockResolvedValue(listResult([summary({})], "office"));
+    render(<App />);
+    expect(await screen.findByText(/office · 1 sessions/)).toBeTruthy();
+  });
+
   it("shows the empty state when there are no sessions", async () => {
-    fetchSessionsMock.mockResolvedValue([]);
+    fetchSessionsMock.mockResolvedValue(listResult([]));
     render(<App />);
     expect(await screen.findByText(/No Copilot sessions found/)).toBeTruthy();
   });
 
   it("marks a session with no local extension as read-only", async () => {
-    fetchSessionsMock.mockResolvedValue([summary({ owned: false })]);
+    fetchSessionsMock.mockResolvedValue(
+      listResult([summary({ owned: false })]),
+    );
     render(<App />);
     expect(
       await screen.findByText(/read-only \(no extension here\)/),
@@ -91,13 +109,15 @@ describe("App", () => {
     expect(await screen.findByText(/Can’t reach the bridge/)).toBeTruthy();
     expect(screen.getByText("boom")).toBeTruthy();
 
-    fetchSessionsMock.mockResolvedValueOnce([summary({})]);
+    fetchSessionsMock.mockResolvedValueOnce(listResult([summary({})]));
     fireEvent.click(screen.getByText("Try again"));
     expect(await screen.findByText("My session")).toBeTruthy();
   });
 
   it("opens a session and returns via back", async () => {
-    fetchSessionsMock.mockResolvedValue([summary({ sessionId: "abc12345" })]);
+    fetchSessionsMock.mockResolvedValue(
+      listResult([summary({ sessionId: "abc12345" })]),
+    );
     render(<App />);
 
     fireEvent.click(await screen.findByText("My session"));
@@ -108,7 +128,7 @@ describe("App", () => {
   });
 
   it("reloads when the header connection button is clicked", async () => {
-    fetchSessionsMock.mockResolvedValue([summary({})]);
+    fetchSessionsMock.mockResolvedValue(listResult([summary({})]));
     render(<App />);
     await screen.findByText("My session");
     expect(fetchSessionsMock).toHaveBeenCalledTimes(1);

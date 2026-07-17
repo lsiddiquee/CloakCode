@@ -98,6 +98,22 @@ Run from the Command Palette (prefix **CloakCode:**):
 | **Remove Copilot Hook (all workspaces)** | Remove the per-environment hook.                     |
 | **Show Diagnostics**                     | Dump current status for troubleshooting.             |
 
+## Naming this instance (the instance id)
+
+Each window has an **instance id** — a short display label that identifies it on the phone (on the
+session-list group) and, when phone auth is enabled, doubles as the **authenticator label**. The
+authenticator issuer is always `CloakCode`, so your app shows it as `CloakCode: <instance-id>`.
+
+- **Default (auto):** `<env-kind>:<workspace>` — e.g. `local:cloakcode`, `wsl:my-repo`, or a
+  dev-container's `name` from `devcontainer.json`. This already distinguishes one workspace/window
+  from another, so you normally don't need to set anything.
+- **Override:** run **CloakCode: Set Instance ID** to name it yourself (stored per-workspace). Leave
+  it empty to fall back to the auto default.
+
+> The **standalone gateway** has its own separate identity (`CLOAKCODE_INSTANCE_ID`, defaulting to
+> the **machine hostname**) — see the [gateway package](https://www.npmjs.com/package/@cloakcode/gateway).
+> When you connect to a gateway, the phone shows _that_ gateway's name in the app header.
+
 ## Sharing one hub across windows — the standalone gateway
 
 By default the bridge runs inside VS Code. To let several windows or machines share **one** phone

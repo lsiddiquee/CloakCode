@@ -48,12 +48,22 @@ export function bridgeUrl(): string {
 }
 
 /**
+ * Result of a `sessions.list` fetch: the session rows plus the optional display
+ * name of the gateway that served them (a standalone hub reports its instance id
+ * — office/home/hostname; the embedded bridge omits it).
+ */
+export interface SessionsListResult {
+  sessions: SessionSummary[];
+  gateway?: string;
+}
+
+/**
  * One-shot `sessions.list` over the bridge WebSocket. Validates the response
  * with the shared protocol schema so nothing untyped reaches the UI.
  */
 export function fetchSessions(
   url: string = bridgeUrl(),
-): Promise<SessionSummary[]> {
+): Promise<SessionsListResult> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const id = Math.random().toString(36).slice(2);
@@ -93,7 +103,10 @@ export function fetchSessions(
       }
       const ok = sessionsListResponseSchema.safeParse(raw);
       if (ok.success) {
-        resolve(ok.data.result);
+        resolve({
+          sessions: ok.data.result,
+          ...(ok.data.gateway ? { gateway: ok.data.gateway } : {}),
+        });
         return;
       }
       const err = rpcErrorSchema.safeParse(raw);

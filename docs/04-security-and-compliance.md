@@ -181,12 +181,13 @@ only a derived token.
 - **Lockout recovery.** Regenerate the secret to re-enrol from scratch: `CLOAKCODE_MFA_RESET=1` on
   the gateway (or delete the secret file); **CloakCode: Reset Operator Access (TOTP)** in VS Code. A
   running gateway can't be reset remotely (no remote admin) — only by whoever controls the process.
-- **Multiple gateways (e.g. office + home).** Each gateway has its own secret; set a distinct
-  `CLOAKCODE_INSTANCE_ID` per gateway so the authenticator entry (the otpauth `account`) reads
-  `CloakCode: office` / `CloakCode: home` rather than two indistinguishable `gateway`s. The extension
-  stores each gateway's issued **provider token per URL** (`providerToken:<gatewayUrl>` in
-  SecretStorage), so switching `cloakcode.gatewayUrl` between them never re-pairs, and the tokens
-  are scoped — one gateway's token is never presented to another.
+- **Multiple gateways (e.g. office + home).** Each gateway has its own secret and its own **instance
+  id** (the otpauth `account`, so the authenticator reads `CloakCode: <id>`, and the name the phone
+  shows in its header). It defaults to the **machine hostname**, so gateways on different machines are
+  already distinguishable; set a distinct `CLOAKCODE_INSTANCE_ID` per gateway (`office` / `home`) when
+  running several on one host. The extension stores each gateway's issued **provider token per URL**
+  (`providerToken:<gatewayUrl>` in SecretStorage), so switching `cloakcode.gatewayUrl` between them
+  never re-pairs, and the tokens are scoped — one gateway's token is never presented to another.
 
 ## Repository security automation
 

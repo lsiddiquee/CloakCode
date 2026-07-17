@@ -125,6 +125,38 @@ describe("startGateway", () => {
     operator.close();
   });
 
+  it("returns the gateway instance id to the operator when set", async () => {
+    gw = await startGateway({ port: 0, instanceId: "office" });
+    const url = `ws://127.0.0.1:${gw.port}`;
+    const a = await fakeProvider(url, "i1", [summary("i1", "s1", true)]);
+    await waitFor(() => gw!.registry.forInstance("i1").length === 1);
+
+    const operator = await open(url);
+    operator.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
+    const res = await nextMessage(operator);
+
+    expect(res["gateway"]).toBe("office");
+
+    a.close();
+    operator.close();
+  });
+
+  it("omits the gateway field when no instance id is configured", async () => {
+    gw = await startGateway({ port: 0 });
+    const url = `ws://127.0.0.1:${gw.port}`;
+    const a = await fakeProvider(url, "i1", [summary("i1", "s1", true)]);
+    await waitFor(() => gw!.registry.forInstance("i1").length === 1);
+
+    const operator = await open(url);
+    operator.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
+    const res = await nextMessage(operator);
+
+    expect(res["gateway"]).toBeUndefined();
+
+    a.close();
+    operator.close();
+  });
+
   it("drops a provider from the registry when it disconnects", async () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;

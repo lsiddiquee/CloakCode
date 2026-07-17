@@ -395,6 +395,14 @@ export const sessionsListResponseSchema = z.object({
   ok: z.literal(true),
   op: z.literal("sessions.list"),
   result: z.array(sessionSummarySchema),
+  /**
+   * Display name of the gateway that served this list — the standalone hub's
+   * instance id (its `CLOAKCODE_INSTANCE_ID`, else the machine hostname), so the
+   * phone can show *which* gateway it's connected to (e.g. office vs home).
+   * Absent for the embedded bridge (the session rows already carry the
+   * per-workspace instance label).
+   */
+  gateway: z.string().optional(),
 });
 export type SessionsListResponse = z.infer<typeof sessionsListResponseSchema>;
 

@@ -136,10 +136,18 @@ reprint it.
 code (replay) and repeated bad codes (lockout) are rejected. The secret is never sent to the phone
 or written to the action log.
 
-**Running more than one gateway** (e.g. office + home)? Set a distinct `CLOAKCODE_INSTANCE_ID` on
-each (`office`, `home`, …) so the authenticator entries read `CloakCode: office` / `CloakCode: home`
-instead of two indistinguishable `CloakCode: gateway`s. The VS Code extension stores each gateway's
-issued token separately (per URL), so switching `cloakcode.gatewayUrl` between them never re-pairs.
+**Identifying a gateway (`CLOAKCODE_INSTANCE_ID`).** Each gateway has an **instance id** used as
+its authenticator label (the `otpauth` account — so the app shows `CloakCode: <id>`), its Dev-Tunnel
+name seed, and the **name shown to the phone** (in the app header). It defaults to the **machine
+hostname** (the Windows computer/NetBIOS name, or the Unix hostname) — printed at startup as
+`[cloakcode-gateway] instance: <id>` — so gateways on different machines are already distinguishable
+with no configuration.
+
+**Running more than one gateway on one machine** (e.g. office + home)? Set a distinct
+`CLOAKCODE_INSTANCE_ID` on each (`office`, `home`, …) so the authenticator entries read
+`CloakCode: office` / `CloakCode: home` and the phone shows which one you're connected to, instead of
+two identical hostnames. The VS Code extension stores each gateway's issued token separately (per
+URL), so switching `cloakcode.gatewayUrl` between them never re-pairs.
 
 In **Docker**, mount a volume so the secret survives container replacement (the image runs as `app`,
 so its home is `/home/app`):

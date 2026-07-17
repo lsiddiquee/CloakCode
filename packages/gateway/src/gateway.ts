@@ -58,6 +58,13 @@ export interface GatewayOptions {
    * loopback-only default; slice-3 wiring enables it whenever the hub is exposed.
    */
   operatorAuth?: OperatorAuth;
+  /**
+   * Display name of this gateway — its instance id (`CLOAKCODE_INSTANCE_ID`, else
+   * the machine hostname; {@link resolveInstanceId}). Returned to the operator in
+   * the `sessions.list` response so the phone can show *which* gateway it's on
+   * (e.g. office vs home). Omit for the embedded bridge.
+   */
+  instanceId?: string;
 }
 
 export interface Gateway {
@@ -214,7 +221,15 @@ export async function startGateway(
           logger.debug("operator.rate_limited");
           return;
         }
-        void handleOperator(socket, registry, relay, frame, logger, gate);
+        void handleOperator(
+          socket,
+          registry,
+          relay,
+          frame,
+          logger,
+          gate,
+          opts.instanceId,
+        );
       };
       socket.on("message", (m) => onOperatorFrame(m.toString()));
       socket.on("close", () => {
@@ -303,6 +318,7 @@ async function handleOperator(
   text: string,
   logger: Logger,
   gate: OperatorGate,
+  instanceId?: string,
 ): Promise<void> {
   let json: unknown;
   try {
@@ -347,7 +363,13 @@ async function handleOperator(
     } catch {
       result = [];
     }
-    send(socket, { id, ok: true, op: "sessions.list", result });
+    send(socket, {
+      id,
+      ok: true,
+      op: "sessions.list",
+      result,
+      ...(instanceId ? { gateway: instanceId } : {}),
+    });
     logger.debug("rpc.sessions_list", { sessions: result.length });
     return;
   }
