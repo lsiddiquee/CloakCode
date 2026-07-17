@@ -96,17 +96,19 @@ jobs:
           cache: pnpm
       - name: Install deps
         run: pnpm install --frozen-lockfile
-      # protocol's dist is consumed by the downstream tests. Then run every
-      # package's tests with v8 coverage — the per-package thresholds (85%
-      # statements/lines/functions, 75% branches) FAIL this job on a regression,
-      # and each run emits a Cobertura report for the upload below.
+      # Downstream tests import built workspace packages (e.g. the extension
+      # tests import @cloakcode/gateway's dist), so build everything first — like
+      # the node job. Then run every package's tests with v8 coverage: the
+      # per-package thresholds (85% statements/lines/functions, 75% branches) FAIL
+      # this job on a regression, and each run emits a Cobertura report.
       - name: Test with coverage (enforces the 85% gate)
         run: |
-          pnpm --filter @cloakcode/protocol build
+          pnpm -r build
           pnpm -r test:coverage
       # Upload each package's Cobertura report. No third party — the
       # github-code-quality[bot] posts the coverage summary on the pull request.
-      # (Requires Code Quality enabled in the repo's Code security settings.)
+      # fail-on-error: false so CI stays green until Code Quality is enabled in the
+      # repo's Code security settings (the action 404s the upload until then).
       - name: Upload protocol coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-code-coverage@v1
@@ -114,6 +116,7 @@ jobs:
           file: packages/protocol/coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/protocol
+          fail-on-error: false
       - name: Upload gateway coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-code-coverage@v1
@@ -121,6 +124,7 @@ jobs:
           file: packages/gateway/coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/gateway
+          fail-on-error: false
       - name: Upload web coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-code-coverage@v1
@@ -128,6 +132,7 @@ jobs:
           file: packages/web/coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/web
+          fail-on-error: false
       - name: Upload extension coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-code-coverage@v1
@@ -135,3 +140,4 @@ jobs:
           file: packages/extension/coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/extension
+          fail-on-error: false

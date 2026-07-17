@@ -2,9 +2,10 @@
 
 **Observe and drive GitHub Copilot from your phone — with zero code-sync to GitHub.**
 
-[![CI](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml/badge.svg)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
+[![CI](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
 [![Coverage ≥85%](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/rexwel.cloakcode?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode)
+[![VS Code Marketplace](https://img.shields.io/badge/Marketplace-rexwel.cloakcode-0066b8?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode)
+[![Docker Pulls](https://img.shields.io/docker/pulls/likhan/cloakcode-gateway?logo=docker&label=Docker)](https://hub.docker.com/r/likhan/cloakcode-gateway)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 CloakCode is a **local-to-remote bridge** that lets you observe and drive GitHub Copilot in your
