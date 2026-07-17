@@ -2,10 +2,13 @@
 # extensions (providers) and the phone (operator) connect to. Build context is
 # the REPO ROOT: `docker build -f packages/gateway/Dockerfile -t cloakcode-gateway .`
 #
-# Security: there is no app-layer auth yet. Do NOT expose this on an untrusted
-# network. The image bundles the `devtunnel` CLI so it can host a private tunnel
-# itself (opt in with CLOAKCODE_TUNNEL=devtunnel + CLOAKCODE_TUNNEL_PROVIDER);
-# otherwise front the published port with your own private tunnel/ingress.
+# Security: the operator (phone) is gated by TOTP when exposed (F2a) and providers
+# authenticate with a TOTP-issued or static token; still prefer a PRIVATE tunnel
+# over a wide bind on an untrusted network. Persist the MFA secret across container
+# replacement with `-v cloakcode-mfa:/home/app/.cloakcode` (see the gateway README).
+# The image bundles the `devtunnel` CLI so it can host a private tunnel itself
+# (opt in with CLOAKCODE_TUNNEL=devtunnel + CLOAKCODE_TUNNEL_PROVIDER); otherwise
+# front the published port with your own private tunnel/ingress.
 FROM node:24-slim AS build
 WORKDIR /repo
 RUN corepack enable
@@ -40,11 +43,14 @@ RUN apt-get update \
   && apt-get purge -y curl && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
 # Non-root runtime user with a stable, writable HOME. Pre-create the Dev Tunnels
-# token dir owned by `app` so a fresh named volume mounted there inherits that
-# ownership (Docker seeds a new volume from the image path). Persist it with
-# `-v cloakcode-devtunnel:/home/app/.local/share/DevTunnels` to sign in once.
+# token dir AND the MFA secret dir (~/.cloakcode) owned by `app` so a fresh named
+# volume mounted at either inherits that ownership (Docker seeds a new volume from
+# the image path). Persist the tunnel token with
+# `-v cloakcode-devtunnel:/home/app/.local/share/DevTunnels` and the operator TOTP
+# secret with `-v cloakcode-mfa:/home/app/.cloakcode`.
 RUN useradd -m -u 10001 app \
-  && mkdir -p /home/app/.local/share/DevTunnels /app \
+  && mkdir -p /home/app/.local/share/DevTunnels /home/app/.cloakcode /app \
+  && chmod 0700 /home/app/.cloakcode \
   && chown -R app:app /home/app /app
 COPY --chmod=0755 packages/gateway/scripts/docker-entrypoint.sh /usr/local/bin/cloakcode-entrypoint.sh
 USER app
