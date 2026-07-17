@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@cloakcode/protocol": "workspace:*",
+    "otpauth": "^9.5.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

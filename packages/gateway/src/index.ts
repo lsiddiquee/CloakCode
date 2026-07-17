@@ -29,6 +29,13 @@ export {
 } from "./console-logger.js";
 export { fileLogSink } from "./file-logger.js";
 export { verifyGatewayToken } from "./auth.js";
+export {
+  generateTotpSecret,
+  otpauthUri,
+  verifyTotp,
+  issueSessionToken,
+  verifySessionToken,
+} from "./totp.js";
 export { startGateway, type Gateway, type GatewayOptions } from "./gateway.js";
 export { connectionUrls, type ConnectUrl } from "./connect-urls.js";
 export { WsProvider } from "./ws-provider.js";

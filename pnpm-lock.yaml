@@ -86,6 +86,9 @@ importers:
       '@cloakcode/protocol':
         specifier: workspace:*
         version: link:../protocol
+      otpauth:
+        specifier: ^9.5.1
+        version: 9.5.1
       ws:
         specifier: ^8.18.0
         version: 8.21.0
@@ -718,6 +721,10 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha1-2xXWeByTHzolGj2sOVAcmKYIL9A=}
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha1-ItodFqRplU/Oh3BV1VmQCmxztjs=}
+    engines: {node: '>= 20.19.0'}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha1-dhnC6yGyVIP20WdUi0z9WnSIw9U=}
@@ -2314,6 +2321,9 @@ packages:
     resolution: {integrity: sha1-fqHBpdkddk+yghOciP4R4YKjpzQ=}
     engines: {node: '>= 0.8.0'}
 
+  otpauth@9.5.1:
+    resolution: {integrity: sha1-5jMgOoSMKWPB33A51HuXwC+wfjQ=}
+
   p-limit@3.1.0:
     resolution: {integrity: sha1-4drMvnjQ0TiMoYxk/qOOPlfjcGs=}
     engines: {node: '>=10'}
@@ -3497,6 +3507,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@noble/hashes@2.2.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -5452,6 +5464,10 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
       word-wrap: 1.2.5
+
+  otpauth@9.5.1:
+    dependencies:
+      '@noble/hashes': 2.2.0
 
   p-limit@3.1.0:
     dependencies:
