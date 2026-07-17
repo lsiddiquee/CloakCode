@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
 [![Coverage ≥85%](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen)](https://github.com/lsiddiquee/CloakCode/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/lsiddiquee/CloakCode/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/lsiddiquee/CloakCode/actions/workflows/codeql.yml)
+[![Dependency review](https://github.com/lsiddiquee/CloakCode/actions/workflows/dependency-review.yml/badge.svg?branch=main)](https://github.com/lsiddiquee/CloakCode/actions/workflows/dependency-review.yml)
 [![VS Code Marketplace](https://img.shields.io/badge/Marketplace-rexwel.cloakcode-0066b8?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode)
 [![npm](https://img.shields.io/npm/v/@cloakcode/gateway?logo=npm&label=gateway)](https://www.npmjs.com/package/@cloakcode/gateway)
 [![Docker Pulls](https://img.shields.io/docker/pulls/likhan/cloakcode-gateway?logo=docker&label=Docker)](https://hub.docker.com/r/likhan/cloakcode-gateway)

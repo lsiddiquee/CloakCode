@@ -188,6 +188,31 @@ only a derived token.
   SecretStorage), so switching `cloakcode.gatewayUrl` between them never re-pairs, and the tokens
   are scoped — one gateway's token is never presented to another.
 
+## Repository security automation
+
+Repository controls complement the runtime architecture; they do not add a product egress path:
+
+- Dependabot checks the pnpm workspace, Poetry tooling, gateway container, and GitHub Actions weekly.
+  GitHub's separate **Dependabot security updates** setting is enabled for vulnerable dependencies.
+- CodeQL analyzes JavaScript/TypeScript on pushes and pull requests to `main`, weekly, and on manual
+  dispatch. The workflow grants only `contents: read`, `packages: read`, and
+  `security-events: write`.
+- Dependency review rejects pull requests that introduce a high- or critical-severity vulnerable
+  dependency.
+- `main` branch protection requires the existing build/test, pre-commit, and coverage jobs with
+  strict up-to-date checks, in addition to its review and linear-history rules.
+- Secret scanning and push protection are enabled in the repository. GitHub currently leaves
+  non-provider pattern scanning and validity checks disabled for this repository even when requested
+  through the API; re-check those options in **Settings → Code security** if the repository's feature
+  availability changes. Private vulnerability reporting is enabled; disclosure instructions live in
+  [`SECURITY.md`](../SECURITY.md).
+
+**Maintainer follow-up after first deployment:** once CodeQL and dependency review have run from
+`main` and GitHub exposes their check contexts, add those two jobs to the branch's required status
+checks. GitHub cannot select a check context before it has been reported. Review and merge Dependabot
+security updates promptly; as of 2026-07-17, the initial backlog includes critical Vitest and
+high-severity Vite advisories.
+
 ## Threat-model quick list
 
 | Threat                      | Mitigation                                                                                 |
