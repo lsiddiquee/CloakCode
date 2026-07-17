@@ -120,6 +120,20 @@ describe("ProviderRegistry", () => {
     expect(reg.forInstance("i1")).toEqual([]);
   });
 
+  it("purges routing entries for a removed provider (no route to a dead conn)", async () => {
+    const reg = new ProviderRegistry();
+    const owner = provider("i1", [
+      summary({ instanceId: "i1", sessionId: "s1", owned: true }),
+    ]);
+    reg.add(owner);
+    await reg.listSessions();
+    expect(reg.providerForSession("s1")).toBe(owner);
+    reg.remove(owner);
+    // Without the purge this would still return the disposed provider until the
+    // next listSessions() rebuild.
+    expect(reg.providerForSession("s1")).toBeUndefined();
+  });
+
   it("skips a provider that rejects when listing", async () => {
     const reg = new ProviderRegistry();
     reg.add({

@@ -64,9 +64,16 @@ export class ProviderRegistry {
 
   remove(provider: SessionProvider): void {
     const set = this.byInstance.get(provider.instanceId);
-    if (!set) return;
-    set.delete(provider);
-    if (set.size === 0) this.byInstance.delete(provider.instanceId);
+    if (set) {
+      set.delete(provider);
+      if (set.size === 0) this.byInstance.delete(provider.instanceId);
+    }
+    // Purge routing entries that point at the departed provider so a session-
+    // addressed RPC can't route to a disposed connection before the next
+    // listSessions() rebuild (deleting while iterating a Map is safe).
+    for (const [sessionId, owner] of this.sessionOwner) {
+      if (owner === provider) this.sessionOwner.delete(sessionId);
+    }
   }
 
   /** Every connected provider, in no particular order. */

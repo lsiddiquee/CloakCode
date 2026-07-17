@@ -3,6 +3,9 @@ import type { WebSocket } from "ws";
 interface RelayEntry {
   operator: WebSocket;
   originalId: string;
+  /** Opaque identity of the routed-to provider, so a provider disconnect can
+   *  drop its in-flight relays (see dropProvider). Kept transport-agnostic. */
+  provider: object;
 }
 
 /**
@@ -24,10 +27,11 @@ export class Relay {
   forward(
     operator: WebSocket,
     request: { id: string; op: string; params: unknown; traceId?: string },
+    provider: object,
     send: (text: string) => void,
   ): void {
     const relayId = `rl:${this.#seq++}`;
-    this.#entries.set(relayId, { operator, originalId: request.id });
+    this.#entries.set(relayId, { operator, originalId: request.id, provider });
     send(
       JSON.stringify({
         id: relayId,
@@ -64,6 +68,15 @@ export class Relay {
   dropOperator(operator: WebSocket): void {
     for (const [id, entry] of this.#entries) {
       if (entry.operator === operator) this.#entries.delete(id);
+    }
+  }
+
+  /** Drop every relay routed to a disconnected provider so stale mappings don't
+   *  linger until the operator leaves (F5). `provider` is the identity passed to
+   *  {@link forward}. */
+  dropProvider(provider: object): void {
+    for (const [id, entry] of this.#entries) {
+      if (entry.provider === provider) this.#entries.delete(id);
     }
   }
 

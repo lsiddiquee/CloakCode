@@ -147,6 +147,7 @@ export async function startGateway(
     });
     socket.on("close", () => {
       registry.remove(provider);
+      relay.dropProvider(provider);
       provider.dispose();
       logger.info("provider.disconnect", {
         instanceId,
@@ -331,6 +332,7 @@ async function handleOperator(
       params: req.data.params,
       ...(req.data.traceId !== undefined ? { traceId: req.data.traceId } : {}),
     },
+    provider,
     (t) => provider.send(t),
   );
 }

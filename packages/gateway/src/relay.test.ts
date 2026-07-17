@@ -33,6 +33,7 @@ describe("Relay", () => {
         op: "session.subscribe",
         params: { instanceId: "i1", sessionId: "s1" },
       },
+      {},
       (text) => {
         relayId = (JSON.parse(text) as { id: string }).id;
       },
@@ -66,6 +67,7 @@ describe("Relay", () => {
     relay.forward(
       asWs(operator),
       { id: "op-1", op: "session.respond", params: {} },
+      {},
       (text) => {
         relayId = (JSON.parse(text) as { id: string }).id;
       },
@@ -76,5 +78,27 @@ describe("Relay", () => {
     expect(relay.routeProviderFrame(JSON.stringify({ id: relayId }))).toBe(
       false,
     );
+  });
+
+  it("drops a provider's relays when that provider disconnects", () => {
+    const relay = new Relay();
+    const operator = fakeOperator();
+    const providerA = {};
+    const providerB = {};
+    relay.forward(
+      asWs(operator),
+      { id: "a", op: "session.subscribe", params: {} },
+      providerA,
+      () => {},
+    );
+    relay.forward(
+      asWs(operator),
+      { id: "b", op: "session.subscribe", params: {} },
+      providerB,
+      () => {},
+    );
+    expect(relay.size).toBe(2);
+    relay.dropProvider(providerA);
+    expect(relay.size).toBe(1); // only providerA's relay is gone
   });
 });

@@ -20,9 +20,13 @@ afterEach(() => {
   server = undefined;
 });
 
-/** Start a fake gateway that answers the knock, then runs `onProvider` on the hello. */
+/** Start a fake gateway that answers the knock, then runs `onProvider` on the hello.
+ *  By default it also sends the `gateway.info` registration ack the real gateway
+ *  sends on a successful register (the client's connect confirmation); pass
+ *  `{ ack: false }` to model a token reject (no ack, gateway drops the socket). */
 function startFakeGateway(
-  onProvider: (ws: WsSocket, hello: Record<string, unknown>) => void,
+  onProvider: (ws: WsSocket, hello: Record<string, unknown>) => void = () => {},
+  opts: { ack?: boolean } = {},
 ): Promise<number> {
   return new Promise((resolve) => {
     const wss = new WebSocketServer({ port: 0 }, () => {
@@ -38,7 +42,11 @@ function startFakeGateway(
         ws.send(JSON.stringify({ type: "cloakcode.hello", role: "gateway" }));
         ws.once("message", (raw2) => {
           const hello = JSON.parse(raw2.toString());
-          if (hello?.role === "provider") onProvider(ws, hello);
+          if (hello?.role !== "provider") return;
+          if (opts.ack !== false) {
+            ws.send(JSON.stringify({ type: "gateway.info" }));
+          }
+          onProvider(ws, hello);
         });
       });
     });
@@ -87,6 +95,21 @@ describe("connectGateway", () => {
         200,
       ),
     ).rejects.toThrow(/unreachable/);
+  });
+
+  it("rejects (falls back to embedded) when the gateway drops after the hello", async () => {
+    // No gateway.info ack + an immediate close models a rejected token: the
+    // client must report auth failure, not report "connected" and reconnect-loop.
+    const port = await startFakeGateway((ws) => ws.close(), { ack: false });
+    await expect(
+      connectGateway(
+        `ws://127.0.0.1:${port}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        2000,
+      ),
+    ).rejects.toThrow(/rejected the provider/);
   });
 
   it("presents the provider↔gateway token in its hello when configured", async () => {

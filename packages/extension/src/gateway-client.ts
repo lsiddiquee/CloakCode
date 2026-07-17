@@ -92,9 +92,12 @@ export function connectGateway(
             return;
           }
           knocked = true;
-          // Phase 2: reveal the full provider hello, carrying the
-          // provider↔gateway shared secret (if configured) so the gateway can
-          // authenticate this extension before it registers (docs/04).
+          // Send the full provider hello (with the shared secret). We do NOT
+          // resolve yet: the gateway confirms a successful registration by
+          // pushing its first `gateway.info` frame, and DROPS the socket on a
+          // bad token — so waiting for that frame is what distinguishes accepted
+          // from rejected (a premature resolve reported a rejected token as
+          // "connected" and reconnect-looped). A close before it is handled below.
           s.send(
             JSON.stringify({
               type: "hello",
@@ -103,21 +106,27 @@ export function connectGateway(
               ...(token ? { token } : {}),
             }),
           );
-          log(`gateway: connected as provider (${provider.instanceId})`);
-          if (!settled) {
-            settled = true;
-            clearTimeout(firstTimer);
-            resolve(client);
-          }
+          log(
+            `gateway: sent provider hello (${provider.instanceId}); awaiting ack`,
+          );
           return;
         }
         // The gateway pushes its phone URL as a `gateway.info` control frame;
         // capture it (so “Show Phone Link” reflects the hub) and don't route it
-        // through the RPC handler.
+        // through the RPC handler. The FIRST such frame also confirms the gateway
+        // accepted our hello and registered us — only now is the connection
+        // truly established.
         const info = tryGatewayInfo(text);
         if (info) {
           phoneUrl = info.phoneUrl;
-          log(`gateway: phone URL ${phoneUrl ?? "(none yet)"}`);
+          if (!settled) {
+            settled = true;
+            clearTimeout(firstTimer);
+            log(`gateway: connected as provider (${provider.instanceId})`);
+            resolve(client);
+          } else {
+            log(`gateway: phone URL ${phoneUrl ?? "(none yet)"}`);
+          }
           return;
         }
         void handleMessage(s, text, deps, c);
@@ -128,6 +137,20 @@ export function connectGateway(
       s.on("close", () => {
         stopFollowers(c);
         if (closed) return;
+        if (!settled && knocked) {
+          // The gateway answered our knock and we sent the hello, but it closed
+          // before confirming registration — the shared secret was rejected
+          // (docs/04 `provider.auth_reject`). Report auth failure and fall back
+          // to the embedded bridge; a persistent bad token must not loop.
+          settled = true;
+          closed = true;
+          clearTimeout(firstTimer);
+          log(
+            `gateway: ${url} rejected the provider (bad token?) — using embedded bridge`,
+          );
+          reject(new Error(`gateway ${url} rejected the provider (auth)`));
+          return;
+        }
         const delay = Math.min(1000 * 2 ** attempt++, 15_000);
         retry = setTimeout(connect, delay);
       });
