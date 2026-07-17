@@ -34,29 +34,24 @@ function sumUsage(usage: UsagePart[]): UsageTotals {
   let cachedTokens = 0;
   let nanoAiu = 0;
   let credits = 0;
-  let anyAiu = false;
-  let anyCredits = false;
   for (const u of usage) {
     inputTokens += u.inputTokens;
     outputTokens += u.outputTokens;
     cachedTokens += u.cachedTokens;
-    if (u.nanoAiu !== undefined) {
-      nanoAiu += u.nanoAiu;
-      anyAiu = true;
-    }
-    if (u.credits !== undefined) {
-      credits += u.credits;
-      anyCredits = true;
-    }
+    if (u.nanoAiu !== undefined) nanoAiu += u.nanoAiu;
+    if (u.credits !== undefined) credits += u.credits;
     if (!models.includes(u.model)) models.push(u.model);
   }
+  // Only surface a cost when it's genuinely reported (> 0). Custom / BYO models
+  // leave `copilotUsageNanoAiu` absent, null, or 0 — never show a misleading
+  // "0 AIU" for those; the client just omits the cost.
   return {
     requests: usage.length,
     inputTokens,
     outputTokens,
     cachedTokens,
-    ...(anyAiu ? { aiu: nanoAiu / 1e9 } : {}),
-    ...(anyCredits ? { credits } : {}),
+    ...(nanoAiu > 0 ? { aiu: nanoAiu / 1e9 } : {}),
+    ...(credits > 0 ? { credits } : {}),
     models,
   };
 }

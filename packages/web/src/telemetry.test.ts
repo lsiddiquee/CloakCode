@@ -63,6 +63,15 @@ describe("summarizeUsage", () => {
     expect(s.credits).toBeUndefined();
   });
 
+  it("treats a 0 cost (custom / BYO model) as unavailable — no misleading 0 AIU", () => {
+    const s = summarizeUsage([
+      usage({ id: "usage-0", nanoAiu: 0 }),
+      usage({ id: "usage-1" }), // no nanoAiu at all
+    ])!;
+    expect(s.aiu).toBeUndefined();
+    expect(s.inputTokens).toBe(200); // token counts still aggregate
+  });
+
   it("marks partial when transcript-stitched history is present (tx- ids)", () => {
     const s = summarizeUsage([
       md("tx-msg-0"), // stitched transcript history — no telemetry

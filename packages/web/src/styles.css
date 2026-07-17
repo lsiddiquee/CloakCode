@@ -854,3 +854,9 @@ body {
   font-weight: 600;
   color: var(--text);
 }
+
+/* AI-credit emphasis (what Copilot bills against) */
+.usage-aiu {
+  color: var(--accent);
+  font-weight: 600;
+}

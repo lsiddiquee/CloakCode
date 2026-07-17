@@ -355,12 +355,17 @@ function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
         {compactTokens(usage.cachedTokens)} cached
       </span>
       {usage.aiu !== undefined && (
-        <span title="AI Units (copilotUsageNanoAiu ÷ 1e9)">
+        <span
+          className="usage-aiu"
+          title="AI Units (copilotUsageNanoAiu ÷ 1e9) — what Copilot bills against"
+        >
           {formatAiu(usage.aiu)} AIU
         </span>
       )}
       {usage.credits !== undefined && (
-        <span title="Copilot credits">{usage.credits} cr</span>
+        <span className="usage-aiu" title="Copilot credits">
+          {usage.credits} cr
+        </span>
       )}
       <span title="llm_request spans">{usage.requests} req</span>
       <span className="usage-model" title={usage.models.join(", ")}>
@@ -391,8 +396,15 @@ function TurnBadge({ usage }: { usage: UsageTotals }): JSX.Element {
         {usage.models[0]}
         {usage.models.length > 1 ? ` +${usage.models.length - 1}` : ""}
       </span>
-      <span>↓ {compactTokens(usage.outputTokens)}</span>
-      {usage.aiu !== undefined && <span>{formatAiu(usage.aiu)} AIU</span>}
+      <span>{compactTokens(usage.inputTokens)} in</span>
+      <span>{compactTokens(usage.outputTokens)} out</span>
+      <span>{compactTokens(usage.cachedTokens)} cached</span>
+      {usage.aiu !== undefined && (
+        <span className="usage-aiu">{formatAiu(usage.aiu)} AIU</span>
+      )}
+      {usage.credits !== undefined && (
+        <span className="usage-aiu">{usage.credits} cr</span>
+      )}
       {usage.requests > 1 && <span>{usage.requests} req</span>}
     </div>
   );
