@@ -15,9 +15,14 @@ pmOnFail: ignore
 
 # pnpm 11 build-script allowlist (replaces the removed onlyBuiltDependencies /
 # ignoredBuiltDependencies keys). esbuild (via vitest/vite) needs its platform
-# binary linked → allow. vsce-sign + keytar are publish/signing-only native
-# modules that `vsce package` never needs → deny (don't build).
+# binary linked → allow. vsce-sign is publish/signing-only native code that
+# `vsce package` never needs → deny (don't build).
 allowBuilds:
   esbuild: true
   "@vscode/vsce-sign": false
-  keytar: false
+
+# VSCE's optional keytar integration stores publishing credentials. CloakCode
+# only uses VSCE for local packaging, so omit that unused native module and its
+# deprecated prebuild-install dependency.
+ignoredOptionalDependencies:
+  - keytar

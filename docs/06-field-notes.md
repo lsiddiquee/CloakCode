@@ -109,6 +109,14 @@ Base: `~/.vscode-server/data/User/`
 > ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
 > rediscovery would waste someone's time.
 
+- **One upstream pnpm deprecation warning remains by design (2026-07-17).** Vitest/coverage 4.1.10
+  removes the old `glob@10` path; jsdom 28 removes its `whatwg-encoding` path; and
+  `ignoredOptionalDependencies: [keytar]` skips VSCE's unused credential-store integration plus its
+  deprecated `prebuild-install`. The sole remaining warning is `whatwg-encoding@3.1.1` through
+  latest `@vscode/vsce@3.9.2 → cheerio → encoding-sniffer`; it is a required parser path, not a
+  vulnerability (`pnpm audit` is clean). Do not silence it with `allowedDeprecatedVersions` or
+  override the required transitive dependency; wait for VSCE/Cheerio upstream.
+
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
   the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does
