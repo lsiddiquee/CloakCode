@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { coverage } from "../../vitest.coverage.mjs";
 
 // HMR defaults OFF for stable mobile/LAN testing — the HMR websocket through
 // container/host networking can trigger reconnect/full-reload loops on a phone.
@@ -17,6 +18,10 @@ export default defineConfig({
     // Component tests (SessionView) need a DOM; the pure tests run fine under it too.
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
+    coverage: coverage({
+      // main.tsx is the React entrypoint (mount only) — nothing to unit-test.
+      exclude: ["src/main.tsx", "src/vite-env.d.ts"],
+    }),
   },
   server: {
     // Bind ALL interfaces. Inside a Dev Container, VS Code forwards the port via
