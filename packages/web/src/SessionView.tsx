@@ -28,8 +28,10 @@ import { nextScrollAction, readScroll, writeScroll } from "./scroll";
 import {
   compactTokens,
   formatAiu,
+  interleaveTurnUsage,
   summarizeUsage,
   type UsageSummary,
+  type UsageTotals,
 } from "./telemetry";
 
 interface ViewState {
@@ -247,6 +249,8 @@ export function SessionView({
 
   // Session telemetry (docs/02 §4.14): aggregate the debug-log `usage` parts.
   const usage = useMemo(() => summarizeUsage(state.parts), [state.parts]);
+  // Interleave a per-turn usage badge into the transcript rows.
+  const rows = useMemo(() => interleaveTurnUsage(state.parts), [state.parts]);
 
   return (
     <div className="app">
@@ -304,13 +308,17 @@ export function SessionView({
           {state.parts.length === 0 && !state.error && (
             <p className="hint">Loading transcript…</p>
           )}
-          {state.parts.map((part) => (
-            <Part
-              key={part.id}
-              part={part}
-              resolved={state.resolved.has(part.id)}
-            />
-          ))}
+          {rows.map((row) =>
+            row.kind === "part" ? (
+              <Part
+                key={row.part.id}
+                part={row.part}
+                resolved={state.resolved.has(row.part.id)}
+              />
+            ) : (
+              <TurnBadge key={row.id} usage={row.usage} />
+            ),
+          )}
         </div>
       </main>
 
@@ -367,6 +375,25 @@ function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
           partial
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * A compact per-turn usage badge (docs/02 §4.14): the turn's model(s), generated
+ * tokens, and cost, placed at the end of the turn. Aggregates every `llm_request`
+ * in the turn into one tag.
+ */
+function TurnBadge({ usage }: { usage: UsageTotals }): JSX.Element {
+  return (
+    <div className="turn-usage" title="This turn's model usage">
+      <span className="turn-usage-model">
+        {usage.models[0]}
+        {usage.models.length > 1 ? ` +${usage.models.length - 1}` : ""}
+      </span>
+      <span>↓ {compactTokens(usage.outputTokens)}</span>
+      {usage.aiu !== undefined && <span>{formatAiu(usage.aiu)} AIU</span>}
+      {usage.requests > 1 && <span>{usage.requests} req</span>}
     </div>
   );
 }

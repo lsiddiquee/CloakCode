@@ -2,7 +2,7 @@ import type { SessionPart } from "@cloakcode/protocol";
 
 type UsagePart = Extract<SessionPart, { kind: "usage" }>;
 
-export interface UsageSummary {
+export interface UsageTotals {
   /** Number of `llm_request` spans aggregated. */
   requests: number;
   inputTokens: number;
@@ -14,6 +14,9 @@ export interface UsageSummary {
   credits?: number;
   /** Distinct models used, in first-seen order. */
   models: string[];
+}
+
+export interface UsageSummary extends UsageTotals {
   /**
    * True when the stream carries transcript-stitched history (`tx-` ids). Those
    * turns predate this session's debug-log and have **no** telemetry, so the
@@ -23,14 +26,8 @@ export interface UsageSummary {
   partial: boolean;
 }
 
-/**
- * Aggregate the per-request `usage` parts into a session total. Returns `null`
- * when no telemetry is present (e.g. a pure-transcript session whose debug-log
- * was recycled away) so the view can say "unavailable" rather than show zeros.
- */
-export function summarizeUsage(parts: SessionPart[]): UsageSummary | null {
-  const usage = parts.filter((p): p is UsagePart => p.kind === "usage");
-  if (usage.length === 0) return null;
+/** Sum a set of `usage` parts (shared by the session total + per-turn badge). */
+function sumUsage(usage: UsagePart[]): UsageTotals {
   const models: string[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
@@ -61,8 +58,58 @@ export function summarizeUsage(parts: SessionPart[]): UsageSummary | null {
     ...(anyAiu ? { aiu: nanoAiu / 1e9 } : {}),
     ...(anyCredits ? { credits } : {}),
     models,
+  };
+}
+
+/**
+ * Aggregate the per-request `usage` parts into a session total. Returns `null`
+ * when no telemetry is present (e.g. a pure-transcript session whose debug-log
+ * was recycled away) so the view can say "unavailable" rather than show zeros.
+ */
+export function summarizeUsage(parts: SessionPart[]): UsageSummary | null {
+  const usage = parts.filter((p): p is UsagePart => p.kind === "usage");
+  if (usage.length === 0) return null;
+  return {
+    ...sumUsage(usage),
     partial: parts.some((p) => p.id.startsWith("tx-")),
   };
+}
+
+/** One rendered transcript row: a normal part, or a per-turn usage badge. */
+export type RenderRow =
+  | { kind: "part"; part: SessionPart }
+  | { kind: "turnUsage"; id: string; usage: UsageTotals };
+
+/**
+ * Interleave a per-turn usage badge into the parts stream: the `usage` parts of
+ * a turn (all the `llm_request`s between one user message and the next) collapse
+ * into a single badge placed at the **end** of that turn — one tag per turn, not
+ * one per request. Turns sourced from the transcript (no telemetry) get none.
+ */
+export function interleaveTurnUsage(parts: SessionPart[]): RenderRow[] {
+  const rows: RenderRow[] = [];
+  let acc: UsagePart[] = [];
+  let turnIdx = 0;
+  const flush = (): void => {
+    if (acc.length === 0) return;
+    rows.push({
+      kind: "turnUsage",
+      id: `turn-usage-${turnIdx++}`,
+      usage: sumUsage(acc),
+    });
+    acc = [];
+  };
+  for (const part of parts) {
+    if (part.kind === "usage") {
+      acc.push(part);
+      continue;
+    }
+    // A new user message closes the previous turn — emit its badge first.
+    if (part.kind === "userMessage") flush();
+    rows.push({ kind: "part", part });
+  }
+  flush(); // trailing (in-flight / last) turn
+  return rows;
 }
 
 /** Compact token counts: `364615` → `365K`, `1_250_000` → `1.3M`, `178` → `178`. */

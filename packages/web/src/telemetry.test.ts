@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SessionPart } from "@cloakcode/protocol";
-import { compactTokens, formatAiu, summarizeUsage } from "./telemetry";
+import {
+  compactTokens,
+  formatAiu,
+  interleaveTurnUsage,
+  summarizeUsage,
+} from "./telemetry";
 
 const usage = (over: Partial<Extract<SessionPart, { kind: "usage" }>>) =>
   ({
@@ -14,6 +19,11 @@ const usage = (over: Partial<Extract<SessionPart, { kind: "usage" }>>) =>
   }) satisfies SessionPart;
 
 const md = (id: string): SessionPart => ({ kind: "markdown", id, text: "hi" });
+const user = (id: string): SessionPart => ({
+  kind: "userMessage",
+  id,
+  text: "go",
+});
 
 describe("summarizeUsage", () => {
   it("returns null when there is no telemetry", () => {
@@ -77,5 +87,41 @@ describe("formatAiu", () => {
     expect(formatAiu(0.42)).toBe("0.42");
     expect(formatAiu(18.9)).toBe("18.9");
     expect(formatAiu(1204)).toBe((1204).toLocaleString());
+  });
+});
+
+describe("interleaveTurnUsage", () => {
+  it("collapses a turn's usage spans into one badge at the end of the turn", () => {
+    const rows = interleaveTurnUsage([
+      user("u0"),
+      usage({ id: "usage-0", outputTokens: 20, nanoAiu: 1_000_000_000 }),
+      usage({ id: "usage-1", outputTokens: 30, nanoAiu: 500_000_000 }),
+      md("m0"),
+      user("u1"),
+      usage({ id: "usage-2", outputTokens: 5 }),
+      md("m1"),
+    ]);
+    // u0 · m0 · [turn0 badge] · u1 · m1 · [turn1 badge]
+    expect(rows.map((r) => r.kind)).toEqual([
+      "part",
+      "part",
+      "turnUsage",
+      "part",
+      "part",
+      "turnUsage",
+    ]);
+    const turn0 = rows[2];
+    if (turn0?.kind !== "turnUsage") throw new Error("expected turnUsage");
+    expect(turn0.usage.requests).toBe(2);
+    expect(turn0.usage.outputTokens).toBe(50);
+    expect(turn0.usage.aiu).toBeCloseTo(1.5, 5);
+    const turn1 = rows[5];
+    if (turn1?.kind !== "turnUsage") throw new Error("expected turnUsage");
+    expect(turn1.usage.requests).toBe(1);
+  });
+
+  it("emits no badge for a turn with no telemetry (transcript history)", () => {
+    const rows = interleaveTurnUsage([user("tx-u0"), md("tx-m0")]);
+    expect(rows.every((r) => r.kind === "part")).toBe(true);
   });
 });

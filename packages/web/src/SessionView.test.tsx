@@ -421,6 +421,9 @@ describe("PendingCard answer submit", () => {
     expect(bar?.textContent).toContain("1.0K in");
     expect(bar?.textContent).toContain("5.00 AIU");
     expect(bar?.textContent).toContain("claude-opus-4.8");
+    // A per-turn badge is also placed at the end of the (debug-log) turn.
+    const badge = document.querySelector(".turn-usage");
+    expect(badge?.textContent).toContain("5.00 AIU");
   });
 
   it("shows a jump-to-latest button when parked above the bottom, and returns on click", () => {
