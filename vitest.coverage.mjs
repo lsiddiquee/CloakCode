@@ -14,7 +14,14 @@
 /**
  * @param {{ exclude?: string[], thresholds?: { statements: number, branches: number, functions: number, lines: number } }} opts
  */
-export function coverage({ exclude = [], thresholds } = {}) {
+export function coverage({
+  exclude = [],
+  // Enforced per-package floor. 85% statements/lines/functions is the headline
+  // gate ("85%+ coverage"); branches sit a little lower (75%) — branch coverage
+  // naturally lags and chasing it yields low-value tests. Glue/entrypoints are
+  // excluded so this measures real logic. Override per package if needed.
+  thresholds = { statements: 85, branches: 75, functions: 85, lines: 85 },
+} = {}) {
   return {
     provider: "v8",
     reporter: ["text-summary", "cobertura", "html"],
@@ -29,6 +36,6 @@ export function coverage({ exclude = [], thresholds } = {}) {
       "src/test-setup.ts",
       ...exclude,
     ],
-    ...(thresholds ? { thresholds } : {}),
+    thresholds,
   };
 }

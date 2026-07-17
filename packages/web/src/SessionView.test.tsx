@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   respond: vi.fn(async (_params: unknown) => {}),
   steer: vi.fn(async (_params: unknown) => {}),
   stop: vi.fn(async (_params: unknown) => {}),
+  decide: vi.fn(async (_params: unknown) => {}),
+  answer: vi.fn(async (_params: unknown) => {}),
 }));
 
 // Stub the bridge so mounting SessionView never opens a real WebSocket and the
@@ -33,8 +35,8 @@ vi.mock("./bridge", () => ({
   respondSession: h.respond,
   steerSession: h.steer,
   stopSession: h.stop,
-  decideSession: async () => {},
-  answerSession: async () => {},
+  decideSession: h.decide,
+  answerSession: h.answer,
 }));
 
 beforeEach(() => {
@@ -44,6 +46,8 @@ beforeEach(() => {
   h.respond.mockClear();
   h.steer.mockClear();
   h.stop.mockClear();
+  h.decide.mockClear();
+  h.answer.mockClear();
 });
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -309,5 +313,80 @@ describe("PendingCard question stepper", () => {
     expect(screen.queryByText(/Question 1 of/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
     expect(screen.getByRole("button", { name: /Send answer/ })).toBeTruthy();
+  });
+});
+
+describe("PendingCard approve/deny", () => {
+  function decisionBlocker(): PendingBlocker {
+    return {
+      toolCallId: "tc-cmd",
+      toolName: "run_in_terminal",
+      createdAt: new Date().toISOString(),
+      awaitingDecision: true,
+      input: { command: "rm -rf build" },
+    };
+  }
+
+  it("denies a pending tool call and locks the buttons", async () => {
+    h.pending = [decisionBlocker()];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(await screen.findByText("Denied ✓")).toBeTruthy();
+    expect(h.decide).toHaveBeenCalledTimes(1);
+    expect(h.decide.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "sess-1",
+      toolCallId: "tc-cmd",
+      decision: "deny",
+    });
+  });
+
+  it("approves a pending tool call", async () => {
+    h.pending = [decisionBlocker()];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(await screen.findByText("Allowed ✓")).toBeTruthy();
+    expect(h.decide.mock.calls[0]?.[0]).toMatchObject({ decision: "allow" });
+  });
+});
+
+describe("PendingCard answer submit", () => {
+  it("submits a structured answer and confirms it was sent", async () => {
+    h.pending = [
+      {
+        toolCallId: "tc-q",
+        toolName: "vscode_askQuestions",
+        resolveId: "tc-q__vscode-2",
+        createdAt: new Date().toISOString(),
+        confirmations: [
+          {
+            kind: "confirmation",
+            id: "q1",
+            prompt: "Proceed?",
+            options: [
+              { id: "y", label: "Yes" },
+              { id: "n", label: "No" },
+            ],
+          },
+        ],
+      },
+    ];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    // Send is gated until an option is chosen.
+    expect(
+      (screen.getByRole("button", { name: /Send answer/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Yes/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send answer/ }));
+
+    expect(await screen.findByText("Answer sent ✓")).toBeTruthy();
+    expect(h.answer).toHaveBeenCalledTimes(1);
+    expect(h.answer.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "sess-1",
+      toolCallId: "tc-q__vscode-2",
+    });
   });
 });

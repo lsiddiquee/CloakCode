@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEvent } from "@cloakcode/protocol";
-import { type ConnState, subscribeSession } from "./bridge";
+import {
+  answerSession,
+  bridgeUrl,
+  type ConnState,
+  decideSession,
+  fetchSessions,
+  respondSession,
+  steerSession,
+  stopSession,
+  subscribeSession,
+} from "./bridge";
 
 type Listener = (ev: unknown) => void;
 
@@ -26,6 +36,16 @@ class MockWebSocket {
 
   close(): void {
     this.emit("close");
+  }
+
+  /** Drive a transport error (its `close` follows in real sockets, drive it too). */
+  triggerError(): void {
+    this.emit("error");
+  }
+
+  /** Deliver a raw, unparsed frame (to exercise the JSON-parse guard). */
+  raw(data: string): void {
+    this.emit("message", { data });
   }
 
   // --- test drivers ---
@@ -192,5 +212,128 @@ describe("subscribeSession", () => {
       inTurn: false,
     });
     expect(turns).toEqual([true, false]);
+  });
+});
+
+describe("bridgeUrl", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("defaults to a same-origin /bridge ws URL", () => {
+    // jsdom serves http://<host>; the derived URL uses ws: on the same host.
+    expect(bridgeUrl()).toBe(`ws://${window.location.host}/bridge`);
+  });
+
+  it("honours the VITE_BRIDGE_URL override", () => {
+    vi.stubEnv("VITE_BRIDGE_URL", "wss://phone.example/bridge");
+    expect(bridgeUrl()).toBe("wss://phone.example/bridge");
+  });
+});
+
+describe("fetchSessions", () => {
+  it("resolves with the validated session list", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    expect(JSON.parse(socket(0).sent[0]!).op).toBe("sessions.list");
+    socket(0).message({ id: "x", ok: true, op: "sessions.list", result: [] });
+    await expect(p).resolves.toEqual([]);
+  });
+
+  it("rejects with the server error message", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    socket(0).message({ id: "x", ok: false, error: { message: "nope" } });
+    await expect(p).rejects.toThrow("nope");
+  });
+
+  it("rejects on an unrecognized response shape", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    socket(0).message({ id: "x", ok: true, op: "something.else" });
+    await expect(p).rejects.toThrow("unexpected response");
+  });
+
+  it("rejects on a non-JSON frame", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).open();
+    socket(0).raw("not json {");
+    await expect(p).rejects.toBeInstanceOf(Error);
+  });
+
+  it("rejects when the socket errors", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    socket(0).triggerError();
+    await expect(p).rejects.toThrow("cannot reach the bridge");
+  });
+
+  it("rejects after the timeout", async () => {
+    const p = fetchSessions("ws://test/bridge");
+    vi.advanceTimersByTime(5000);
+    await expect(p).rejects.toThrow("timed out");
+  });
+});
+
+describe("actuator one-shot RPCs", () => {
+  const ack = (op: string) => ({ id: "x", ok: true, op });
+
+  it("respondSession resolves on ack and sends the right op", async () => {
+    const p = respondSession(
+      { sessionId: "s", toolCallId: "t", text: "go" },
+      "ws://test/bridge",
+    );
+    socket(0).open();
+    const sent = JSON.parse(socket(0).sent[0]!);
+    expect(sent.op).toBe("session.respond");
+    expect(sent.params).toMatchObject({ sessionId: "s", text: "go" });
+    socket(0).message(ack("session.respond"));
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it("decideSession / answerSession / steerSession / stopSession resolve on ack", async () => {
+    const cases: Array<[Promise<void>, string]> = [
+      [
+        decideSession(
+          { sessionId: "s", toolCallId: "t", decision: "allow" },
+          "ws://test/bridge",
+        ),
+        "session.decide",
+      ],
+      [
+        answerSession(
+          { sessionId: "s", toolCallId: "t", answers: [] },
+          "ws://test/bridge",
+        ),
+        "session.answer",
+      ],
+      [
+        steerSession({ sessionId: "s", text: "x" }, "ws://test/bridge"),
+        "session.steer",
+      ],
+      [stopSession({ sessionId: "s" }, "ws://test/bridge"), "session.stop"],
+    ];
+    cases.forEach(([, op], i) => {
+      socket(i).open();
+      expect(JSON.parse(socket(i).sent[0]!).op).toBe(op);
+      socket(i).message(ack(op));
+    });
+    await Promise.all(cases.map(([p]) => p));
+  });
+
+  it("rejects with the server error message", async () => {
+    const p = stopSession({ sessionId: "s" }, "ws://test/bridge");
+    socket(0).open();
+    socket(0).message({ id: "x", ok: false, error: { message: "denied" } });
+    await expect(p).rejects.toThrow("denied");
+  });
+
+  it("rejects when the socket errors", async () => {
+    const p = steerSession({ sessionId: "s", text: "x" }, "ws://test/bridge");
+    socket(0).triggerError();
+    await expect(p).rejects.toThrow("cannot reach the bridge");
+  });
+
+  it("rejects after the timeout", async () => {
+    const p = respondSession({ sessionId: "s", text: "x" }, "ws://test/bridge");
+    vi.advanceTimersByTime(5000);
+    await expect(p).rejects.toThrow("timed out");
   });
 });

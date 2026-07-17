@@ -10,6 +10,7 @@
     "build": "echo '@cloakcode/agent: not started yet (actuator, I4) — no-op'",
     "typecheck": "echo '@cloakcode/agent: not started yet (actuator, I4) — no-op'",
     "lint": "echo '@cloakcode/agent: not started yet (actuator, I4) — no-op'",
-    "test": "echo '@cloakcode/agent: not started yet (actuator, I4) — no-op'"
+    "test": "echo '@cloakcode/agent: not started yet (actuator, I4) — no-op'",
+    "test:coverage": "echo '@cloakcode/agent: not started yet (actuator, I4) — no-op'"
   }
 }
