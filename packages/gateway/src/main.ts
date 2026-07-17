@@ -14,9 +14,13 @@
  *   CLOAKCODE_LOG_LEVEL      trace|debug|info|warn|error (default info; CLOAKCODE_VERBOSE=1 ⇒ debug)
  *   CLOAKCODE_GATEWAY_LOG_FILE  on-disk action log (JSONL); unset → ./cloakcode-gateway.jsonl; "" → off
  *   CLOAKCODE_GATEWAY_TOKEN  provider↔gateway shared secret (extensions present it in their hello); unset → off
+ *   CLOAKCODE_MFA            operator TOTP: off | required; unset → secure by exposure (on when exposed)
+ *   CLOAKCODE_MFA_SECRET_FILE  where the base32 TOTP secret persists; default ~/.cloakcode/operator-totp.secret
  *
- * Security: no app-layer auth yet (bridge auth is deferred) — keep it on
- * loopback + a PRIVATE tunnel; do not expose 0.0.0.0 on an untrusted network.
+ * Security: the provider↔gateway token authenticates extensions; operator
+ * (phone) access is gated by **TOTP** when exposed (F2a). Still keep an
+ * untrusted-network deployment behind a PRIVATE tunnel — do not rely on a wide
+ * `0.0.0.0` bind alone.
  */
 import { networkInterfaces } from "node:os";
 import { existsSync } from "node:fs";
@@ -27,6 +31,15 @@ import { createConsoleLogger, parseLogLevel } from "./console-logger.js";
 import { startGateway } from "./gateway.js";
 import { resolvePortPlan } from "./listen.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
+import { OperatorAuth } from "./operator-auth.js";
+import { otpauthUri } from "./totp.js";
+import {
+  isExposed,
+  loadOrCreateSecret,
+  operatorMfaEnabled,
+  resolveSecretFile,
+} from "./operator-secret.js";
+import { qrTerminal } from "./qr-terminal.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
 // unset → 3543 then ephemeral; 0 → ephemeral; N → lock N (same rule as embedded).
@@ -50,6 +63,21 @@ const logFile =
 // hello to register. Machine-to-machine only (operator/phone auth is separate,
 // docs/05 Q9). Unset/empty → auth OFF (loopback dev).
 const token = process.env["CLOAKCODE_GATEWAY_TOKEN"] || undefined;
+
+// Operator (phone) app-layer auth: TOTP when the hub is exposed (F2a). The
+// secret persists to a 0600 file (a mounted volume in Docker) and is generated
+// on first run; construct the shared gate before startGateway so it applies to
+// every operator connection. Off ⇒ undefined ⇒ open gate (loopback dev).
+const mfaOn = operatorMfaEnabled(process.env, isExposed(host, process.env));
+let operatorAuth: OperatorAuth | undefined;
+let mfaSetup: { secret: string; file: string; created: boolean } | undefined;
+if (mfaOn) {
+  const file = resolveSecretFile(process.env);
+  const { secret, created } = loadOrCreateSecret(file);
+  operatorAuth = new OperatorAuth({ secret });
+  mfaSetup = { secret, file, created };
+}
+
 const logger = createConsoleLogger({
   level:
     parseLogLevel(process.env["CLOAKCODE_LOG_LEVEL"]) ??
@@ -65,6 +93,7 @@ const gateway = await startGateway({
   logger,
   ...(serveDir ? { serveDir } : {}),
   ...(token ? { token } : {}),
+  ...(operatorAuth ? { operatorAuth } : {}),
 });
 console.log(
   `[cloakcode-gateway] listening on ws://${host}:${gateway.port}` +
@@ -80,6 +109,30 @@ console.log(
       : "OFF (no token) — keep on loopback + a private tunnel"
   }`,
 );
+
+// Operator (phone) TOTP status. On FIRST setup only, print the pairing QR + the
+// otpauth URI + the base32 secret so the operator can enrol an authenticator app
+// — intentional one-time stdout for the human at the console (not the action
+// log; the secret is never sent to the logger). On later runs we only say where
+// the secret lives, never reprinting it.
+if (mfaOn && mfaSetup) {
+  console.log(
+    `[cloakcode-gateway] operator auth (TOTP): ON — secret at ${mfaSetup.file}`,
+  );
+  if (mfaSetup.created) {
+    const uri = otpauthUri(mfaSetup.secret);
+    console.log(
+      "[cloakcode-gateway] first-run pairing — scan with your authenticator app:",
+    );
+    console.log(qrTerminal(uri));
+    console.log(`[cloakcode-gateway]   otpauth URI: ${uri}`);
+    console.log(`[cloakcode-gateway]   secret (base32): ${mfaSetup.secret}`);
+  }
+} else {
+  console.log(
+    "[cloakcode-gateway] operator auth (TOTP): OFF (loopback-only) — set CLOAKCODE_MFA=required to force it",
+  );
+}
 
 // The URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where it
 // runs relative to this host (probed from the network interfaces).
@@ -103,6 +156,7 @@ if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
       (l) => console.log(`[devtunnel] ${l}`),
     );
     console.log(`[cloakcode-gateway] phone URL: ${tunnel.url}`);
+    console.log(qrTerminal(tunnel.url));
     gateway.setPhoneUrl(tunnel.url);
   } catch (err) {
     console.error(

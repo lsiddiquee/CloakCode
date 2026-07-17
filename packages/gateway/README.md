@@ -119,6 +119,33 @@ docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/
 - Use any hard-to-guess value; e.g. `openssl rand -hex 32`. The `CLOAKCODE_GATEWAY_TOKEN` env var
   overrides the `cloakcode.gatewayToken` setting on the extension side.
 
+## Operator auth (TOTP)
+
+The **phone → gateway** boundary is gated by a time-based one-time code (RFC 6238 TOTP) whenever the
+hub is **exposed** — a wide bind or a live tunnel. Force it with `CLOAKCODE_MFA=required`, turn it
+off with `CLOAKCODE_MFA=off`; unset means secure-by-exposure (off for pure loopback dev).
+
+**Pair once:** on first run the gateway generates a secret, persists it `0600` to
+`CLOAKCODE_MFA_SECRET_FILE` (default `~/.cloakcode/operator-totp.secret`), and prints a **QR + the
+otpauth URI + the base32 secret** to the console. Scan the QR into an authenticator app (Google
+Authenticator, 1Password, …). The secret is shown **once**; later runs reuse the file and never
+reprint it.
+
+**Each phone logs in** with the current 6-digit code; the gateway returns a signed **session token**
+(12h, or 30d with “remember this device”) so reconnects don't re-prompt until it expires. A reused
+code (replay) and repeated bad codes (lockout) are rejected. The secret is never sent to the phone
+or written to the action log.
+
+In **Docker**, mount a volume so the secret survives container replacement (the image runs as `app`,
+so its home is `/home/app`):
+
+```bash
+docker run -it -p 3543:3543 \
+  -e CLOAKCODE_MFA=required \
+  -v cloakcode-mfa:/home/app/.cloakcode \
+  ghcr.io/lsiddiquee/cloakcode-gateway:latest
+```
+
 ## Configuration (environment variables)
 
 | var                         | default                     | meaning                                                                 |
@@ -129,6 +156,8 @@ docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/
 | `CLOAKCODE_TUNNEL_PROVIDER` | _(none)_                    | Docker only: `github` or `microsoft` for the container's device-code sign-in (required when the image must log in) |
 | `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed → a **stable**, per-machine phone URL                   |
 | `CLOAKCODE_GATEWAY_TOKEN`   | _(off)_                     | provider↔gateway shared secret; extensions must present the same value  |
+| `CLOAKCODE_MFA`             | _(secure by exposure)_      | operator TOTP: `required` to force it, `off` to disable; unset ⇒ **on when the hub is exposed** (wide bind / live tunnel), off for pure loopback |
+| `CLOAKCODE_MFA_SECRET_FILE` | `~/.cloakcode/operator-totp.secret` | where the base32 TOTP secret persists (`0600`); mount it as a volume in Docker |
 | `CLOAKCODE_GATEWAY_LOG_FILE`| `./cloakcode-gateway.jsonl` | on-disk action log (JSONL); set empty to disable                        |
 | `CLOAKCODE_WEB_DIR`         | bundled `web/`              | PWA directory to serve (defaults to the bundled app)                    |
 | `CLOAKCODE_LOG_LEVEL`       | `info`                      | `trace`/`debug`/`info`/`warn`/`error` (`CLOAKCODE_VERBOSE=1` ⇒ `debug`) |
@@ -138,13 +167,18 @@ The gateway logs **provider / operator connect + disconnect** by default; raise 
 
 ## Security
 
-There is **no app-layer auth yet**. The safe postures are:
+The two trust boundaries are authenticated separately:
 
-- **Loopback + a private tunnel** (default host `127.0.0.1`; the Dev Tunnel is private, sign-in
-  required) — recommended.
-- **`0.0.0.0` on a trusted LAN only.** Do not expose it on an untrusted network.
-- Set `CLOAKCODE_GATEWAY_TOKEN` so only extensions holding the shared secret can register as
-  providers (machine-to-machine; never shown to the phone).
+- **Operator (phone) → gateway: TOTP (F2a).** On by default whenever the hub is **exposed** (wide
+  bind or a live tunnel); force it with `CLOAKCODE_MFA=required`, disable with `CLOAKCODE_MFA=off`.
+  See [Operator auth (TOTP)](#operator-auth-totp) — pair once, then each phone logs in with a
+  6-digit code and resumes with a 12h/30d session token.
+- **Provider (extension) → gateway: shared token.** Set `CLOAKCODE_GATEWAY_TOKEN` so only
+  extensions holding the secret can register (machine-to-machine; never shown to the phone).
+
+Still prefer **loopback + a private tunnel** (default host `127.0.0.1`; the Dev Tunnel is private,
+sign-in required) over a wide `0.0.0.0` bind on an untrusted network — TOTP gates control, but a
+private tunnel keeps the surface off the open internet.
 
 ## Build from source
 

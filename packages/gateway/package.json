@@ -29,6 +29,7 @@
   "dependencies": {
     "@cloakcode/protocol": "workspace:*",
     "otpauth": "^9.5.1",
+    "qrcode-generator": "^2.0.4",
     "ws": "^8.18.0"
   },
   "devDependencies": {
