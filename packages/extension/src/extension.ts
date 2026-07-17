@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
+import { buildActuators } from "./actuators.js";
 import { connectGateway, type GatewayClient } from "./gateway-client.js";
 import { resolveConnectionPlan } from "./connection-plan.js";
 import { createOutputChannelLogger } from "./logger.js";
@@ -20,8 +21,6 @@ import {
   type ScannedHash,
 } from "./diagnostics.js";
 import {
-  baseToolCallId,
-  buildCarouselAnswers,
   buildHookConfig,
   defaultSpoolDir,
   hookConfigPath,
@@ -275,106 +274,18 @@ export async function activate(
     spoolDir,
     logger: log,
     ...(surfaceDebounceMs !== undefined ? { surfaceDebounceMs } : {}),
-    respond: async ({ sessionId, text, traceId }) => {
-      // M3b targeted-send PROBE. Instead of only the active chat, focus the
-      // SPECIFIC local session by its resource URI, then submit. Verified in
-      // source: our observed `sessionId` names the transcript AND is exactly
-      // what Copilot base64url-encodes into `vscode-chat-session://local/<id>`
-      // (toolCalling.tsx), and that scheme is a registered editor
-      // (chat.shared.contribution.ts) — so opening it should load THAT session
-      // and `chat.open` should target it. See docs/02.
-      const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      actuatorLog.info("actuator.respond", { sessionId, traceId });
-      await vscode.commands.executeCommand("vscode.open", uri);
-      await vscode.commands.executeCommand("workbench.action.chat.open", {
-        query: text,
-      });
-    },
-    steer: async ({ sessionId, text, traceId }) => {
-      // Redirect the IN-FLIGHT turn (docs/02 §4.28 / research §7): focus the
-      // session, PREFILL the composer without sending (`isPartialQuery`), then
-      // fire `steerWithMessage` — VS Code folds the text into the running turn
-      // at the next tool-call boundary. Window-local/focus-dependent, like
-      // respond; a remote-operator action, never genuine-local intent.
-      const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      actuatorLog.info("actuator.steer", { sessionId, traceId });
-      await vscode.commands.executeCommand("vscode.open", uri);
-      await vscode.commands.executeCommand("workbench.action.chat.open", {
-        query: text,
-        isPartialQuery: true,
-      });
-      await vscode.commands.executeCommand(
-        "workbench.action.chat.steerWithMessage",
-      );
-    },
-    stop: async ({ sessionId, text, traceId }) => {
-      // Cancel the in-flight turn (`chat.cancel` is no-arg, acts on the focused
-      // session; research §7). With a follow-up `text`, send it as a fresh
-      // prompt afterwards (stop-and-send). A remote-operator action.
-      const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      actuatorLog.info("actuator.stop", {
-        sessionId,
-        send: Boolean(text),
-        traceId,
-      });
-      await vscode.commands.executeCommand("vscode.open", uri);
-      await vscode.commands.executeCommand("workbench.action.chat.cancel");
-      // Force-stop abandons the in-flight turn's pending tool call(s): we're
-      // ignoring that blocker (dismissing the popover), so GC its spool file NOW
-      // on the same signal instead of waiting for `isSuperseded` to catch it on
-      // the next turn (fixes the force-stop spool leak; docs/02 §4.19).
-      await removeSpoolForSession(spoolDir, sessionId);
-      if (text) {
-        await vscode.commands.executeCommand("workbench.action.chat.open", {
-          query: text,
-        });
-      }
-    },
-    decide: async ({ sessionId, toolCallId, decision, traceId }) => {
-      // Resolve VS Code's OWN native tool confirmation via command, targeted
-      // by the session URI (EXACT-match, so a wrong id is a safe no-op; docs/
-      // 02 4.16). No per-tool id: acceptTool/skipTool act on that session's
-      // first waiting confirmation; `toolCallId` is logged for traceability.
-      if (!sessionId) {
-        actuatorLog.warn("actuator.decide_no_session");
-        return;
-      }
-      const uri = vscode.Uri.parse(localChatSessionUri(sessionId));
-      const cmd =
-        decision === "allow"
-          ? "workbench.action.chat.acceptTool"
-          : "workbench.action.chat.skipTool";
-      actuatorLog.info("actuator.decide", {
-        sessionId,
-        decision,
-        toolCallId,
-        traceId,
-      });
-      await vscode.commands.executeCommand(cmd, { sessionResource: uri });
-    },
-    answer: async ({ sessionId, toolCallId, answers, traceId }) => {
-      // Deliver the operator's STRUCTURED answer to the pending question
-      // carousel (docs/02 §4.16). `toolCallId` is the carousel `resolveId`,
-      // but VS Code keys it on the BASE id (`chatStreamToolCallId` =
-      // `id.split('__vscode')[0]`, inlineChatIntent.ts) while the hook hands
-      // us the RAW suffixed id — so try BOTH forms; the non-matching fire
-      // no-ops. This resolves `vscode_askQuestions` with `{answers}` instead
-      // of cancelling it (what a chat-text answer does).
-      const base = baseToolCallId(toolCallId);
-      const ids = base === toolCallId ? [toolCallId] : [toolCallId, base];
-      actuatorLog.info("actuator.answer", {
-        sessionId,
-        questions: answers.length,
-        traceId,
-      });
-      for (const rid of ids) {
-        await vscode.commands.executeCommand(
-          "_chat.notifyQuestionCarouselAnswer",
-          rid,
-          buildCarouselAnswers(rid, answers),
-        );
-      }
-    },
+    // The remote-operator actuators live in ./actuators.ts (pure wiring over
+    // injected host ports, so their command sequences are unit-tested).
+    ...buildActuators({
+      execute: (command, ...args) =>
+        vscode.commands.executeCommand(command, ...args),
+      sessionUri: (sessionId) =>
+        vscode.Uri.parse(localChatSessionUri(sessionId)),
+      removeSpool: async (sessionId) => {
+        await removeSpoolForSession(spoolDir, sessionId);
+      },
+      log: actuatorLog,
+    }),
   };
 
   // Always-visible one-click entry to the phone link (QR) — the low-friction way
