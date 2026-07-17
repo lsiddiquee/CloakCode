@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authKind,
+  beginEnrolment,
   clearStoredToken,
+  emitEnrolmentRequired,
   emitNeedsAuth,
   getStoredToken,
+  onEnrolmentRequired,
   onNeedsAuth,
   storeToken,
   submitAuthCode,
@@ -69,6 +72,9 @@ describe("authKind", () => {
     expect(authKind({ id: "1", ok: false, needsAuth: true, error: {} })).toBe(
       "needs",
     );
+    expect(
+      authKind({ id: "1", ok: false, enrolmentRequired: true, error: {} }),
+    ).toBe("enrol");
     expect(authKind({ id: "1", ok: true, op: "sessions.list" })).toBe("other");
     expect(authKind(null)).toBe("other");
   });
@@ -91,6 +97,54 @@ describe("needs-auth bus", () => {
     off();
     emitNeedsAuth();
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("enrolment bus", () => {
+  it("invokes the current handler and unsubscribes", () => {
+    const cb = vi.fn();
+    const off = onEnrolmentRequired(cb);
+    emitEnrolmentRequired();
+    expect(cb).toHaveBeenCalledTimes(1);
+    off();
+    emitEnrolmentRequired();
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("beginEnrolment", () => {
+  it("returns the provisioning (Option A)", async () => {
+    const p = beginEnrolment("ws://x/bridge");
+    const ws = MockWebSocket.instances[0]!;
+    ws.open();
+    expect(JSON.parse(ws.sent[0]!).op).toBe("enrol.begin");
+    ws.message({
+      id: "enrol-0",
+      ok: true,
+      op: "enrol.begin",
+      otpauthUri: "otpauth://totp/x?secret=ABC",
+      secret: "ABC",
+    });
+    await expect(p).resolves.toEqual({
+      otpauthUri: "otpauth://totp/x?secret=ABC",
+      secret: "ABC",
+    });
+  });
+
+  it("returns empty provisioning in strict mode (secret withheld)", async () => {
+    const p = beginEnrolment("ws://x/bridge");
+    const ws = MockWebSocket.instances[0]!;
+    ws.open();
+    ws.message({ id: "enrol-0", ok: true, op: "enrol.begin" });
+    await expect(p).resolves.toEqual({});
+  });
+
+  it("rejects on an error frame", async () => {
+    const p = beginEnrolment("ws://x/bridge");
+    const ws = MockWebSocket.instances[0]!;
+    ws.open();
+    ws.message({ id: "enrol-0", ok: false, error: { message: "nope" } });
+    await expect(p).rejects.toThrow("nope");
   });
 });
 

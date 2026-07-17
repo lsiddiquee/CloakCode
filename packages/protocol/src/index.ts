@@ -309,6 +309,16 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       remember: z.boolean().optional(),
     }),
   }),
+  z.object({
+    id: z.string(),
+    traceId: z.string().optional(),
+    op: z.literal("enrol.begin"),
+    // First-run TOTP enrolment (docs/04, F2a): while MFA is enabled but
+    // UNCONFIRMED the ingress serves only enrolment — this returns the
+    // provisioning (otpauth URI + secret) so the client renders the pairing QR.
+    // Refused once enrolment is confirmed (the secret is never re-revealed).
+    params: z.object({}).optional(),
+  }),
 ]);
 export type RpcRequest = z.infer<typeof rpcRequestSchema>;
 
@@ -321,6 +331,10 @@ export const rpcErrorSchema = z.object({
   // authenticated yet — the client should prompt for a TOTP code / resume with a
   // stored token via the `auth` op (docs/04, F2a).
   needsAuth: z.boolean().optional(),
+  // Set when MFA is enabled but NOT yet confirmed — the ingress serves only
+  // enrolment. The client should run the pairing flow (`enrol.begin` → scan →
+  // verify a code via `auth`) before any session op (docs/04, F2a).
+  enrolmentRequired: z.boolean().optional(),
 });
 export type RpcError = z.infer<typeof rpcErrorSchema>;
 
@@ -338,6 +352,23 @@ export const sessionAuthResponseSchema = z.object({
   expiresAt: z.number().optional(),
 });
 export type SessionAuthResponse = z.infer<typeof sessionAuthResponseSchema>;
+
+/**
+ * Ack for `enrol.begin` — the TOTP provisioning for first-run pairing: the
+ * `otpauthUri` an authenticator app scans (rendered as a QR by the client) and
+ * the base32 `secret` for manual entry. Both are **omitted in strict mode**
+ * (Option B), where the QR is shown out-of-band (gateway console / VS Code) and
+ * the browser only submits the verify code. Served only while unconfirmed; the
+ * operator then verifies a code (via `auth`) to finish enabling MFA. docs/04, F2a.
+ */
+export const enrolBeginResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("enrol.begin"),
+  otpauthUri: z.string().optional(),
+  secret: z.string().optional(),
+});
+export type EnrolBeginResponse = z.infer<typeof enrolBeginResponseSchema>;
 
 /** Successful `sessions.list` response. */
 export const sessionsListResponseSchema = z.object({

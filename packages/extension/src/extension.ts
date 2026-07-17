@@ -45,7 +45,13 @@ import {
 } from "@cloakcode/gateway";
 import { classifyRemote, parseDevcontainerName } from "./identity.js";
 import { tunnelFixAction } from "./tunnel-policy.js";
-import { embeddedExposed, loadOrCreateOperatorSecret } from "./operator-mfa.js";
+import {
+  embeddedExposed,
+  isOperatorConfirmed,
+  loadOrCreateOperatorSecret,
+  markOperatorConfirmed,
+  resetOperatorSecret,
+} from "./operator-mfa.js";
 
 /**
  * The VS Code extension host entry — the ONLY place that imports `vscode`. It
@@ -295,8 +301,10 @@ export async function activate(
   // Operator app-layer auth (F2a): the embedded bridge binds loopback, so a phone
   // only reaches it through a tunnel — auto-require TOTP when one is configured
   // (`cloakcode.mfa: auto`), or force/disable it. The secret lives in
-  // SecretStorage; a fresh one auto-opens the pairing QR. Built once and reused
-  // (its replay guard persists across bridge restarts); undefined ⇒ auth off.
+  // SecretStorage; enrolment is browser-driven in the app (the QR appears there),
+  // so a fresh secret starts UNCONFIRMED (enrolment mode). In strict mode the QR
+  // is shown out-of-band via the VS Code webview instead. Built once and reused
+  // (replay guard + confirmed state persist across bridge restarts); undefined ⇒ off.
   let operatorAuth: OperatorAuth | undefined;
   let operatorSecret: string | undefined;
   const resolveOperatorAuth = async (
@@ -308,18 +316,30 @@ export async function activate(
     });
     if (!mfaEnabledFromMode(cfgNow.get<string>("mfa"), exposed))
       return undefined;
+    const strictEnrol = cfgNow.get<string>("mfaEnrolment") === "strict";
     if (!operatorSecret) {
       const { secret, created } = await loadOrCreateOperatorSecret(
         context.secrets,
       );
       operatorSecret = secret;
-      if (created) {
-        log.info("operator.mfa_provisioned");
-        showMfaPairing(secret);
+      const confirmed = isOperatorConfirmed(context.globalState);
+      if (created || !confirmed) {
+        log.info("operator.mfa_enrolment", { strict: strictEnrol });
+        // Strict (Option B): reveal the QR only in VS Code (out-of-band). Browser
+        // (Option A): the app shows the QR on connect — nothing to open here.
+        if (strictEnrol) showMfaPairing(secret);
       }
     }
     if (!operatorAuth)
-      operatorAuth = new OperatorAuth({ secret: operatorSecret });
+      operatorAuth = new OperatorAuth({
+        secret: operatorSecret,
+        confirmed: isOperatorConfirmed(context.globalState),
+        strictEnrol,
+        onConfirmed: () => {
+          void markOperatorConfirmed(context.globalState);
+          log.info("operator.mfa_confirmed");
+        },
+      });
     return operatorAuth;
   };
 
@@ -633,6 +653,27 @@ export async function activate(
       // one if none exists yet. Operator-facing; the secret stays in this window.
       const { secret } = await loadOrCreateOperatorSecret(context.secrets);
       showMfaPairing(secret);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.resetMfa", async () => {
+      // Lockout recovery: wipe the secret + confirmed flag so a fresh secret is
+      // generated and the app re-enrols. Requires a reconnect to rebuild the gate.
+      const pick = await vscode.window.showWarningMessage(
+        "Reset CloakCode operator TOTP? Your paired devices stop working and you " +
+          "must re-pair from the app.",
+        { modal: true },
+        "Reset",
+      );
+      if (pick !== "Reset") return;
+      await resetOperatorSecret(context.secrets, context.globalState);
+      operatorSecret = undefined;
+      operatorAuth = undefined;
+      await reconnect("mfa-reset");
+      void vscode.window.showInformationMessage(
+        "CloakCode operator TOTP reset — open the app to re-pair.",
+      );
     }),
   );
 

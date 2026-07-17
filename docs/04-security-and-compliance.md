@@ -147,11 +147,29 @@ CloakCode has two trust boundaries, authenticated **differently** — do not con
   (close after 5 bad codes). The gate is shared (`OperatorAuth`/`OperatorGate` in
   `@cloakcode/gateway`) and identical for the embedded bridge and the standalone hub; unset ⇒ open
   (the loopback-only default). **Enabled by exposure** (wide bind / live tunnel), off for pure
-  loopback. **Secret provisioning is per-host** (being wired): the **embedded** bridge keeps the
-  base32 secret in VS Code **SecretStorage** (OS keychain), provisioned via a QR webview + confirm;
-  the **hosted** gateway keeps it in `CLOAKCODE_MFA_SECRET_FILE` (`~/.cloakcode/`, `0600`; a mounted
-  volume in Docker), toggled by `CLOAKCODE_MFA=off|required`, printed once as a console QR. The
-  secret is **never** sent to the operator, embedded in a link/QR beyond first-run pairing, or logged.
+  loopback. The **stateless** bearer token means no server-side session store — each fresh socket
+  re-presents the token (an `auth` prelude) and the gate re-verifies it, so reconnects/phone-sleep/
+  multiple tabs need no shared state.
+- **First-run enrolment (browser-driven).** A freshly generated secret is **unconfirmed**: the
+  ingress enters **enrolment mode** and serves _only_ pairing — every session op is refused with
+  `enrolmentRequired` until a code is verified, so **no session data is exposed before MFA is truly
+  on**. The client calls `enrol.begin` to get the otpauth provisioning, renders the QR to scan into
+  an authenticator app, then verifies one code (`auth`), which **confirms** enrolment (persisted) and
+  logs in. This closes the "unconfirmed window" hole — nothing sensitive is served while unconfirmed.
+  Rationale for revealing the secret over the bridge during enrolment: you deploy this yourself on a
+  trusted network, so the brief enrolment window is not a meaningful attack surface — the point is to
+  be secured _before_ the link goes onto a public network.
+  - **Strict enrolment (Option B, opt-in):** `CLOAKCODE_MFA_ENROL=strict` / `cloakcode.mfaEnrolment:
+    strict` never sends the secret over the wire — the QR is shown **out-of-band** (gateway console /
+    VS Code webview) and the browser only submits the verify code.
+- **Secret provisioning is per-host.** The **embedded** bridge keeps the base32 secret in VS Code
+  **SecretStorage** (OS keychain), the confirmed flag in `globalState`. The **hosted** gateway keeps
+  `{secret, confirmed}` in `CLOAKCODE_MFA_SECRET_FILE` (`~/.cloakcode/`, `0600`; a mounted volume in
+  Docker), toggled by `CLOAKCODE_MFA=off|required`. The secret is **never** logged, and (outside
+  first-run pairing / strict out-of-band) never re-revealed.
+- **Lockout recovery.** Regenerate the secret to re-enrol from scratch: `CLOAKCODE_MFA_RESET=1` on
+  the gateway (or delete the secret file); **CloakCode: Reset Operator Access (TOTP)** in VS Code. A
+  running gateway can't be reset remotely (no remote admin) — only by whoever controls the process.
 
 ## Threat-model quick list
 

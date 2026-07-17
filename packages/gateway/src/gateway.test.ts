@@ -360,7 +360,7 @@ describe("startGateway operator auth (F2a — TOTP)", () => {
   // RFC 6238 seed; code "287082" is valid at t=59s.
   const secret = Secret.fromLatin1("12345678901234567890").base32;
   const operatorAuth = (): OperatorAuth =>
-    new OperatorAuth({ secret, now: () => 59_000 });
+    new OperatorAuth({ secret, now: () => 59_000, confirmed: true });
 
   it("refuses a session op with needsAuth until the operator authenticates", async () => {
     gw = await startGateway({ port: 0, operatorAuth: operatorAuth() });
@@ -417,5 +417,49 @@ describe("startGateway operator auth (F2a — TOTP)", () => {
     }
     await closed;
     expect(operator.readyState).toBe(WebSocket.CLOSED);
+  });
+});
+
+describe("startGateway operator enrolment (F2a — unconfirmed)", () => {
+  const secret = Secret.fromLatin1("12345678901234567890").base32;
+  // Unconfirmed auth → enrolment mode.
+  const enrolling = (): OperatorAuth =>
+    new OperatorAuth({ secret, now: () => 59_000 });
+
+  it("serves only enrolment until a code confirms it", async () => {
+    gw = await startGateway({ port: 0, operatorAuth: enrolling() });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+
+    // A session op is refused with enrolmentRequired.
+    operator.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
+    const refused = await nextMessage(operator);
+    expect(refused).toMatchObject({
+      id: "1",
+      ok: false,
+      enrolmentRequired: true,
+    });
+
+    // enrol.begin returns the provisioning (Option A).
+    operator.send(JSON.stringify({ id: "2", op: "enrol.begin" }));
+    const prov = await nextMessage(operator);
+    expect(prov).toMatchObject({
+      id: "2",
+      ok: true,
+      op: "enrol.begin",
+      secret,
+    });
+    expect(prov["otpauthUri"]).toContain("otpauth://");
+
+    // A verified code confirms enrolment + logs in, then sessions.list works.
+    operator.send(
+      JSON.stringify({ id: "3", op: "auth", params: { code: "287082" } }),
+    );
+    const ack = await nextMessage(operator);
+    expect(ack).toMatchObject({ id: "3", ok: true, op: "auth" });
+    expect(typeof ack["token"]).toBe("string");
+
+    operator.send(JSON.stringify({ id: "4", op: "sessions.list", params: {} }));
+    expect((await nextMessage(operator))["ok"]).toBe(true);
+    operator.close();
   });
 });

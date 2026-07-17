@@ -904,7 +904,7 @@ describe("startBridge operator auth (F2a — TOTP)", () => {
   // Public test vector, not a real secret.
   const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // gitleaks:allow
   const operatorAuth = (): OperatorAuth =>
-    new OperatorAuth({ secret, now: () => 59_000 });
+    new OperatorAuth({ secret, now: () => 59_000, confirmed: true });
 
   /** Open a persistent socket and exchange frames turn-by-turn. */
   function chat(port: number): {

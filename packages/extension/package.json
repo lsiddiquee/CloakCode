@@ -84,6 +84,11 @@
         "command": "cloakcode.showMfaPairing",
         "title": "Pair Operator Access (TOTP)",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.resetMfa",
+        "title": "Reset Operator Access (TOTP)",
+        "category": "CloakCode"
       }
     ],
     "configuration": {
@@ -155,7 +160,17 @@
           ],
           "default": "auto",
           "scope": "machine",
-          "markdownDescription": "Operator **two-factor auth** (TOTP) for the phone → embedded-bridge connection (docs/04, F2a). `auto` (default): require a code **only when the bridge is exposed** — i.e. a tunnel is configured (`cloakcode.tunnel: devtunnel` or a `CLOAKCODE_PUBLIC_URL`); off for pure loopback dev. `required`: always require it. `off`: never (loopback + a private tunnel only). On first enable, CloakCode generates a secret (stored in the OS keychain via SecretStorage) and opens a **pairing QR** — scan it with an authenticator app; run **CloakCode: Pair Operator Access (TOTP)** to show it again. The phone then enters the 6-digit code once and resumes with a saved token. The secret is never sent to the phone or logged."
+          "markdownDescription": "Operator **two-factor auth** (TOTP) for the phone → embedded-bridge connection (docs/04, F2a). `auto` (default): require a code **only when the bridge is exposed** — i.e. a tunnel is configured (`cloakcode.tunnel: devtunnel` or a `CLOAKCODE_PUBLIC_URL`); off for pure loopback dev. `required`: always require it. `off`: never (loopback + a private tunnel only). On first enable, CloakCode generates a secret (stored in the OS keychain via SecretStorage) and you finish pairing **in the app**: it shows a QR to scan into an authenticator, then you enter one code to enable MFA. Run **CloakCode: Reset Operator Access (TOTP)** if you're ever locked out. The secret is never sent to the phone or logged."
+        },
+        "cloakcode.mfaEnrolment": {
+          "type": "string",
+          "enum": [
+            "browser",
+            "strict"
+          ],
+          "default": "browser",
+          "scope": "machine",
+          "markdownDescription": "How the operator-TOTP **pairing secret** is delivered during first-run enrolment (docs/04, F2a). `browser` (default): the app shows the QR when you connect — fully phone-driven. `strict` (high security): the secret is **never** sent over the wire; the QR is shown only here in VS Code (**CloakCode: Pair Operator Access (TOTP)**) and the app just takes the verify code. Use `strict` if you don't want the pairing secret to traverse the tunnel even once."
         }
       }
     }

@@ -16,6 +16,7 @@ import {
 } from "@cloakcode/protocol";
 import {
   authKind,
+  emitEnrolmentRequired,
   emitNeedsAuth,
   getStoredToken,
   tokenAuthFrame,
@@ -83,6 +84,11 @@ export function fetchSessions(
       if (kind === "needs") {
         emitNeedsAuth();
         reject(new Error("authentication required"));
+        return;
+      }
+      if (kind === "enrol") {
+        emitEnrolmentRequired();
+        reject(new Error("enrolment required"));
         return;
       }
       const ok = sessionsListResponseSchema.safeParse(raw);
@@ -171,6 +177,11 @@ export function subscribeSession(
         onError("authentication required");
         return;
       }
+      if (kind === "enrol") {
+        emitEnrolmentRequired();
+        onError("enrolment required");
+        return;
+      }
       const frame = sessionSubscribeEventSchema.safeParse(raw);
       if (frame.success) {
         if (frame.data.kind === "event") {
@@ -253,6 +264,11 @@ function oneShotRpc(
       if (kind === "needs") {
         emitNeedsAuth();
         reject(new Error("authentication required"));
+        return;
+      }
+      if (kind === "enrol") {
+        emitEnrolmentRequired();
+        reject(new Error("enrolment required"));
         return;
       }
       if (isOk(raw)) {

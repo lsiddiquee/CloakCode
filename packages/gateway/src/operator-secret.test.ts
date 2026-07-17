@@ -6,6 +6,7 @@ import {
   isExposed,
   loadOrCreateSecret,
   operatorMfaEnabled,
+  persistConfirmed,
   resolveSecretFile,
 } from "./operator-secret.js";
 
@@ -69,15 +70,20 @@ describe("resolveSecretFile", () => {
 });
 
 describe("loadOrCreateSecret", () => {
-  it("generates + persists a 0600 secret on first run, then loads it back", () => {
+  it("generates + persists a 0600 unconfirmed secret on first run, then loads it back", () => {
     const file = join(tmp(), "nested", "operator-totp.secret");
     const first = loadOrCreateSecret(file);
     expect(first.created).toBe(true);
+    expect(first.confirmed).toBe(false);
     expect(first.secret).toMatch(/^[A-Z2-7]+$/); // base32
     expect(statSync(file).mode & 0o777).toBe(0o600);
 
     const second = loadOrCreateSecret(file);
-    expect(second).toEqual({ secret: first.secret, created: false });
+    expect(second).toEqual({
+      secret: first.secret,
+      confirmed: false,
+      created: false,
+    });
   });
 
   it("regenerates when the file is present but empty", () => {
@@ -86,5 +92,38 @@ describe("loadOrCreateSecret", () => {
     const res = loadOrCreateSecret(file);
     expect(res.created).toBe(true);
     expect(res.secret.length).toBeGreaterThan(0);
+  });
+
+  it("treats a legacy plain-base32 file as already confirmed", () => {
+    const file = join(tmp(), "legacy.secret");
+    writeFileSync(file, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n"); // gitleaks:allow
+    const res = loadOrCreateSecret(file);
+    expect(res).toEqual({
+      secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", // gitleaks:allow
+      confirmed: true,
+      created: false,
+    });
+  });
+
+  it("persistConfirmed flips the flag, and a later load sees it", () => {
+    const file = join(tmp(), "confirm.secret");
+    const first = loadOrCreateSecret(file);
+    expect(first.confirmed).toBe(false);
+    persistConfirmed(file);
+    expect(loadOrCreateSecret(file)).toEqual({
+      secret: first.secret,
+      confirmed: true,
+      created: false,
+    });
+  });
+
+  it("reset regenerates a fresh unconfirmed secret (lockout recovery)", () => {
+    const file = join(tmp(), "reset.secret");
+    const first = loadOrCreateSecret(file);
+    persistConfirmed(file);
+    const reset = loadOrCreateSecret(file, { reset: true });
+    expect(reset.created).toBe(true);
+    expect(reset.confirmed).toBe(false);
+    expect(reset.secret).not.toBe(first.secret);
   });
 });

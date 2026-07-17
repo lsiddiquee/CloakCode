@@ -79,22 +79,69 @@ export function resolveSecretFile(
 export interface SecretLoad {
   /** The base32 TOTP secret. */
   secret: string;
+  /** Whether first-run enrolment has been verified (else enrolment mode). */
+  confirmed: boolean;
   /** True when this run generated + persisted a fresh secret (⇒ show the QR). */
   created: boolean;
 }
 
+interface SecretFile {
+  secret: string;
+  confirmed: boolean;
+}
+
+/** Read the secret file: the `{secret, confirmed}` JSON, or a legacy plain
+ *  base32 file (pre-enrolment) treated as already-confirmed. */
+function readSecretFile(file: string): SecretFile | undefined {
+  if (!existsSync(file)) return undefined;
+  const raw = readFileSync(file, "utf8").trim();
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { secret?: unknown }).secret === "string" &&
+      (parsed as { secret: string }).secret
+    ) {
+      const p = parsed as { secret: string; confirmed?: unknown };
+      return { secret: p.secret, confirmed: Boolean(p.confirmed) };
+    }
+  } catch {
+    // not JSON — fall through to the legacy plain-secret path
+  }
+  return { secret: raw, confirmed: true };
+}
+
+function writeSecretFile(file: string, data: SecretFile): void {
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, `${JSON.stringify(data)}\n`, { mode: 0o600 });
+}
+
 /**
- * Load the base32 secret from `file`, or generate one and persist it `0600`
- * (creating the parent dir `0700`) when the file is absent or empty. Returning
- * `created` lets the runner print the pairing QR exactly once — on first setup.
+ * Load the `{secret, confirmed}` from `file`, or generate a fresh secret and
+ * persist it `0600` (dir `0700`) when the file is absent/empty or `reset` is set.
+ * A fresh secret is **unconfirmed** (enrolment mode) until a code is verified;
+ * `created` lets the runner show the pairing QR. `reset` regenerates for lockout
+ * recovery (`CLOAKCODE_MFA_RESET`).
  */
-export function loadOrCreateSecret(file: string): SecretLoad {
-  if (existsSync(file)) {
-    const secret = readFileSync(file, "utf8").trim();
-    if (secret) return { secret, created: false };
+export function loadOrCreateSecret(
+  file: string,
+  opts: { reset?: boolean } = {},
+): SecretLoad {
+  if (!opts.reset) {
+    const existing = readSecretFile(file);
+    if (existing) return { ...existing, created: false };
   }
   const secret = generateTotpSecret();
-  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, `${secret}\n`, { mode: 0o600 });
-  return { secret, created: true };
+  writeSecretFile(file, { secret, confirmed: false });
+  return { secret, confirmed: false, created: true };
+}
+
+/** Persist that enrolment was verified (the `OperatorAuth.onConfirmed` hook). */
+export function persistConfirmed(file: string): void {
+  const existing = readSecretFile(file);
+  if (existing && !existing.confirmed) {
+    writeSecretFile(file, { secret: existing.secret, confirmed: true });
+  }
 }

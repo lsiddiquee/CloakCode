@@ -790,6 +790,17 @@ body {
   gap: 8px;
   font-size: 13px;
 }
+.qr {
+  background: #fff;
+  align-self: center;
+  padding: 12px;
+  border-radius: 8px;
+  line-height: 0;
+}
+.qr svg {
+  width: 220px;
+  height: 220px;
+}
 .hint.error {
   color: #f85149;
 }
