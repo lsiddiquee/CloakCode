@@ -32,6 +32,12 @@ export interface OperatorAuthOptions {
    * the verify code. Default `false` (browser-driven Option A).
    */
   strictEnrol?: boolean;
+  /**
+   * Human label for the authenticator entry (the otpauth `account`), so multiple
+   * gateways are distinguishable in the app — e.g. "office" vs "home". Defaults to
+   * "gateway".
+   */
+  label?: string;
 }
 
 export interface CodeResult {
@@ -54,6 +60,7 @@ export class OperatorAuth {
   readonly #rememberTtl: number;
   readonly #onConfirmed?: () => void;
   readonly #strictEnrol: boolean;
+  readonly #label: string;
   #confirmed: boolean;
   #lastStep = -1;
 
@@ -64,6 +71,7 @@ export class OperatorAuth {
     this.#rememberTtl = opts.rememberTtlMs ?? OPERATOR_REMEMBER_TTL_MS;
     this.#confirmed = opts.confirmed ?? false;
     this.#strictEnrol = opts.strictEnrol ?? false;
+    this.#label = opts.label?.trim() || "gateway";
     if (opts.onConfirmed) this.#onConfirmed = opts.onConfirmed;
   }
 
@@ -79,7 +87,10 @@ export class OperatorAuth {
 
   /** Pairing provisioning: the otpauth URI (for the QR) + the base32 secret. */
   provisioning(): { otpauthUri: string; secret: string } {
-    return { otpauthUri: otpauthUri(this.#secret), secret: this.#secret };
+    return {
+      otpauthUri: otpauthUri(this.#secret, this.#label),
+      secret: this.#secret,
+    };
   }
 
   /** Mark enrolment verified and persist it (idempotent). */

@@ -39,6 +39,16 @@ describe("OperatorAuth", () => {
     expect(res.expiresAt).toBe(59_000 + 30 * 24 * 60 * 60 * 1000);
   });
 
+  it("labels the otpauth provisioning so gateways are distinguishable", () => {
+    const uri = new OperatorAuth({ secret: SECRET, now, label: "office" })
+      .provisioning()
+      .otpauthUri.toLowerCase();
+    expect(uri).toContain("office");
+    const dflt = new OperatorAuth({ secret: SECRET, now }).provisioning()
+      .otpauthUri;
+    expect(dflt).toContain("gateway");
+  });
+
   it("verifies a token it issued and rejects garbage", () => {
     const a = auth();
     const { token } = a.submitCode("287082");

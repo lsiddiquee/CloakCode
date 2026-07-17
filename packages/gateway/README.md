@@ -136,6 +136,11 @@ reprint it.
 code (replay) and repeated bad codes (lockout) are rejected. The secret is never sent to the phone
 or written to the action log.
 
+**Running more than one gateway** (e.g. office + home)? Set a distinct `CLOAKCODE_INSTANCE_ID` on
+each (`office`, `home`, …) so the authenticator entries read `CloakCode: office` / `CloakCode: home`
+instead of two indistinguishable `CloakCode: gateway`s. The VS Code extension stores each gateway's
+issued token separately (per URL), so switching `cloakcode.gatewayUrl` between them never re-pairs.
+
 In **Docker**, mount a volume so the secret survives container replacement (the image runs as `app`,
 so its home is `/home/app`):
 
@@ -154,10 +159,12 @@ docker run -it -p 3543:3543 \
 | `CLOAKCODE_GATEWAY_PORT`    | `3543`                      | listen port — also the port segment of the Dev Tunnel URL; `0` = ephemeral |
 | `CLOAKCODE_TUNNEL`          | _(off)_                     | `devtunnel` → auto-host a **private** tunnel and print the phone URL     |
 | `CLOAKCODE_TUNNEL_PROVIDER` | _(none)_                    | Docker only: `github` or `microsoft` for the container's device-code sign-in (required when the image must log in) |
-| `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed → a **stable**, per-machine phone URL                   |
+| `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed **and** authenticator label (e.g. `office`/`home`, so multiple gateways are distinguishable in your app) |
 | `CLOAKCODE_GATEWAY_TOKEN`   | _(off)_                     | provider↔gateway shared secret; extensions must present the same value  |
 | `CLOAKCODE_MFA`             | _(secure by exposure)_      | operator TOTP: `required` to force it, `off` to disable; unset ⇒ **on when the hub is exposed** (wide bind / live tunnel), off for pure loopback |
 | `CLOAKCODE_MFA_SECRET_FILE` | `~/.cloakcode/operator-totp.secret` | where the base32 TOTP secret persists (`0600`); mount it as a volume in Docker |
+| `CLOAKCODE_MFA_ENROL`       | `browser`                   | `strict` never sends the pairing secret over the wire (console QR only)  |
+| `CLOAKCODE_MFA_RESET`       | _(off)_                     | `1` regenerates the secret (lockout recovery) and re-enters enrolment    |
 | `CLOAKCODE_GATEWAY_LOG_FILE`| `./cloakcode-gateway.jsonl` | on-disk action log (JSONL); set empty to disable                        |
 | `CLOAKCODE_WEB_DIR`         | bundled `web/`              | PWA directory to serve (defaults to the bundled app)                    |
 | `CLOAKCODE_LOG_LEVEL`       | `info`                      | `trace`/`debug`/`info`/`warn`/`error` (`CLOAKCODE_VERBOSE=1` ⇒ `debug`) |

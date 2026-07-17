@@ -10,7 +10,7 @@
  *   CLOAKCODE_GATEWAY_PORT   port: unset → 3543 (ephemeral if taken); 0 → ephemeral; N → lock N
  *   CLOAKCODE_WEB_DIR        directory of the built PWA to serve (optional)
  *   CLOAKCODE_TUNNEL         `devtunnel` to auto-host a private tunnel (optional)
- *   CLOAKCODE_INSTANCE_ID    tunnel-name seed (default "gateway")
+ *   CLOAKCODE_INSTANCE_ID    tunnel-name seed + authenticator label (default "gateway"; e.g. office/home)
  *   CLOAKCODE_LOG_LEVEL      trace|debug|info|warn|error (default info; CLOAKCODE_VERBOSE=1 ⇒ debug)
  *   CLOAKCODE_GATEWAY_LOG_FILE  on-disk action log (JSONL); unset → ./cloakcode-gateway.jsonl; "" → off
  *   CLOAKCODE_GATEWAY_TOKEN  provider↔gateway shared secret (extensions present it in their hello); unset → off
@@ -45,6 +45,9 @@ import {
 import { qrTerminal } from "./qr-terminal.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
+// Per-instance identifier: the Dev-Tunnel name seed AND the authenticator label
+// (so multiple gateways are distinguishable in the app — e.g. "office" vs "home").
+const seed = process.env["CLOAKCODE_INSTANCE_ID"] || "gateway";
 // unset → 3543 then ephemeral; 0 → ephemeral; N → lock N (same rule as embedded).
 const portPlan = resolvePortPlan(process.env["CLOAKCODE_GATEWAY_PORT"]);
 // Serve the PWA from CLOAKCODE_WEB_DIR, else a `web/` folder colocated with the
@@ -89,6 +92,7 @@ if (mfaOn) {
     secret,
     confirmed,
     strictEnrol,
+    label: seed,
     onConfirmed: () => persistConfirmed(file),
   });
   mfaSetup = { secret, file, confirmed, strict: strictEnrol };
@@ -143,7 +147,7 @@ if (mfaOn && mfaSetup) {
     if (mfaSetup.strict) {
       // Strict (Option B): the secret is NEVER revealed over the wire — the
       // console is the out-of-band pairing channel. Scan here, verify in the app.
-      const uri = otpauthUri(mfaSetup.secret);
+      const uri = otpauthUri(mfaSetup.secret, seed);
       console.log(
         "[cloakcode-gateway] strict enrolment — scan this QR, then enter a code in the app:",
       );
@@ -178,7 +182,6 @@ for (const { url, label } of connectionUrls(
 }
 
 if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
-  const seed = process.env["CLOAKCODE_INSTANCE_ID"] || "gateway";
   try {
     const tunnel = await startDevTunnel(
       gateway.port,

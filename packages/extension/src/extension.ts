@@ -332,7 +332,7 @@ export async function activate(
         log.info("operator.mfa_enrolment", { strict: strictEnrol });
         // Strict (Option B): reveal the QR only in VS Code (out-of-band). Browser
         // (Option A): the app shows the QR on connect — nothing to open here.
-        if (strictEnrol) showMfaPairing(secret);
+        if (strictEnrol) showMfaPairing(secret, instanceId);
       }
     }
     if (!operatorAuth)
@@ -340,6 +340,7 @@ export async function activate(
         secret: operatorSecret,
         confirmed: isOperatorConfirmed(context.globalState),
         strictEnrol,
+        label: instanceId,
         onConfirmed: () => {
           void markOperatorConfirmed(context.globalState);
           log.info("operator.mfa_confirmed");
@@ -681,7 +682,7 @@ export async function activate(
       // Re-show the operator-TOTP pairing QR (SecretStorage secret), generating
       // one if none exists yet. Operator-facing; the secret stays in this window.
       const { secret } = await loadOrCreateOperatorSecret(context.secrets);
-      showMfaPairing(secret);
+      showMfaPairing(secret, instanceId);
     }),
   );
 
@@ -1002,14 +1003,17 @@ function showLinkPanel(url: string): void {
  * an authenticator app. Operator-facing only — the secret never leaves this
  * window (docs/04, F2a).
  */
-function showMfaPairing(secretBase32: string): void {
+function showMfaPairing(secretBase32: string, label: string): void {
   const panel = vscode.window.createWebviewPanel(
     "cloakcodeMfaPairing",
     "CloakCode — Pair Operator Access",
     vscode.ViewColumn.Active,
     { enableScripts: false },
   );
-  panel.webview.html = mfaPairingHtml(otpauthUri(secretBase32), secretBase32);
+  panel.webview.html = mfaPairingHtml(
+    otpauthUri(secretBase32, label),
+    secretBase32,
+  );
 }
 
 /** Default instanceId: `<env-kind>:<workspace-or-devcontainer-name>`. */
