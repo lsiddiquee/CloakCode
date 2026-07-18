@@ -37,12 +37,18 @@ RUN PNPM_VERSION="$(node -p "require('./package.json').packageManager.split('@')
 FROM node:24-slim AS runtime
 # Bundle the Microsoft Dev Tunnels CLI so `CLOAKCODE_TUNNEL=devtunnel` works out
 # of the box (inert unless enabled). It's a self-contained .NET single-file that
-# needs libsecret at runtime; invariant globalization avoids a libicu dependency.
-# Downloaded directly (arch-aware) rather than via the aka.ms installer, which
-# does its own `sudo apt-get` + PATH edits we don't want in an image layer.
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+# needs libsecret AND ICU (libicu) at runtime: the current build aborts on
+# startup under invariant globalization ("Couldn't find a valid ICU package…" —
+# its LimitsCommand reads TimeZoneInfo/CurrentUICulture), so we install the ICU
+# runtime instead of relying on DOTNET_SYSTEM_GLOBALIZATION_INVARIANT. The libicu
+# package is SO-versioned per Debian release (libicu72/76/…), so resolve whatever
+# this base image ships rather than pinning. Downloaded directly (arch-aware)
+# rather than via the aka.ms installer, which does its own `sudo apt-get` + PATH
+# edits we don't want in an image layer.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates libsecret-1-0 curl \
+  && apt-get install -y --no-install-recommends \
+       "$(apt-cache search --names-only '^libicu[0-9]+$' | cut -d' ' -f1 | sort -V | tail -n1)" \
   && arch="$(dpkg --print-architecture)" \
   && case "$arch" in \
        amd64) t=linux-x64 ;; \
