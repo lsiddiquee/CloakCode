@@ -519,7 +519,13 @@ the critical path.
   `stitchEvents` finds where the debug-log opens in it (its first user message) and prepends
   the earlier transcript events — the debug-log leads from there. Ids are namespaced
   (`tx-`/`dl-`) so the two logs don't collide, and the debug-log's opening turn is fixed so
-  the live tail stays resume-safe.
+  the live tail stays resume-safe. **Alignment robustness fix (2026-07-18):** `alignBoundary`
+  originally required the debug-log's **whole** user-message sequence to match the transcript
+  exactly — but VS Code rehydrates the transcript with **reordered/retimed** turns, so a later
+  turn diverges and the match failed, silently dropping ALL history (live: 705-turn transcript
+  → 0 `tx-` parts, and no `partial` flag). Now it aligns on the debug-log's **opening** message
+  (longest-prefix among repeats, still F7-safe) — same session → 10,935 `tx-` parts restored,
+  `partial=true` (docs/02.5 §4.14).
 - **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
   mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
   view can lag or omit the newest content (transcript flush lag §4.23; debug-log truncation §4.21) and

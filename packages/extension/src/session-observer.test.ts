@@ -103,6 +103,40 @@ describe("stitchEvents", () => {
       "dl-msg-1",
     ]);
   });
+
+  it("stitches at the opening even when LATER turns diverge (rehydration reorder, regression)", () => {
+    // The debug-log opens on q2, but its NEXT message (q-x) differs from the
+    // transcript's (q3) — VS Code rehydrated the transcript with reordered/retimed
+    // turns (docs/06). A full-sequence match would fail and silently DROP all
+    // earlier history; aligning on the opening (longest prefix) keeps it.
+    const tx = [
+      u("user-0", "q0"),
+      m("msg-0"),
+      u("user-1", "q1"),
+      m("msg-1"),
+      u("user-2", "q2"),
+      m("msg-2"),
+      u("user-3", "q3"),
+      m("msg-3"),
+    ];
+    const dl = [u("user-0", "q2"), m("msg-0"), u("user-1", "q-x"), m("msg-1")];
+    const out = stitchEvents(tx, dl);
+    const ids = out.flatMap((e) => (e.type === "append" ? [e.part.id] : []));
+    // Older turns (before q2) are prepended as tx-; the debug-log leads from q2.
+    expect(ids.slice(0, 4)).toEqual([
+      "tx-user-0",
+      "tx-msg-0",
+      "tx-user-1",
+      "tx-msg-1",
+    ]);
+    expect(ids.slice(4)).toEqual([
+      "dl-user-0",
+      "dl-msg-0",
+      "dl-user-1",
+      "dl-msg-1",
+    ]);
+    expect(ids.some((i) => i.startsWith("tx-"))).toBe(true); // history preserved ⇒ partial
+  });
 });
 
 const jsonl = (lines: object[]): string =>
