@@ -61,11 +61,13 @@ spool, keyed by `session_id` (= observer sessionId), and pushes a `pending` snap
 `PostToolUse` it drops the entry and re-pushes.
 
 **Dedup is automatic** via the base `toolCallId` — the hook's `tool_use_id` with its
-`__vscode-<n>` suffix stripped equals the transcript's `toolCallId`. The extension computes
-`visible = spoolPending − transcriptToolCallIds`, so the instant an answer flushes the tool to
-the transcript, the overlay drops it and it appears in **history** instead — never both at
-once. The client renders history as today plus a **"Needs your input"** overlay; questions
-reuse the `confirmation` part, approvals show `toolName` + command.
+`__vscode-<n>` suffix stripped equals the transcript's `toolCallId`. A finished call leaves the
+overlay when the hook's `PostToolUse` **deletes** its spool file (primary), with a later-turn
+supersede (`isSuperseded`) as the backstop for a dangling leftover; the tool then appears in
+**history** from the transcript instead. (We deliberately do **not** retire on the tool's own
+`tool.execution_start` landing in the transcript — a `run_in_terminal` approval writes that while it
+is still awaiting the operator.) The client renders history as today plus a **"Needs your input"**
+overlay; questions reuse the `confirmation` part, approvals show `toolName` + command.
 
 - **The phone is never a hard dependency.** The same card renders on the desktop localhost
   browser too; if the phone is slow, the local user answers in native VS Code and the overlay
@@ -155,10 +157,13 @@ _every_ window of an environment, all writing the same spool. To avoid append ra
 `O_APPEND` is only atomic < ~4KB, and `tool_input` can exceed that), each pending blocker is its
 own file `<baseToolCallId>.json`: `PreToolUse` **writes** it, `PostToolUse` **deletes** it, so a
 blocker is pending iff its file exists. Separate files = no shared-log race, no matter how many
-windows fire. A missed delete can't strand a card — the transcript-subtraction dedup (the shared
-`isRetired` predicate) hides it, and the follower **self-heals** by unlinking any file whose tool
-has already flushed to the transcript (§4.6), so stale files can't accumulate. As a fast path,
-when a session has no spool file the follower skips reading/parsing the transcript entirely.
+windows fire. A missed delete can't strand a card for long — the follower **self-heals** by
+unlinking any file the session has advanced **past** (a later turn — `isSuperseded`), so stale
+files can't accumulate. (Retirement is deliberately **not** keyed on the tool's own
+`tool.execution_start` landing in the transcript: a `run_in_terminal` approval writes that
+immediately, while still awaiting the operator, so keying on it would delete a live blocker.) As a
+fast path, when a session has no spool file the follower skips reading/parsing the transcript
+entirely.
 
 The hook spools **every** tool call (`spoolRecordFor` — interactive tools as questions, the rest
 as `awaitingDecision` approvals), since it runs before VS Code’s approve/confirm decision and

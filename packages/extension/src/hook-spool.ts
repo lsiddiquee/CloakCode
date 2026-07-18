@@ -284,25 +284,6 @@ export async function removeSpoolForSession(
   return mine.map((r) => baseToolCallId(r.toolCallId));
 }
 
-/** Collect the base `toolCallId`s already present in a transcript body. */
-export function transcriptToolCallIds(content: string): Set<string> {
-  const ids = new Set<string>();
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let raw: { type?: string; data?: { toolCallId?: unknown } };
-    try {
-      raw = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-    if (raw.type === "tool.execution_start" && raw.data?.toolCallId != null) {
-      ids.add(baseToolCallId(String(raw.data.toolCallId)));
-    }
-  }
-  return ids;
-}
-
 /**
  * The newest turn-boundary timestamp in a transcript body: the max ISO
  * `timestamp` over `user.message` + `assistant.turn_start` events (a turn
@@ -333,28 +314,19 @@ export function newestTurnTs(content: string): string | undefined {
 }
 
 /**
- * A spool record is _retired_ once its tool has landed in the transcript (its
- * base `toolCallId` appears there). Per §4.6 interactive events flush at
- * completion, so transcript presence ⟹ the tool finished — the single source of
- * truth for "this blocker is done", used both to drop it from the overlay and to
- * self-heal a spool file whose `PostToolUse` delete failed.
- */
-export function isRetired(
-  record: SpoolRecord,
-  transcriptIds: ReadonlySet<string>,
-): boolean {
-  return transcriptIds.has(baseToolCallId(record.toolCallId));
-}
-
-/**
  * A spool record is _superseded_ once the session has advanced to a LATER turn
  * than when the blocker was recorded (`newestTurn` > the record's `ts`). This
  * clears an orphaned card - a tool call with no end because the turn was
  * cancelled or the window closed before `PostToolUse` - the moment new activity
  * happens, with no restart and no timer. A genuinely LIVE blocker is safe: the
  * transcript lags the in-flight turn (4.6), so its turn events are OLDER than the
- * record and nothing supersedes it until the session really moves on. See
- * docs/02 4.19.
+ * record and nothing supersedes it until the session really moves on. This is the
+ * ONLY causal retirement signal for the overlay + self-heal — we deliberately do
+ * NOT retire on the tool's `tool.execution_start` landing in the transcript,
+ * because a `run_in_terminal` (and any non-interactive) approval writes its start
+ * IMMEDIATELY while still awaiting the operator, so that would delete/hide a live
+ * blocker. `PostToolUse` deleting the spool file is the primary cleanup; this is
+ * the backstop for a dangling leftover. See docs/02 4.19.
  */
 export function isSuperseded(
   record: SpoolRecord,
@@ -365,23 +337,25 @@ export function isSuperseded(
 
 /**
  * Compute the live-pending overlay for one session: every spool record for that
- * session (each file = a live blocker), minus any already flushed to the
- * transcript (belt-and-suspenders dedup so a missed delete can't strand a card).
- * Replace-snapshot semantics — the caller pushes the whole list. The overlay's
- * place in the pipeline — a separate replace-channel riding alongside the seq'd
- * history, deduped against the transcript — is the observer design in docs/03
- * ("Rendering a long backlog" / the pending overlay).
+ * session (each file = a live blocker) the session has not yet advanced PAST
+ * (`isSuperseded` — a genuinely later turn). Replace-snapshot semantics — the
+ * caller pushes the whole list. A finished call is removed by the hook's
+ * `PostToolUse` deleting its spool file (primary), with supersession as the
+ * backstop for a dangling file whose delete never fired. We do NOT dedup on the
+ * tool's `tool.execution_start` appearing in the transcript: a `run_in_terminal`
+ * (and any non-interactive) approval writes its start IMMEDIATELY while still
+ * awaiting the operator, so that would hide a live blocker. The overlay is a
+ * separate replace-channel riding alongside the seq'd history (docs/03 "the
+ * pending overlay").
  */
 export function computePendingBlockers(
   records: readonly SpoolRecord[],
   sessionId: string,
-  transcriptIds: ReadonlySet<string> = new Set(),
   newestTurn?: string,
 ): PendingBlocker[] {
   const pending = new Map<string, PendingBlocker>();
   for (const r of records) {
     if (r.sessionId !== sessionId) continue;
-    if (isRetired(r, transcriptIds)) continue;
     if (isSuperseded(r, newestTurn)) continue;
     const base = baseToolCallId(r.toolCallId);
     pending.set(base, {
@@ -482,18 +456,19 @@ export class SpoolFollower {
     }
 
     const content = await readOrEmpty(this.transcriptFile);
-    const transcriptIds = transcriptToolCallIds(content);
     const newestTurn = newestTurnTs(content);
     if (this.stopped) return;
 
-    // Self-heal: a spool file whose tool already completed (its toolCallId is in
-    // the transcript — §4.6, interactive events land there at completion) is
-    // stale; the hook's PostToolUse delete must have failed. Unlink it so it
-    // stops costing dedup compute on every pump instead of lingering forever.
-    // (Idempotent under concurrent followers; the dedup below already hides it.)
-    const stale = mine.filter(
-      (r) => isRetired(r, transcriptIds) || isSuperseded(r, newestTurn),
-    );
+    // Self-heal: a spool file the session has advanced PAST (a genuinely later
+    // turn started — `isSuperseded`) is a dangling leftover whose `PostToolUse`
+    // delete never fired (turn cancelled / broke mid-tool). Unlink it so it stops
+    // costing compute on every pump. We deliberately do NOT retire on the tool's
+    // `tool.execution_start` landing in the transcript: for `run_in_terminal`
+    // (and any non-interactive approval) the start is written IMMEDIATELY while
+    // the call is still awaiting the operator, so that would delete a LIVE blocker
+    // before it ever surfaces. `PostToolUse` is the primary delete; supersession
+    // is the backstop. (Idempotent under concurrent followers.)
+    const stale = mine.filter((r) => isSuperseded(r, newestTurn));
     await Promise.all(
       stale.map((r) =>
         fs
@@ -528,9 +503,7 @@ export class SpoolFollower {
       waits.length ? Math.max(0, Math.min(...waits)) : undefined,
     );
 
-    this.emit(
-      computePendingBlockers(mature, this.sessionId, transcriptIds, newestTurn),
-    );
+    this.emit(computePendingBlockers(mature, this.sessionId, newestTurn));
   }
 
   private emit(blockers: PendingBlocker[]): void {

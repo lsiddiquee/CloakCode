@@ -85,13 +85,12 @@ spool is a **fixed per-environment directory** (`~/.cloakcode/spool`, computed b
 no env handoff), **one file per blocker** (write on `PreToolUse`, delete on `PostToolUse`) so
 concurrent windows never race. Only **interactive** tools are spooled; routing is by
 `session_id`; a **late subscriber gets the current snapshot on subscribe** (phone need not be
-open when the question fires); and the follower **self-heals** stale files via the shared
-`isRetired` predicate, with a fast path that skips the transcript parse when nothing is pending.
+open when the question fires); and the follower **self-heals** stale files via the `isSuperseded`
+predicate (a later turn), with a fast path that skips the transcript parse when nothing is pending.
 
-- _Residual edge:_ a session that **crashes mid-question** — before the interactive event ever
-  flushes to the transcript — leaves a spool file that neither `PostToolUse` nor the
-  transcript-subtraction/`isRetired` self-heal can retire. Mitigated by mtime session liveness
-  dropping dead sessions from the list; a spool TTL/GC is a later option if it bites.
+- _Residual edge:_ a session that **crashes mid-question** — before any later turn — leaves a spool
+  file that neither `PostToolUse` nor the `isSuperseded` self-heal can retire. Mitigated by mtime
+  session liveness dropping dead sessions from the list; a spool TTL/GC is a later option if it bites.
 
 #### M3b — Remote answering (SHIPPED 2026-07-10)
 
@@ -329,9 +328,11 @@ the critical path.
   (2026-07-15).** The hook writes a spool entry on `PreToolUse` and deletes it on `PostToolUse`; a
   turn STOPPED mid-tool (force-stop button OR `workbench.action.chat.cancel`) never fires
   `PostToolUse`, so the file LINGERS (verified: 3 leaked after live stop-tests). Tracking does **not**
-  regress — `SpoolFollower` → `computePendingBlockers` filters every lingering entry via `isRetired`
-  (tool present in the transcript) AND `isSuperseded` (a later turn happened — built for exactly "a
-  tool call with no end because the turn was cancelled", docs/02 §4.19), both wired. So the overlay
+  regress — `SpoolFollower` → `computePendingBlockers` filters every lingering entry via
+  `isSuperseded` (a later turn happened — built for exactly "a tool call with no end because the turn
+  was cancelled", docs/02 §4.19). (An earlier `isRetired` also filtered on the tool's
+  `tool.execution_start` being in the transcript, but that fires while a `run_in_terminal` approval
+  is still LIVE, so it hid real approvals — removed 2026-07-18; §4.20.) So the overlay
   self-heals on the next turn and never shows a phantom blocker. (The stopped turn also has NO
   `assistant.turn_end` — the orphaned `tool.execution_start` jumps straight to the next
   `user.message`.) The gap is only that the leaked files are never unlinked. Follow-up: GC spool
