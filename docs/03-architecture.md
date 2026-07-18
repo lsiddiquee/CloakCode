@@ -75,6 +75,37 @@ overlay; questions reuse the `confirmation` part, approvals show `toolName` + co
 - **Now built — remote approval (surface + debounce), below.** Remote resolution upgrades the
   notifier; it needs no take-control and never blocks a tool.
 
+### Core operator flows (the map) — read this first
+
+> CloakCode exists for these five remote actions. Each is an on-disk/hook **signal** →
+> `@cloakcode/protocol` **op** → a VS Code **command** run in the owning window. The blocker chain
+> is: `PreToolUse` hook → per-session spool file → `SpoolFollower` → gateway relay → phone (**only
+> while subscribed to that session**) → `session.*` op → command. Delivery is **window-local** (the
+> actuator runs where the bridge/provider runs) and **subscribe-scoped** (the pending card pushes
+> only to a phone viewing that session — there is no cross-session popup yet: docs/05 "Session list
+> is not live" + Web Push). When something "doesn't fire", walk this chain in order.
+
+| Flow | Signal | Protocol op | VS Code command | Detail | Don't-regress gotcha | Test |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Approve / deny** a tool call | hook `PreToolUse` → spool `awaitingDecision` | `session.decide {toolCallId, decision}` | `chat.acceptTool` / `skipTool` (by session URI) | _Remote approval_ | Surfacing retires **only** on `PostToolUse` delete or a later turn (`isSuperseded`) — **never** on the tool's own `execution_start` landing in the transcript. A `run_in_terminal` writes its start while still awaiting approval, so that would hide the live card (regressed 2026-07-18). §4.20 | `hook-spool.test.ts` |
+| **Answer a question** | hook `PreToolUse` (interactive tool) → spool question | `session.answer {toolCallId, answers}` | `_chat.notifyQuestionCarouselAnswer` | _Remote approval_ | Free-text-only answer ⇒ **bare string** (else `[object Object]`); multi-select ⇒ `selectedValues`. §4.16/§4.17 | `hook-spool.test.ts`, `actuators.test.ts` |
+| **Send / queue** next | composer | `session.respond {text}` | `chat.open {query}` (auto-queues mid-turn) | _Mid-turn flag_ | Gated by `inTurn`. | `actuators.test.ts` |
+| **Steer** (mid-turn) | composer while `inTurn` | `session.steer {text}` | `chat.open {query, isPartialQuery:true}` → `steerWithMessage` | _Mid-turn flag_ | Leaves **no** on-disk marker (reads as a plain `user.message`). | `actuators.test.ts` |
+| **Stop** / **Stop & send** | composer while `inTurn` | `session.stop {}` / `session.stop {text}` | `chat.cancel` (then `chat.open {query}` for stop-and-send) | _Mid-turn flag_ | A stopped turn has **no** `turn_end`; it leaks a spool file that the `isSuperseded` self-heal sweeps on the next turn. | `actuators.test.ts` |
+
+**Visibility rules that gate these (also easy to regress):**
+
+- **Owned vs read-only** — a session is actuatable only by the window that owns its `workspaceHash`
+  (`sessions.list` stamps `owned`); the client removes every action on a read-only session.
+- **Embedded vs gateway** — the operator-TOTP commands (**Pair/Reset Operator Access**) apply to the
+  **embedded** bridge only and are gated by the `cloakcode.embedded` context key; **Sign in to
+  Gateway** is the gateway-mode complement. A reachable-but-auth-blocked gateway does **not** fall
+  back to embedded (`GatewayAuthRequiredError`) — it waits for sign-in. Manifest `when`/command
+  changes need a **window reload** to take effect (docs/06 "Extension changes need a rebuild +
+  reload").
+- **`inTurn` gating** — steer / stop / queue are offered only while a turn is open; the flag streams
+  live over `session.subscribe` (`{kind:"turn"}`), so the composer flips without a list refresh.
+
 ### Remote approval (surface + debounce)
 
 Remote **approval** upgrades the notifier from read-only awareness to remote resolution without
@@ -97,8 +128,8 @@ earlier design (docs/02 §4.15/§4.16) is superseded.
 - **Debounce surfacing (anti-flicker).** Because the hook fires before VS Code decides, an
   auto-approved call would briefly show then vanish. The observer **debounces** surfacing by
   `cloakcode.surfaceDebounceMs` (default **3 s**): a call VS Code auto-approves/answers within the
-  window is retired (its id lands in the transcript, or a later turn supersedes it) before it ever
-  shows. Applies to both questions and approvals. A _slow_ auto-approved tool can’t be told apart
+  window is retired (its `PostToolUse` deletes the spool file, or a later turn supersedes it) before
+  it ever shows. Applies to both questions and approvals. A _slow_ auto-approved tool can’t be told
   from a waiting one on disk (the §4.6 lag), so it shows a transient card until it completes —
   non-harmful (its buttons no-op); the client carries a standing disclaimer that a call may already
   be auto-resolved.

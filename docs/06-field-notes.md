@@ -138,9 +138,21 @@ Base: `~/.vscode-server/data/User/`
   won't find it. Vendored VS Code source anchor = `.local/research/vscode/extensions/copilot`
   (Copilot Chat is **built into core VS Code**; `microsoft/vscode-copilot-chat` was archived
   2026-05-20 — do not anchor on it).
-- **Extension changes need a bundle + reload.** `pnpm --filter @cloakcode/extension bundle` (the
-  JS-API bundler) then reload the Extension Dev Host; the packaged PWA has Vite HMR off →
-  hard-refresh. TDD the pure layers (protocol/gateway) with a failing test first.
+- **Extension changes need a rebuild + reload — the PACKAGED install path bites twice.** Two
+  distinct flows: (a) the **F5 Extension Dev Host** — `pnpm --filter @cloakcode/extension bundle`,
+  then reload the host (packaged PWA has Vite HMR off → hard-refresh). (b) a **real install**
+  (`pnpm --filter @cloakcode/extension package` → `./dist/extension/install.sh`) — you MUST
+  **rebuild the VSIX _and_ reload the window**. VS Code reads `package.json` `contributes.*`
+  (commands, **menus**, `when` clauses, settings) only at extension **LOAD**, so a manifest change
+  needs the reload, not just a reinstall. **Symptom (cost real time twice, 2026-07-18):** a
+  code/manifest fix "doesn't work" — palette commands still show/hide by the OLD rules, or old
+  behaviour runs — because `install.sh` reinstalled a **STALE `dist/*.vsix`** (built before the fix)
+  and/or the window wasn't reloaded. **Verify against the INSTALLED manifest, not the source:**
+  `~/.vscode-server/extensions/rexwel.cloakcode-*/package.json` (e.g. `grep commandPalette`). Same
+  version number ⇒ `install.sh` uses `--force`, but the RELOAD is what swaps it in. **Rule:** after
+  any extension change → rebuild the VSIX → reinstall → **reload the window** → confirm the installed
+  manifest/behaviour, before concluding anything is broken. TDD the pure layers (protocol/gateway)
+  with a failing test first.
 - **Storage is EPHEMERAL here (overlay).** A container rebuild wipes `~/.vscode-server`
   workspaceStorage (transcripts + debug-logs) **and** `/memories/`. Durable records must live in
   git (`docs/`), local-only WIP in `.local/`. Transcripts GC to ~20 and rehydrate from the client
@@ -188,6 +200,18 @@ Base: `~/.vscode-server/data/User/`
   the gateway `Dockerfile` now just run `pnpm install --frozen-lockfile` (the old `--registry=…npmjs.org/`
   flags and `printf … > .npmrc` step were removed). Do **not** re-commit an `.npmrc` or re-add a `--registry`
   override; if you resolve through a private feed, put it in `~/.npmrc` and let the hook clean the lockfile.
+- **Building the gateway Docker image on a restricted network (2026-07-18).** The build container has
+  **no `~/.npmrc`**, so it defaults to public `registry.npmjs.org` — which fails on a corporate network
+  where only an internal feed is reachable (symptom: TLS `handshake_failure`, or the FROM/apt work but
+  the pnpm step can't resolve). Two facts baked into the image build: (1) **`corepack` can't fetch pnpm
+  from a mirror** — it requests `<registry>/pnpm/<version>` (a non-standard path the Microsoft
+  package-feed proxy 404s), so the `build` stage installs pnpm via a **plain `npm i -g pnpm@<pin>`**
+  (an ordinary package every feed serves), pinned to the root `packageManager` field. (2) An **opt-in**
+  `ARG NPM_REGISTRY` (empty ⇒ public npm, so CI/contributors are unchanged) sets `npm config set
+  registry` for both the pnpm bootstrap and `pnpm install`; pass it via
+  `scripts/docker-gateway.sh --registry "$(npm config get registry)"` (or `--network host` for the
+  common WSL2 MTU/TLS-drop case). This opt-in ARG is **not** the committed-`--registry`-default the
+  lockfile note forbids — the default stays public npm; do not hardcode a non-empty default.
 - **`devtunnel user show` exits 0 even when NOT signed in** (verified 2026-07-16, CLI v1.0.1972).
 - **`devtunnel user show` exits 0 even when NOT signed in** (verified 2026-07-16, CLI v1.0.1972).
   It prints `Logged in as <user> using <provider>.` vs `Not logged in.` but the **exit code is 0
@@ -200,5 +224,10 @@ Base: `~/.vscode-server/data/User/`
   `-d` device-code, `-g` GitHub, no flag = Microsoft. The Docker image downloads the binary directly
   (arch-aware, `linux-x64`/`linux-arm64` from `tunnelsassetsprod.blob.core.windows.net/cli/<t>-devtunnel`)
   rather than the `aka.ms/DevTunnelCliInstall` script (which does its own `sudo apt-get` + `~/bin` PATH
-  edits); runtime needs `libsecret-1-0`, and `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` avoids a libicu
-  dependency.
+  edits); runtime needs `libsecret-1-0` **and ICU (`libicu`)**. The current devtunnel build (v1.0.x,
+  .NET single-file) **aborts on startup under invariant globalization** (`Couldn't find a valid ICU
+  package…` — its `LimitsCommand` reads `TimeZoneInfo`/`CurrentUICulture`) and **ignores**
+  `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, so the image now **installs the ICU runtime** instead of
+  relying on the invariant flag (removed 2026-07-18). `libicu` is SO-versioned per Debian release
+  (`libicu72` bookworm / `libicu76` trixie / …), so the Dockerfile resolves whichever the base image
+  ships via `apt-cache search --names-only '^libicu[0-9]+$' | sort -V | tail -n1` rather than pinning.
