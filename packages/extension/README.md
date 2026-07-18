@@ -94,9 +94,18 @@ Run from the Command Palette (prefix **CloakCode:**):
 | **Set Up Phone Tunnel**                  | Guided Dev Tunnel setup (install + sign-in).         |
 | **Reconnect**                            | Re-establish the bridge / gateway connection.        |
 | **Set Instance ID**                      | Name this machine for a stable, distinct phone URL.  |
+| **Pair Operator Access (TOTP)**          | Show the QR to enrol an authenticator for phone auth. _Embedded mode only._ |
+| **Reset Operator Access (TOTP)**         | Regenerate the phone-auth TOTP secret (lockout recovery). _Embedded mode only._ |
+| **Sign in to Gateway**                   | Enter a TOTP code to authenticate this window with a gateway. _Gateway mode only._ |
 | **Install / Repair Copilot Hook**        | (Re)install the notifier hook.                       |
 | **Remove Copilot Hook (all workspaces)** | Remove the per-environment hook.                     |
 | **Show Diagnostics**                     | Dump current status for troubleshooting.             |
+
+**Mode-gated commands.** The Command Palette hides commands that don't apply to the current mode
+(via the `cloakcode.embedded` context key): the two **Operator Access (TOTP)** commands manage the
+**embedded** bridge's own phone auth and appear **only when this window runs the embedded gateway**;
+**Sign in to Gateway** appears **only in gateway mode** (`cloakcode.gatewayUrl` set). See _Sharing
+one hub across windows_ below.
 
 ## Naming this instance (the instance id)
 
