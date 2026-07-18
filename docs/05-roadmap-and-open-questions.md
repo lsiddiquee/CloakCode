@@ -217,7 +217,8 @@ the critical path.
     only, which can be recycled/rebuilt (§4.22) with **no on-disk trace** — so it silently undercounts
     a wiped session, and the wipe case is undetectable from disk (the complete count lives only in VS
     Code's unreadable ChatModel; docs/02.5 §4.14). Interim (SHIPPED 2026-07-18): the bar **always**
-    caveats — firm **partial** on a confirmed stitch, else soft **partial?**. To improve: look for a
+    shows an **ⓘ** disclaimer (counts are debug-log-based; VS Code's Session Cost is authoritative),
+    plus a firm **partial** chip on a confirmed stitch. To improve: look for a
     signal that earlier turns existed (e.g. the debug-log's `session_start` turn index vs the
     transcript's; the chronicle `session-store.db` turn/`copilotUsageNanoAiu` totals if they survive a
     rebuild; or a renderer-side read of the ChatModel's own cost — same reachability question as

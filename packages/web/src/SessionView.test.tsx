@@ -426,12 +426,11 @@ describe("PendingCard answer submit", () => {
     expect(badge?.textContent).toContain("5.00 AIU");
   });
 
-  it("shows a soft 'partial?' caveat when there is no stitched history (completeness can't be confirmed)", async () => {
+  it("always shows the ⓘ info marker; no partial chip when history is not stitched", async () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     act(() => {
-      // Only a debug-log usage part, no `tx-` stitched history → not provably
-      // partial, but the on-disk log can still have been recycled, so the bar
-      // must always carry a caveat (here the softer "partial?").
+      // Only a debug-log usage part, no `tx-` stitched history → no firm partial,
+      // but the ⓘ marker (counts are debug-log-based) is always present.
       h.emitEvent({
         type: "append",
         seq: 0,
@@ -446,9 +445,9 @@ describe("PendingCard answer submit", () => {
         },
       });
     });
-    await screen.findByText("partial?");
-    const chip = document.querySelector(".usage-partial-soft");
-    expect(chip?.textContent).toBe("partial?");
+    await screen.findByText("ⓘ");
+    expect(document.querySelector(".usage-info")).toBeTruthy();
+    expect(document.querySelector(".usage-partial")).toBeNull(); // not stitched
   });
 
   it("shows a jump-to-latest button when parked above the bottom, and returns on click", () => {

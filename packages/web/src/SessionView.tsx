@@ -343,12 +343,11 @@ export function SessionView({
 
 /**
  * Compact session-telemetry bar (docs/02 §4.14): total tokens, AI Units, request
- * count, and the model(s). The totals are a **best-effort** sum of the on-disk
- * telemetry (the debug log), which can be recycled/rebuilt with no on-disk trace
- * (docs/02 §4.22) — so it can undercount and we can never prove it's complete.
- * A caveat chip is therefore ALWAYS shown: a firm **partial** when we have
- * positive evidence (transcript-stitched history, which carries no telemetry),
- * else a softer **partial?** for the general "can't confirm completeness" case.
+ * count, and the model(s). An **ⓘ** marker is ALWAYS shown — the counts come from
+ * the on-disk debug log, so the authoritative figure is VS Code's own Session
+ * Cost. A firm **partial** chip is added when history was transcript-stitched
+ * (`tx-` parts), whose turns carry no telemetry, so the totals cover the recent
+ * (debug-log) turns only.
  */
 function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
   return (
@@ -376,21 +375,21 @@ function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
         {usage.models[0]}
         {usage.models.length > 1 ? ` +${usage.models.length - 1}` : ""}
       </span>
-      {usage.partial ? (
+      {usage.partial && (
         <span
           className="usage-partial"
           title="Partial: earlier history was stitched from the transcript, which carries no telemetry — so these totals cover the recent (debug-log) turns only."
         >
           partial
         </span>
-      ) : (
-        <span
-          className="usage-partial usage-partial-soft"
-          title="Best-effort total from the on-disk telemetry log. If this session's logs were recycled or rebuilt (e.g. a container rebuild), earlier turns aren't counted, so this can undercount. VS Code's own Session Cost is authoritative."
-        >
-          partial?
-        </span>
       )}
+      <span
+        className="usage-info"
+        title="Usage is counted from the on-disk debug log. The authoritative figure is VS Code's own Session Cost (and your GitHub Copilot usage)."
+        aria-label="About these usage numbers"
+      >
+        ⓘ
+      </span>
     </div>
   );
 }

@@ -828,11 +828,12 @@ body {
   padding: 0 6px;
   cursor: help;
 }
-/* Softer "partial?" — the always-on "can't confirm completeness" caveat, dimmer
-   than the firm amber "partial" (which means confirmed transcript-stitch). */
-.usage-bar .usage-partial.usage-partial-soft {
+/* Always-on info marker: the totals come from the debug log; the authoritative
+   figure is VS Code's own Session Cost. Hover for the disclaimer. */
+.usage-bar .usage-info {
   color: var(--muted);
-  border-color: color-mix(in srgb, var(--muted) 35%, transparent);
+  cursor: help;
+  font-style: normal;
 }
 
 /* Jump-to-latest button (appbar) — shown when parked away from the bottom */
