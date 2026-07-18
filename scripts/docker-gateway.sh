@@ -13,8 +13,8 @@
 #   --image  NAME   image tag to build/run     (env IMAGE,      default cloakcode-gateway:dev)
 #   --port   PORT   host port for the test run  (env HOST_PORT,  default 3543)
 #   --no-cache      build without the layer cache
-#   --registry URL  private npm registry for the build (corepack + pnpm), for
-#                   networks where registry.npmjs.org is blocked; env NPM_REGISTRY
+#   --registry URL  private npm registry for the build (npm bootstrap + pnpm),
+#                   for networks where registry.npmjs.org is blocked; env NPM_REGISTRY
 #   --network MODE  docker build network (e.g. 'host' — the usual WSL2 fix for a
 #                   TLS/handshake failure reaching registry.npmjs.org); env DOCKER_NETWORK
 #   --keep          leave the test container running (for debugging)

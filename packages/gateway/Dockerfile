@@ -14,18 +14,21 @@ WORKDIR /repo
 # Optional private/corporate npm registry for networks where the public
 # registry.npmjs.org is unreachable (e.g. a Microsoft package-feed proxy). Empty
 # ⇒ default public npm. Passed by `scripts/docker-gateway.sh --registry <url>`
-# (or NPM_REGISTRY); applies to BOTH corepack's pnpm download and pnpm install.
+# (or NPM_REGISTRY); applies to the pnpm install AND the pnpm-via-npm bootstrap.
 ARG NPM_REGISTRY=
-RUN corepack enable
+# Point npm (and thus pnpm, which reads the same ~/.npmrc) at the registry before
+# anything is fetched.
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi
 COPY . .
-# The repo carries no .npmrc, so the default public npm registry applies unless
-# NPM_REGISTRY overrides it. The committed pnpm-lock.yaml is registry-portable
-# (integrity-only, no absolute tarball URLs), so --frozen-lockfile installs from
-# ANY registry with every version pin intact.
-# pnpm 11.9 needs Node >=22.13 (why the base is node:24).
-RUN if [ -n "$NPM_REGISTRY" ]; then \
-      export COREPACK_NPM_REGISTRY="$NPM_REGISTRY" npm_config_registry="$NPM_REGISTRY"; \
-    fi \
+# Install pnpm via **npm**, not corepack: corepack fetches from a non-standard
+# registry path (`<registry>/pnpm/<version>`) that corporate mirrors/proxies
+# often 404, whereas `npm i -g` is an ordinary package install every feed serves.
+# The version is pinned to the root `packageManager` field (one source of truth,
+# no drift). The committed pnpm-lock.yaml is registry-portable (integrity-only,
+# no absolute tarball URLs), so --frozen-lockfile installs from ANY registry with
+# every version pin intact. pnpm 11.9 needs Node >=22.13 (why the base is node:24).
+RUN PNPM_VERSION="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")" \
+  && npm install -g "pnpm@${PNPM_VERSION}" \
   && pnpm install --frozen-lockfile \
   && pnpm --filter @cloakcode/protocol build \
   && pnpm --filter @cloakcode/gateway bundle \
