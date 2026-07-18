@@ -1,7 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import type { SessionSummary } from "@cloakcode/protocol";
-import { connectGateway, type GatewayClient } from "./gateway-client.js";
+import {
+  connectGateway,
+  GatewayAuthRequiredError,
+  type GatewayClient,
+} from "./gateway-client.js";
 import type { BridgeDeps } from "./bridge.js";
 
 const deps: BridgeDeps = {
@@ -110,6 +114,31 @@ describe("connectGateway", () => {
         2000,
       ),
     ).rejects.toThrow(/rejected the provider/);
+  });
+
+  it("rejects with GatewayAuthRequiredError (and prompts) when the gateway needs provider sign-in", async () => {
+    // The gateway answers the hello with `provider.auth_required` (no ack): the
+    // client must reject with the DISTINCT auth error and fire the sign-in
+    // prompt, so the caller can skip the embedded fallback and wait for sign-in.
+    const port = await startFakeGateway(
+      (ws) => ws.send(JSON.stringify({ type: "provider.auth_required" })),
+      { ack: false },
+    );
+    let prompted = false;
+    await expect(
+      connectGateway(
+        `ws://127.0.0.1:${port}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        2000,
+        undefined,
+        () => {
+          prompted = true;
+        },
+      ),
+    ).rejects.toBeInstanceOf(GatewayAuthRequiredError);
+    expect(prompted).toBe(true);
   });
 
   it("presents the provider↔gateway token in its hello when configured", async () => {

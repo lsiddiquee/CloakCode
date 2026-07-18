@@ -124,8 +124,19 @@ endpoint, run the standalone **[CloakCode gateway](https://www.npmjs.com/package
 "cloakcode.gatewayUrl": "ws://<gateway-host>:7900"
 ```
 
-If the gateway is unreachable at startup, the extension logs a warning and falls back to embedded
-mode. See the gateway package for npm / Docker usage.
+If the gateway is **unreachable** at startup, the extension logs a warning and falls back to
+embedded mode. If the gateway is reachable but **requires sign-in** (operator MFA is on), it does
+**not** fall back — it stays in gateway mode and asks you to authenticate, so it never spins up a
+second, competing bridge:
+
+1. Run **CloakCode: Sign in to Gateway** and enter the current 6-digit code from the authenticator
+   you enrolled against **the gateway** (the QR/secret it printed on first run — not the embedded
+   bridge's "Pair Operator Access" code).
+2. The extension stores the issued provider token (per gateway URL) and reconnects automatically.
+
+The two **Pair / Reset Operator Access (TOTP)** commands manage the _embedded_ bridge's own phone
+auth, so they're hidden in gateway mode; **Sign in to Gateway** is hidden in embedded mode. See the
+gateway package for npm / Docker usage.
 
 ## Privacy & security
 

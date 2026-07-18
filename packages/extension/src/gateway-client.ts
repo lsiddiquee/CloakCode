@@ -23,6 +23,20 @@ export interface GatewayClient {
 }
 
 /**
+ * Rejection reason when the gateway is **reachable but refuses our provider
+ * credential** (`provider.auth_required`) — distinct from an unreachable hub. The
+ * caller must NOT fall back to the embedded bridge for this: the gateway is up
+ * and the user just needs to sign in (`CloakCode: Sign in to Gateway`); starting
+ * a competing local bridge would only add a second, confusing MFA enrolment.
+ */
+export class GatewayAuthRequiredError extends Error {
+  constructor(url: string) {
+    super(`gateway ${url} requires provider sign-in`);
+    this.name = "GatewayAuthRequiredError";
+  }
+}
+
+/**
  * Client mode (docs/03 "Explicit gateway"): connect OUT to a standalone gateway
  * as a **provider** instead of hosting a local bridge. Announces `provider.hello`,
  * then serves the gateway's forwarded RPCs with the *same* per-connection handler
@@ -131,7 +145,7 @@ export function connectGateway(
           if (!settled) {
             settled = true;
             clearTimeout(firstTimer);
-            reject(new Error(`gateway ${url} requires provider sign-in`));
+            reject(new GatewayAuthRequiredError(url));
           }
           closed = true; // don't reconnect-loop with the same bad credential
           s.close();

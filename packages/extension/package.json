@@ -96,6 +96,22 @@
         "category": "CloakCode"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "cloakcode.showMfaPairing",
+          "when": "cloakcode.embedded"
+        },
+        {
+          "command": "cloakcode.resetMfa",
+          "when": "cloakcode.embedded"
+        },
+        {
+          "command": "cloakcode.signInGateway",
+          "when": "!cloakcode.embedded"
+        }
+      ]
+    },
     "configuration": {
       "title": "CloakCode",
       "properties": {
@@ -148,7 +164,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "WebSocket URL of a standalone **CloakCode gateway** to connect to as a provider (e.g. `ws://localhost:7900`). When set and reachable, this window does **not** host its own bridge or serve the PWA — it connects OUT to the gateway and speaks only the protocol (the gateway serves the app + owns the phone link). Empty (default) = **embedded** mode: the extension serves its own PWA + bridge. If the gateway is unreachable at activation, it falls back to embedded. See docs/03 ‘Explicit gateway’. The `CLOAKCODE_GATEWAY_URL` env var overrides this setting (the dev-container F5 flow uses it to point at the host gateway)."
+          "markdownDescription": "WebSocket URL of a standalone **CloakCode gateway** to connect to as a provider (e.g. `ws://localhost:7900`). When set and reachable, this window does **not** host its own bridge or serve the PWA — it connects OUT to the gateway and speaks only the protocol (the gateway serves the app + owns the phone link). Empty (default) = **embedded** mode: the extension serves its own PWA + bridge. If the gateway is **unreachable** at activation it falls back to embedded; if it is reachable but **requires provider sign-in**, it does *not* fall back — it waits for **CloakCode: Sign in to Gateway** (so it never starts a competing bridge). See docs/03 ‘Explicit gateway’. The `CLOAKCODE_GATEWAY_URL` env var overrides this setting (the dev-container F5 flow uses it to point at the host gateway)."
         },
         "cloakcode.gatewayToken": {
           "type": "string",

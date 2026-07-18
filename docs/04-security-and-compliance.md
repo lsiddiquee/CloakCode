@@ -139,7 +139,10 @@ only a derived token.
     long-lived (30d) **session token**, stores it in SecretStorage (per gateway), and presents it in
     the hello. The provider **never holds the TOTP secret** — only a token the operator secret
     issued — so the secret's blast radius stays gateway+phone. On refusal the gateway sends
-    `provider.auth_required` so the extension prompts + retries instead of reconnect-looping.
+    `provider.auth_required`; the extension surfaces a sign-in prompt (`GatewayAuthRequiredError`)
+    and **stays in gateway mode without falling back to the embedded bridge** — an unreachable hub
+    falls back, but a reachable-yet-auth-blocked one must not start a competing bridge (which would
+    add a second, confusing operator-MFA enrolment). It connects once the user signs in.
   - **Static shared secret (demoted escape hatch).** `CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`
     still works, verified **timing-safe** (`verifyGatewayToken`) — for headless / automation /
     bootstrap setups where interactive sign-in isn't practical.
