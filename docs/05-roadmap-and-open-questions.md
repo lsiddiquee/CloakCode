@@ -212,7 +212,16 @@ the critical path.
 - **Session telemetry (was "Slice 2").** Surface per-turn `model`, input/output/**cached**
   tokens, `ttft`, request duration, and cost (`copilotUsageNanoAiu` / `copilotCredits`) from the
   debug-log `llm_request` spans — a session-total header plus a small per-turn badge. Read-only,
-  so it can ship any time.
+  so it can ship any time. **SHIPPED.**
+  - _Open (future research): usage-completeness detection._ The total sums the **on-disk** debug-log
+    only, which can be recycled/rebuilt (§4.22) with **no on-disk trace** — so it silently undercounts
+    a wiped session, and the wipe case is undetectable from disk (the complete count lives only in VS
+    Code's unreadable ChatModel; docs/02.5 §4.14). Interim (SHIPPED 2026-07-18): the bar **always**
+    caveats — firm **partial** on a confirmed stitch, else soft **partial?**. To improve: look for a
+    signal that earlier turns existed (e.g. the debug-log's `session_start` turn index vs the
+    transcript's; the chronicle `session-store.db` turn/`copilotUsageNanoAiu` totals if they survive a
+    rebuild; or a renderer-side read of the ChatModel's own cost — same reachability question as
+    images/actuator). Until then the tooltip defers to VS Code's Session Cost as authoritative.
 - **Per-session allow-list (“Allow for session”) from the phone.** A third option on the approve
   card that stops CloakCode re-surfacing a tool for the rest of the session. CloakCode no longer
   keeps its own allow-list (it does not replicate permissions — docs/02 §4.20); this would instead

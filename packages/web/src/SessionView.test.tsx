@@ -426,6 +426,31 @@ describe("PendingCard answer submit", () => {
     expect(badge?.textContent).toContain("5.00 AIU");
   });
 
+  it("shows a soft 'partial?' caveat when there is no stitched history (completeness can't be confirmed)", async () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    act(() => {
+      // Only a debug-log usage part, no `tx-` stitched history → not provably
+      // partial, but the on-disk log can still have been recycled, so the bar
+      // must always carry a caveat (here the softer "partial?").
+      h.emitEvent({
+        type: "append",
+        seq: 0,
+        part: {
+          kind: "usage",
+          id: "dl-usage-0",
+          model: "claude-opus-4.8",
+          inputTokens: 1000,
+          outputTokens: 100,
+          cachedTokens: 900,
+          nanoAiu: 5_000_000_000,
+        },
+      });
+    });
+    await screen.findByText("partial?");
+    const chip = document.querySelector(".usage-partial-soft");
+    expect(chip?.textContent).toBe("partial?");
+  });
+
   it("shows a jump-to-latest button when parked above the bottom, and returns on click", () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     const el = document.querySelector("main.transcript") as HTMLElement;
