@@ -1,4 +1,5 @@
 import * as http from "node:http";
+import * as path from "node:path";
 import { readFile } from "node:fs/promises";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
@@ -195,7 +196,10 @@ export async function startBridge(
       return;
     }
     const file = resolveStaticPath(serveDir, req.url ?? "/");
-    if (!file) {
+    // resolveStaticPath already rejects traversal; re-assert containment at the
+    // read sink so the guarantee is explicit to static analysis (defense-in-depth).
+    const root = path.resolve(serveDir);
+    if (!file || (file !== root && !file.startsWith(root + path.sep))) {
       res.writeHead(400).end();
       return;
     }

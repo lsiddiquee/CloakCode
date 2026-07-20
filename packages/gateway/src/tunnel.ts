@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const URL_RE = /https:\/\/[^\s,"']+\.devtunnels\.ms[^\s,"']*/i;
 const URL_TIMEOUT_MS = 30_000;
 const CLI_TIMEOUT_MS = 30_000;
 
@@ -17,16 +16,24 @@ export function parseTunnelUrl(
   output: string,
   port?: number,
 ): string | undefined {
+  // Tokenize on whitespace / commas / quotes so each candidate is bounded — we
+  // never run an unbounded regex over the (uncontrolled) CLI output, so there is
+  // no polynomial backtracking (ReDoS-safe).
+  const urls = output
+    .split(/[\s,"']+/)
+    .filter((t) => t.startsWith("https://") && t.includes(".devtunnels.ms"));
+  if (urls.length === 0) return undefined;
   if (port !== undefined) {
-    const scoped = output.match(
-      new RegExp(
-        `https:\\/\\/[^\\s,"']*-${port}\\.[^\\s,"']*devtunnels\\.ms[^\\s,"']*`,
-        "i",
+    // Prefer the URL whose first subdomain label carries OUR forwarded port
+    // (`<name>-<port>.<region>.devtunnels.ms`) when several are exposed.
+    const scoped = urls.find((u) =>
+      (u.slice("https://".length).split(/[/.]/, 1)[0] ?? "").endsWith(
+        `-${port}`,
       ),
-    )?.[0];
+    );
     if (scoped) return scoped;
   }
-  return output.match(URL_RE)?.[0];
+  return urls[0];
 }
 
 /**
