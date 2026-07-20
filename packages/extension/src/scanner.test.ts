@@ -8,6 +8,7 @@ import {
   parseTranscript,
   scanSessions,
   storageHashFromUri,
+  workspaceStorageRootFromGlobalStorage,
 } from "./scanner.js";
 
 describe("parseTranscript", () => {
@@ -199,6 +200,40 @@ describe("storageHashFromUri", () => {
 
   it("returns undefined when the path is not under the root", () => {
     expect(storageHashFromUri(root, "/somewhere/else/x")).toBeUndefined();
+  });
+});
+
+describe("workspaceStorageRootFromGlobalStorage", () => {
+  it("derives the sibling workspaceStorage root (posix / vscode-server)", () => {
+    expect(
+      workspaceStorageRootFromGlobalStorage(
+        "/home/u/.vscode-server/data/User/globalStorage/rexwel.cloakcode",
+      ),
+    ).toBe("/home/u/.vscode-server/data/User/workspaceStorage");
+  });
+
+  it("derives the sibling root on a Windows desktop host (win32 separators)", () => {
+    expect(
+      workspaceStorageRootFromGlobalStorage(
+        "C:\\Users\\u\\AppData\\Roaming\\Code\\User\\globalStorage\\rexwel.cloakcode",
+      ),
+    ).toBe("C:\\Users\\u\\AppData\\Roaming\\Code\\User\\workspaceStorage");
+  });
+
+  it("handles an extension id that contains a slash", () => {
+    // Dev-host ext id is cloakcode.@cloakcode/extension — the `/globalStorage/`
+    // marker still lands before it, so the root is unaffected.
+    expect(
+      workspaceStorageRootFromGlobalStorage(
+        "/home/u/.vscode-server/data/User/globalStorage/cloakcode.@cloakcode/extension",
+      ),
+    ).toBe("/home/u/.vscode-server/data/User/workspaceStorage");
+  });
+
+  it("returns undefined when there is no globalStorage segment", () => {
+    expect(
+      workspaceStorageRootFromGlobalStorage("/somewhere/else"),
+    ).toBeUndefined();
   });
 });
 

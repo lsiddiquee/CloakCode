@@ -36,6 +36,29 @@ export function defaultWorkspaceStorageRoot(): string {
 }
 
 /**
+ * Derive the `workspaceStorage` root from the extension's `globalStorageUri`
+ * fsPath. Both live under the same `User` dir, so swapping the trailing
+ * `globalStorage/<extId…>` segment for `workspaceStorage` yields the root VS
+ * Code actually uses on THIS host — the vscode-**server** dir
+ * (`~/.vscode-server/data/User`), a **desktop** OS user-data dir
+ * (`%APPDATA%\Code\User`, `~/Library/Application Support/Code/User`, `~/.config/Code/User`),
+ * or a custom `--user-data-dir` — none of which the hardcoded `.vscode-server`
+ * path handled. The separator is detected from the input (win32 uses `\`) so it's
+ * host-accurate AND unit-testable for both platforms without a live filesystem.
+ * Returns undefined when there is no `globalStorage` segment (the caller then
+ * falls back to {@link defaultWorkspaceStorageRoot}).
+ */
+export function workspaceStorageRootFromGlobalStorage(
+  globalStorageFsPath: string,
+): string | undefined {
+  const sep = globalStorageFsPath.includes("\\") ? "\\" : "/";
+  const marker = `${sep}globalStorage${sep}`;
+  const i = globalStorageFsPath.lastIndexOf(marker);
+  if (i < 0) return undefined;
+  return globalStorageFsPath.slice(0, i) + sep + "workspaceStorage";
+}
+
+/**
  * The workspaceStorage `<hash>` from a `context.storageUri` fsPath. storageUri is
  * `<root>/<hash>/<extId>`, and the extension id can itself contain a slash (ours
  * is `cloakcode.@cloakcode/extension`), so `basename(dirname())` extracts the

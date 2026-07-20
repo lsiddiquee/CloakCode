@@ -149,11 +149,16 @@ assumption and nothing in the workspace**:
 | Hook binary (bundled)    | `<extensionUri>/dist/hook.cjs`    | ships in the `.vsix`; copied to the stable path on `activate()`                       |
 | Hook binary (stable)     | `~/.cloakcode/hook.cjs`           | atomic copy of the bundle — the config points HERE so it survives uninstall as a no-op |
 | Spool (hook writes here) | `~/.cloakcode/spool/`             | fixed per-environment dir, computed identically by hook + follower                    |
-| Node runtime             | `process.execPath`                | the node running the extension host — always present                                  |
-| Hook config              | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent), `command = "<execPath>" "~/.cloakcode/hook.cjs" PreToolUse` |
+| Node runtime             | `process.execPath` (run as node)  | the extension-host runtime — on a **desktop** host this is the Electron binary (`Code.exe`), run as node via `ELECTRON_RUN_AS_NODE=1` (real node ignores it) |
+| Transcript storage root  | derived from `context.globalStorageUri` | sibling `…/User/workspaceStorage` of `…/User/globalStorage/<extId>` — host-accurate (server `~/.vscode-server` vs desktop OS user-data dir vs custom `--user-data-dir`) |
+| Hook config              | `~/.copilot/hooks/cloakcode.json` | written on `activate()` (idempotent); one **portable** config: POSIX `command = "<execPath>" "~/.cloakcode/hook.cjs" PreToolUse` + a `windows` override `& "<execPath>" …` (PowerShell call operator), plus `env: { ELECTRON_RUN_AS_NODE: "1", NODE_OPTIONS: "" }` |
 
 `~` in the hook config is **per-environment** (container/WSL/host each have their own
-`~/.copilot/hooks`), so the extension installs once per environment where it runs.
+`~/.copilot/hooks`), so the extension installs once per environment where it runs. The config is
+**cross-platform by construction**: VS Code selects the OS-specific `windows`/`linux`/`osx` override
+by the **extension-host platform** and falls back to `command`, so we ship one config with no
+runtime platform branch — the POSIX `command` serves linux/osx and the `windows` key handles
+PowerShell's rejection of a leading quoted path.
 
 **Uninstall resilience + explicit management.** The config points at the **stable copy**
 `~/.cloakcode/hook.cjs` (an atomic copy of the bundled hook written on `activate()`), _not_ the

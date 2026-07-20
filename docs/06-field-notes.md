@@ -231,3 +231,17 @@ Base: `~/.vscode-server/data/User/`
   relying on the invariant flag (removed 2026-07-18). `libicu` is SO-versioned per Debian release
   (`libicu72` bookworm / `libicu76` trixie / …), so the Dockerfile resolves whichever the base image
   ships via `apt-cache search --names-only '^libicu[0-9]+$' | sort -V | tail -n1` rather than pinning.
+- **A DESKTOP extension host ≠ a server/container host (2026-07-14, "broken fully on Windows").** Two
+  assumptions that hold on server/container/WSL silently break on a **local desktop** VS Code:
+  (1) **`process.execPath` is Electron, not node.** On desktop it's the `Code.exe` binary, so
+  launching it as a hook runtime only behaves as node with **`ELECTRON_RUN_AS_NODE=1`** (real node
+  ignores the var → safe everywhere); also clear `NODE_OPTIONS`. And VS Code runs hooks under
+  **PowerShell** (default `ComSpec=cmd.exe`), which parses a leading quoted path as a string literal
+  → prefix the Windows form with the call operator `&`. Ship one portable hook config via VS Code's
+  OS-specific override keys (`windows`/`linux`/`osx`, selected by the extension-host platform, falling
+  back to `command`) — no runtime platform branch. (2) **Storage is NOT under `~/.vscode-server`.**
+  Desktop keeps it under the OS user-data dir (`%APPDATA%\Code\User` / `~/Library/Application
+  Support/Code/User` / `~/.config/Code/User`), and `--user-data-dir` moves it again → a hardcoded
+  path finds **0 sessions**. Derive the root from **`context.globalStorageUri`** (sibling
+  `…/User/workspaceStorage`) instead. Both fixes are host-accurate with no `process.platform` check.
+  Details in docs/02.3 §4.27 + docs/02.4 §4.28.

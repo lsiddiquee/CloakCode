@@ -370,6 +370,7 @@ describe("buildHookConfig", () => {
       '"/usr/local/bin/node" "/ext/dist/hook.cjs" PreToolUse',
     );
     expect(pre?.env?.["CLOAKCODE_SPOOL"]).toBe("/store/spool");
+    expect(pre?.env?.["ELECTRON_RUN_AS_NODE"]).toBe("1");
     expect(cfg.hooks["PostToolUse"]?.[0]?.command).toContain("PostToolUse");
   });
 
@@ -378,8 +379,39 @@ describe("buildHookConfig", () => {
       runtime: "/usr/local/bin/node",
       hookBin: "/ext/dist/hook.cjs",
       spoolDir: defaultSpoolDir(),
-    }) as { hooks: Record<string, Array<{ env?: unknown }>> };
-    expect(cfg.hooks["PreToolUse"]?.[0]?.env).toBeUndefined();
+    }) as { hooks: Record<string, Array<{ env?: Record<string, string> }>> };
+    const env = cfg.hooks["PreToolUse"]?.[0]?.env;
+    expect(env?.["CLOAKCODE_SPOOL"]).toBeUndefined();
+    // Electron-as-node is always set (safe on real node, which ignores it).
+    expect(env?.["ELECTRON_RUN_AS_NODE"]).toBe("1");
+    expect(env?.["NODE_OPTIONS"]).toBe("");
+  });
+
+  it("ships a Windows PowerShell `&` override + Electron-as-node (desktop hosts)", () => {
+    // On a desktop host process.execPath is Electron (Code.exe) and VS Code runs
+    // hooks under PowerShell — so the default quoted-first command is invalid
+    // there and the runtime must be run as node.
+    const cfg = buildHookConfig({
+      runtime: "C:\\Program Files\\Code.exe",
+      hookBin: "C:\\Users\\u\\.cloakcode\\hook.cjs",
+      spoolDir: defaultSpoolDir(),
+    }) as {
+      hooks: Record<
+        string,
+        Array<{ command: string; windows: string; env: Record<string, string> }>
+      >;
+    };
+    const pre = cfg.hooks["PreToolUse"]?.[0];
+    // POSIX default: quoted-first, no call operator.
+    expect(pre?.command).toBe(
+      '"C:\\Program Files\\Code.exe" "C:\\Users\\u\\.cloakcode\\hook.cjs" PreToolUse',
+    );
+    // Windows override: PowerShell call operator so a quoted path is executed.
+    expect(pre?.windows).toBe(
+      '& "C:\\Program Files\\Code.exe" "C:\\Users\\u\\.cloakcode\\hook.cjs" PreToolUse',
+    );
+    expect(pre?.env["ELECTRON_RUN_AS_NODE"]).toBe("1");
+    expect(pre?.env["NODE_OPTIONS"]).toBe("");
   });
 
   it("gives both hook events a short timeout (the hook never blocks)", () => {

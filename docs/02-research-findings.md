@@ -124,6 +124,9 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   force-stop also GCs the spool file.
 - **§4.20** No permission replication — **surface every call + debounce** (default 3 s); approvals
   resolve via `acceptTool`/`skipTool` matched by exact session URI.
+- **§4.27** The self-installed hook must be **cross-platform**: run the host runtime as node
+  (`ELECTRON_RUN_AS_NODE=1`, safe on real node) and prefix the **Windows** form with PowerShell's
+  `&`; ship one portable config via VS Code's `windows`/`linux`/`osx` override keys (no runtime branch).
 
 ### On-disk storage & logs — [02.4](02.4-storage-and-logs.md)
 
@@ -139,6 +142,8 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.25** Copilot Chat is **built into core VS Code** (the standalone repo was archived); the
   debug-log toggle was renamed + is experiment-gated.
 - **§4.26** `session-store.db` is a **lagging** index — read the logs directly.
+- **§4.28** The transcript storage root is **host-relative** — derive it from `context.globalStorageUri`
+  (sibling `…/User/workspaceStorage`), not a hardcoded `~/.vscode-server` (0 sessions on desktop hosts).
 
 ### Session state — [02.5](02.5-session-state.md)
 

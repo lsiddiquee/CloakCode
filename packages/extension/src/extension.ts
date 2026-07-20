@@ -16,6 +16,7 @@ import {
   defaultWorkspaceStorageRoot,
   scanSessions,
   storageHashFromUri,
+  workspaceStorageRootFromGlobalStorage,
 } from "./scanner.js";
 import { findSessionLog, findTranscript } from "./session-observer.js";
 import {
@@ -240,7 +241,17 @@ export async function activate(
     process.env["CLOAKCODE_GATEWAY_PORT"],
     cfg.get<number | null>("port"),
   );
-  const root = defaultWorkspaceStorageRoot();
+  // The workspaceStorage root is HOST-relative: the vscode-server dir
+  // (`~/.vscode-server/data/User`) inside a devcontainer/remote-WSL, but a
+  // desktop OS user-data dir (`%APPDATA%\Code\User`, macOS
+  // `~/Library/Application Support/Code/User`, …) on a desktop host. Derive it
+  // from our own globalStorageUri (a sibling under the same `User` dir), which VS
+  // Code always resolves correctly for the current host — don't hardcode
+  // `.vscode-server` (that returned 0 sessions on desktop). Falls back for the
+  // dev-server / tests, which have no `context`.
+  const root =
+    workspaceStorageRootFromGlobalStorage(context.globalStorageUri.fsPath) ??
+    defaultWorkspaceStorageRoot();
   // The spool is a fixed, per-environment dir shared by the hook and every
   // window's follower (see hook-spool `defaultSpoolDir`) — NOT `globalStorageUri`,
   // which is per-profile and the separate hook process can't read anyway.
