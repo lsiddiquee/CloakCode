@@ -203,6 +203,20 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
    tarball → GitHub Release (always) → gated Marketplace / npm / Docker publishes. Docker/tarball are
    named from the tag; the `.vsix`/npm version come from `package.json`.
 
+**Release notes come from the commit log, not PRs.** Work lands on `main` directly and each cut is a
+single `chore(release)` PR, so GitHub's own PR-based auto-notes are near-empty. `release.yml` instead
+runs **`scripts/changelog.mjs`**, which groups Conventional Commits since the previous tag into
+Features / Bug fixes / Improvements / Documentation / … as the GitHub Release body — so **good commit
+subjects (`type(scope): summary`) are the changelog.** Preview before tagging:
+
+```bash
+node scripts/changelog.mjs                       # since the last tag → stdout
+node scripts/changelog.mjs --from v0.1.2 --to HEAD
+```
+
+To curate further (e.g. add a **Highlights** section), edit the release after it's cut:
+`gh release edit vX.Y.Z --notes-file notes.md`.
+
 ## Future / post-MVP capabilities
 
 Not needed for MVP, but planned — grouped here so the design accounts for them early. All are
