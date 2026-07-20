@@ -76,9 +76,46 @@ Design implications for an actuator that can stage/inject prompts:
 
 ## Tunnel & transport
 
-- Bridge ↔ extension: localhost WS / Node IPC (no network exposure).
-- Remote client ↔ bridge: WireGuard / SSH reverse-forward / mTLS to your infra, with
-  token/mTLS auth so only your controller can drive it.
+- Bridge ↔ extension (embedded): localhost WS / Node IPC (no network exposure).
+- Remote client ↔ gateway: a private **Dev Tunnel** you own, or WireGuard / SSH reverse-forward /
+  reverse proxy to your infra — never GitHub.
+
+### Transport confidentiality (authentication ≠ encryption)
+
+Provider + operator **TOTP authenticate** the two hops (see
+[Authentication](#authentication-two-separate-boundaries)); they do **not** encrypt them. The posture
+is leg-by-leg:
+
+- **Phone → gateway:** already TLS on the private **Dev Tunnel** — its ingress terminates HTTPS/WSS
+  (Microsoft cert, HSTS, TLS 1.2+) and forwards over loopback; the PWA derives `wss:` from the page
+  origin (`packages/web/src/bridge.ts`). Nothing crosses the wire in clear.
+- **Extension → gateway over a wide bind:** still plain `ws://`. A passive sniffer on that segment
+  recovers the **provider token** (sent in the hello + every reconnect → replayable) and the whole
+  **mirrored transcript**; an active MITM can modify it. TOTP does not help here — it authenticates,
+  it doesn't conceal. So a `0.0.0.0` bind is **trusted-network-only** until encrypted.
+
+**Empirical (2026-07-18):** an extension cannot reach the gateway's _private_ Dev Tunnel by only
+setting `cloakcode.gatewayUrl` — the Node `ws` upgrade to `/bridge` gets an `unexpected-response`
+`302` to the tunnel's sign-in and closes (the extension mis-reports it as the 4 s "unreachable"
+timeout → embedded fallback). Riding the tunnel needs a `devtunnel connect`-scoped token; those are
+**~24 h-lived** (daily re-tokening = high friction), so it stays an explicit documented path, not a
+default.
+
+**Closing the gap — safe server identity (design finalized 2026-07-20).** The blessed low-friction
+path is an **encrypted overlay or reverse proxy** (Tailscale/WireGuard/SSH or Caddy/nginx) with the
+gateway on loopback. For a direct LAN/container link with no proxy, **optional product-owned native
+TLS**: the gateway serves `wss://` on a **dedicated listener** (its loopback HTTP listener still backs
+the tunnelled PWA — coexistence model B), from an **auto-generated self-signed cert** (default) or an
+operator-supplied cert/key. The extension **keeps `rejectUnauthorized: true`** and pins the cert's
+**SHA-256 fingerprint** in `checkServerIdentity` (called only _after_ CA validation). The fingerprint
+is provisioned **out-of-band via the authenticated PWA** — a “Connect an extension” action behind the
+Dev Tunnel sign-in + operator TOTP hands the operator the `wss://` URL + fingerprint to paste in
+(console/QR fallback with no tunnel; a BYO-cert operator can point at a CA/cert file instead). The PWA
+only _delivers_ the pin — the extension still verifies it. Explicitly **rejected**:
+`rejectUnauthorized:false`, blind first-connection **TOFU**, and advertising the pin over the same
+unverified socket. The fingerprint is public (integrity matters, not secrecy); the cert private key is
+a mode-restricted, never-logged gateway secret. Full build-ready design in
+[docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md).
 
 ## Bridge ingress validation (what a non-CloakCode client can send)
 
@@ -106,10 +143,11 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
   1. **Content normalization.** The bounds above cap _size_ and structural validation checks _type_,
      but neither normalizes _content_: control-character normalization is still TODO before the
      bridge is reachable beyond localhost.
-  2. **Client authentication.** The bridge currently trusts any client that can reach it (no
-     PIN / token / mTLS). Gate the WebSocket upgrade with an operator secret (the TaskSync
-     PIN + lockout + device-approval pattern) so a non-CloakCode client — including anything that
-     discovers the tunnel URL — cannot drive it. See docs/05 M4.
+  2. **Client authentication — SHIPPED (F2a).** The exposed bridge/gateway is no longer open:
+     **operator TOTP** gates the phone (code → signed session token, replay guard + lockout) and a
+     **TOTP-issued provider token** gates the extension (see
+     [Authentication](#authentication-two-separate-boundaries)). What remains is **transport
+     confidentiality** on the extension→gateway hop — see [Tunnel & transport](#tunnel--transport).
 
 ## Gateway selection (explicit only)
 

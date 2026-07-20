@@ -597,6 +597,15 @@ connects to a host-run gateway out of the box (a hostless `ws://:7900` from an u
 ignored → embedded). For other topologies set `cloakcode.gatewayUrl` explicitly — the runner prints
 ranked candidate URLs on startup to help you pick.
 
+**Transport.** The provider↔gateway link is plain `ws://` beyond loopback today — **authenticated**
+(provider TOTP token) but **not encrypted**, so a wide bind is trusted-network-only. The **finalized**
+fix (2026-07-20, build-ready): the blessed low-friction path is an encrypted overlay/reverse proxy;
+for a no-proxy direct link, optional product-owned native TLS on a **dedicated `wss` listener** (the
+loopback HTTP listener still backs the tunnelled PWA), with the cert fingerprint **pinned** and
+provisioned **out-of-band via the authenticated PWA**. See
+[docs/04 — Transport confidentiality](04-security-and-compliance.md#tunnel--transport) and
+[docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md).
+
 **Deferred (post-MVP):** **auto** leader election _within_ an environment (the `globalStorage`
 lock above) and **true** hub discovery — advertising the gateway's IP+port so a client finds a hub
 it was never told about (mDNS/DNS-SD is the native fit, but multicast doesn't cross Docker/WSL
