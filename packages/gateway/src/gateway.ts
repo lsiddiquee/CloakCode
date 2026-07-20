@@ -113,11 +113,12 @@ export async function startGateway(
       res.writeHead(400).end();
       return;
     }
-    // Normalize + re-assert containment at the sink so the traversal guarantee
-    // resolveStaticPath enforces is explicit to static analysis (CodeQL barrier).
+    // Re-assert containment at the sink with the path.relative idiom so static
+    // analysis sees the traversal barrier resolveStaticPath already enforces.
     const root = path.resolve(serveDir);
-    const file = path.resolve(resolved);
-    if (file !== root && !file.startsWith(root + path.sep)) {
+    const file = path.resolve(root, resolved);
+    const rel = path.relative(root, file);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
       res.writeHead(400).end();
       return;
     }
