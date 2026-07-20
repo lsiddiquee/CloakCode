@@ -4,7 +4,11 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
 import { buildActuators } from "./actuators.js";
-import { connectGateway, type GatewayClient } from "./gateway-client.js";
+import {
+  connectGateway,
+  GatewayAuthRequiredError,
+  type GatewayClient,
+} from "./gateway-client.js";
 import { resolveConnectionPlan } from "./connection-plan.js";
 import { createOutputChannelLogger } from "./logger.js";
 import { type Logger, type LogLevel } from "@cloakcode/protocol";
@@ -426,6 +430,27 @@ export async function activate(
           () => promptGatewaySignIn(gatewayUrl),
         );
       } catch (err) {
+        if (err instanceof GatewayAuthRequiredError) {
+          // Reachable but auth-blocked: do NOT fall back to the embedded bridge
+          // (that would start a competing bridge with its OWN operator MFA — a
+          // second, confusing code). Stay in "sign-in required" until the user
+          // runs `CloakCode: Sign in to Gateway` (the prompt already fired), then
+          // reconnect presents the issued token. The window has no bridge until
+          // then — intentional, since gateway mode was explicitly chosen.
+          log.warn("gateway.auth_required", { url: gatewayUrl });
+          // Gateway mode (no embedded bridge): hide the operator-TOTP commands,
+          // show `Sign in to Gateway`.
+          void vscode.commands.executeCommand(
+            "setContext",
+            "cloakcode.embedded",
+            false,
+          );
+          status.text = "$(broadcast) CloakCode $(warning)";
+          status.tooltip =
+            `CloakCode: gateway ${gatewayUrl} requires sign-in — ` +
+            `run "CloakCode: Sign in to Gateway"`;
+          return `gateway ${gatewayUrl} — sign-in required`;
+        }
         log.warn("gateway.unreachable", {
           error: err instanceof Error ? err.message : String(err),
         });
@@ -448,6 +473,17 @@ export async function activate(
         opAuth,
       );
     }
+    // The operator-TOTP commands (Pair / Reset) manage the EMBEDDED bridge's own
+    // MFA, so they're only meaningful when an embedded bridge is running; the
+    // `cloakcode.embedded` context key gates them (and `Sign in to Gateway`, its
+    // gateway-mode complement) in the command palette.
+    void vscode.commands.executeCommand(
+      "setContext",
+      "cloakcode.embedded",
+      !!bridge,
+    );
+    // Clear any prior "sign-in required" warning glyph on a successful (re)connect.
+    status.text = "$(broadcast) CloakCode";
     status.tooltip = gatewayClient
       ? `CloakCode: gateway mode (${gatewayClient.url}) — click for the phone link`
       : bridge

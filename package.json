@@ -1,6 +1,6 @@
 {
   "name": "cloakcode",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "description": "Local-to-remote bridge to observe and drive GitHub Copilot from a phone/desktop with zero code-sync.",
   "repository": {
@@ -14,7 +14,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@vitest/coverage-v8": "3.2.6",
+    "@vitest/coverage-v8": "4.1.10",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",

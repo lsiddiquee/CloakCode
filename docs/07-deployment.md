@@ -24,8 +24,11 @@ CloakCode runs in one of two shapes. **Embedded is the default and the safest.**
 
 - **Default bind is `127.0.0.1` (loopback only)** — both the gateway and the extension's embedded
   bridge. Reachable only from the same host / network namespace.
-- **No app-layer auth yet (until M4).** Any wider bind is **trusted-network-only**; the phone hop
-  leans on the **private tunnel**'s own sign-in.
+- **Authenticated, but not yet encrypted.** An exposed hub is gated by **operator TOTP** (phone) + a
+  **provider token** (extension) — F2a — so it is not open. But the extension↔gateway hop is still
+  plain `ws://`, so any wider bind stays **trusted-network-only** until transport encryption lands
+  (see [Transport confidentiality](04-security-and-compliance.md#tunnel--transport)). The phone hop is
+  already TLS via the **private tunnel**.
 - **Loopback only reaches the same network namespace.** Cross-namespace hops (container↔host,
   WSL↔container, WSL↔Windows) do **not** see each other's `127.0.0.1` — that's the whole problem a
   tunnel or port-forward solves.
@@ -111,9 +114,46 @@ phone tunnel itself (device-code sign-in at startup). See the
 [gateway README — Docker](../packages/gateway/README.md#run-it--docker) for the run commands, the
 `CLOAKCODE_TUNNEL` / `CLOAKCODE_TUNNEL_PROVIDER` variables, and the persist volume.
 
-## Planned (post-MVP): authenticated, encrypted gateway↔bridge
+## Authenticated links (shipped) + encrypted transport (the remaining gap)
 
-Binding wide stops being a risk once the links carry their own credential: a shared-secret/token
-handshake (laddering to TLS/mTLS) on both the **operator→gateway** and **gateway→provider (bridge)**
-connections, checked at the `hello` handshake and the PWA's `/bridge` upgrade. Tracked in
-[docs/05 — Roadmap (M4 + post-MVP)](05-roadmap-and-open-questions.md).
+**Authentication has shipped.** Both hops now carry their own credential — **operator TOTP** on the
+phone→gateway hop and a **TOTP-issued provider token** (static `CLOAKCODE_GATEWAY_TOKEN` as a demoted
+escape hatch) on the extension→gateway hop, checked at the `hello` handshake (see
+[docs/04 — Authentication](04-security-and-compliance.md#authentication-two-separate-boundaries)).
+So a wide bind is **authenticated**, not open.
+
+**Transport confidentiality is the one gap left.** Authentication proves *who* connects; it does not
+*encrypt* the link. The posture is leg-by-leg:
+
+- **Phone → gateway:** already TLS when you use the private **Dev Tunnel** — its ingress terminates
+  HTTPS/WSS (Microsoft cert, HSTS, TLS 1.2+) and forwards to the gateway over loopback. Nothing
+  crosses the wire in clear.
+- **Extension → gateway over a wide `0.0.0.0` bind:** still plain `ws://`. The provider token (sent in
+  the hello, and on every reconnect) and the mirrored transcript are in cleartext — sniffable and the
+  token is replayable. This is why a wide bind is **trusted-network-only** today.
+
+**Closing it (low-friction first).** In rough order of end-user friction:
+
+1. **Encrypted overlay / reverse proxy (recommended):** run the gateway on loopback and let
+   **Tailscale / WireGuard / an SSH forward**, or a **reverse proxy** (Caddy/nginx/Traefik) own the
+   encryption. The proxy/overlay already solves certs, renewal and identity; CloakCode stays bound to
+   `127.0.0.1`. Best fit when you already have one of these.
+2. **Optional native gateway TLS (product-owned):** the standalone gateway serves `wss://` on a
+   **dedicated listener** (its loopback HTTP listener still backs the tunnelled PWA — coexistence
+   model B), from an **auto-generated self-signed cert** (default) or an operator-supplied cert/key.
+   The extension keeps full validation (`rejectUnauthorized` stays **true**) and pins the cert's
+   **SHA-256 fingerprint**, provisioned **out-of-band via the authenticated PWA** — a “Connect an
+   extension” action behind the Dev Tunnel sign-in + operator TOTP hands you the URL + fingerprint to
+   paste in (console/QR fallback with no tunnel; BYO-cert operators point at a CA/cert file). Never
+   blind trust-on-first-use, never `rejectUnauthorized:false`. For a direct LAN/container link with no
+   proxy.
+3. **Dev Tunnel for a remote extension (documented, friction caveat):** an extension *can* ride the
+   gateway's private Dev Tunnel, but not by only changing `cloakcode.gatewayUrl` — the Node client
+   can't complete the tunnel's browser sign-in (an unauthenticated `/bridge` request returns HTTP
+   `302`, observed 2026-07-18). It needs a `devtunnel connect`-scoped token, and those tokens are
+   **short-lived (~24 h)**, so every extension would need re-tokening daily — high friction, so this
+   stays a documented option, not the default.
+
+Finalized, build-ready design in
+[docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md) and
+[docs/04 — Transport confidentiality](04-security-and-compliance.md#tunnel--transport).

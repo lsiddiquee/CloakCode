@@ -828,6 +828,13 @@ body {
   padding: 0 6px;
   cursor: help;
 }
+/* Always-on info marker: the totals come from the debug log; the authoritative
+   figure is VS Code's own Session Cost. Hover for the disclaimer. */
+.usage-bar .usage-info {
+  color: var(--muted);
+  cursor: help;
+  font-style: normal;
+}
 
 /* Jump-to-latest button (appbar) — shown when parked away from the bottom */
 .jump-btn {

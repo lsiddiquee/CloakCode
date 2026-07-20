@@ -85,13 +85,12 @@ spool is a **fixed per-environment directory** (`~/.cloakcode/spool`, computed b
 no env handoff), **one file per blocker** (write on `PreToolUse`, delete on `PostToolUse`) so
 concurrent windows never race. Only **interactive** tools are spooled; routing is by
 `session_id`; a **late subscriber gets the current snapshot on subscribe** (phone need not be
-open when the question fires); and the follower **self-heals** stale files via the shared
-`isRetired` predicate, with a fast path that skips the transcript parse when nothing is pending.
+open when the question fires); and the follower **self-heals** stale files via the `isSuperseded`
+predicate (a later turn), with a fast path that skips the transcript parse when nothing is pending.
 
-- _Residual edge:_ a session that **crashes mid-question** — before the interactive event ever
-  flushes to the transcript — leaves a spool file that neither `PostToolUse` nor the
-  transcript-subtraction/`isRetired` self-heal can retire. Mitigated by mtime session liveness
-  dropping dead sessions from the list; a spool TTL/GC is a later option if it bites.
+- _Residual edge:_ a session that **crashes mid-question** — before any later turn — leaves a spool
+  file that neither `PostToolUse` nor the `isSuperseded` self-heal can retire. Mitigated by mtime
+  session liveness dropping dead sessions from the list; a spool TTL/GC is a later option if it bites.
 
 #### M3b — Remote answering (SHIPPED 2026-07-10)
 
@@ -204,6 +203,20 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
    tarball → GitHub Release (always) → gated Marketplace / npm / Docker publishes. Docker/tarball are
    named from the tag; the `.vsix`/npm version come from `package.json`.
 
+**Release notes come from the commit log, not PRs.** Work lands on `main` directly and each cut is a
+single `chore(release)` PR, so GitHub's own PR-based auto-notes are near-empty. `release.yml` instead
+runs **`scripts/changelog.mjs`**, which groups Conventional Commits since the previous tag into
+Features / Bug fixes / Improvements / Documentation / … as the GitHub Release body — so **good commit
+subjects (`type(scope): summary`) are the changelog.** Preview before tagging:
+
+```bash
+node scripts/changelog.mjs                       # since the last tag → stdout
+node scripts/changelog.mjs --from v0.1.2 --to HEAD
+```
+
+To curate further (e.g. add a **Highlights** section), edit the release after it's cut:
+`gh release edit vX.Y.Z --notes-file notes.md`.
+
 ## Future / post-MVP capabilities
 
 Not needed for MVP, but planned — grouped here so the design accounts for them early. All are
@@ -213,7 +226,17 @@ the critical path.
 - **Session telemetry (was "Slice 2").** Surface per-turn `model`, input/output/**cached**
   tokens, `ttft`, request duration, and cost (`copilotUsageNanoAiu` / `copilotCredits`) from the
   debug-log `llm_request` spans — a session-total header plus a small per-turn badge. Read-only,
-  so it can ship any time.
+  so it can ship any time. **SHIPPED.**
+  - _Open (future research): usage-completeness detection._ The total sums the **on-disk** debug-log
+    only, which can be recycled/rebuilt (§4.22) with **no on-disk trace** — so it silently undercounts
+    a wiped session, and the wipe case is undetectable from disk (the complete count lives only in VS
+    Code's unreadable ChatModel; docs/02.5 §4.14). Interim (SHIPPED 2026-07-18): the bar **always**
+    shows an **ⓘ** disclaimer (counts are debug-log-based; VS Code's Session Cost is authoritative),
+    plus a firm **partial** chip on a confirmed stitch. To improve: look for a
+    signal that earlier turns existed (e.g. the debug-log's `session_start` turn index vs the
+    transcript's; the chronicle `session-store.db` turn/`copilotUsageNanoAiu` totals if they survive a
+    rebuild; or a renderer-side read of the ChatModel's own cost — same reachability question as
+    images/actuator). Until then the tooltip defers to VS Code's Session Cost as authoritative.
 - **Per-session allow-list (“Allow for session”) from the phone.** A third option on the approve
   card that stops CloakCode re-surfacing a tool for the rest of the session. CloakCode no longer
   keeps its own allow-list (it does not replicate permissions — docs/02 §4.20); this would instead
@@ -229,15 +252,62 @@ the critical path.
   - _Reading these is straightforward; **setting** them remotely is a write action that needs
     the actuator (owned loop or a config/command path) — sequenced after M3b answering._
 
-- **Authenticated, encrypted gateway links (security hardening).** Today the gateway trusts any
-  client that can reach it; the MVP compensating controls are the **loopback default**, a
-  **private** tunnel (Q9), and host-firewall scoping (README → “Deployment & security”). Post-MVP,
-  gate both hops with their own credential — a shared secret/token laddering to mTLS — presented at
-  the **operator→gateway** and **gateway→provider (bridge)** `hello` handshakes and the PWA's
-  `/bridge` upgrade, carried in `connectionHelloSchema` (`@cloakcode/protocol`) and verified in the
-  gateway + extension client. This is what makes a wide `0.0.0.0` bind safe on an untrusted network;
-  until then, treat wide binds as trusted-network-only. (Extends M4's “mTLS/token auth” to the
-  explicit-gateway topology; sequenced after the MVP gateway ships.)
+- **Encrypted gateway links (security hardening) — DESIGN FINALIZED 2026-07-20, build-ready.**
+  _Authentication shipped_ (F2a): operator TOTP + a TOTP-issued provider token gate both hops at the
+  `hello` handshake, so a wide bind is **authenticated**. The remaining gap is **transport
+  confidentiality + server identity** on the extension→gateway hop — plain `ws://` today, so the
+  provider token and transcript are sniffable on a wide bind (trusted-network-only until fixed). The
+  phone hop is already TLS via the private Dev Tunnel.
+
+  **Blessed path (lowest friction, zero CloakCode certs): an encrypted overlay or reverse proxy.**
+  Tailscale / WireGuard / `ssh -L`, or Caddy/nginx/Traefik, owns the TLS while the gateway stays on
+  loopback. Recommended whenever the operator already has one. Everything below is the **turnkey
+  option for those who don't.**
+
+  **Finalized design — optional product-owned native TLS + PWA-delivered pin:**
+
+  1. **Native TLS is optional and product-owned.** When enabled the gateway serves `wss://` itself so
+     a direct LAN/container provider link is encrypted without a proxy. Off by default (loopback dev +
+     the overlay/proxy path are unchanged).
+  2. **Cert: auto-generated self-signed per install (default) + bring-your-own (option).** On first
+     enable the gateway generates and persists a self-signed cert/key (mode-restricted, never logged,
+     mounted read-only in Docker) — zero setup, and it gives the gateway a fingerprint to publish.
+     `CLOAKCODE_TLS_CERT_FILE` / `CLOAKCODE_TLS_KEY_FILE` override with an operator-supplied cert/key
+     (real CA / mkcert / corporate PKI).
+  3. **Server identity to the extension: a SHA-256 fingerprint pin, delivered out-of-band via the
+     authenticated PWA.** The gateway never prints/logs the secured connect string; instead the PWA —
+     already behind the Dev Tunnel sign-in **and** operator TOTP — exposes a **“Connect an extension”**
+     action that shows the reachable `wss://<host>:<wssPort>` URL + the cert fingerprint for the
+     operator to copy into `cloakcode.gatewayUrl` + a pin setting. The PWA is a _different,
+     already-verified_ channel (tunnel TLS + operator auth), so this is legitimate out-of-band
+     provisioning, not blind TOFU. **Console/QR is the fallback** when no tunnel is up; a **BYO-cert**
+     operator can instead point the extension at a CA/cert file (`cloakcode.gatewayCaFile`).
+  4. **The extension always verifies.** It keeps `rejectUnauthorized: true` and enforces the pin in
+     `checkServerIdentity` (which Node calls only _after_ CA validation). The PWA only _delivers_ the
+     pin; delivery never substitutes for verification. No `wss→ws` downgrade on TLS error. Explicitly
+     rejected: `rejectUnauthorized:false`, blind first-connection TOFU, learning the pin over the
+     unverified socket.
+  5. **Coexistence = model B (two listeners).** The gateway keeps its **loopback HTTP** listener for
+     the tunnelled PWA (Dev Tunnel terminates TLS at ingress → loopback, proven) **and** adds a
+     **dedicated `wss://` listener** (its own port, e.g. `CLOAKCODE_TLS_PORT`) for direct providers.
+     This lets phone-via-tunnel and extension-via-direct-wss run at once without depending on the
+     **unverified** `devtunnel --protocol https` self-signed-backend behavior (can collapse to a
+     single HTTPS listener later if that is ever verified).
+  6. **Rotation/recovery.** Regenerating the cert changes the fingerprint; the PWA always shows the
+     current one (re-pair = open PWA → copy → paste), and a reset command/env re-mints it. A pin
+     mismatch fails closed and prompts a re-pair.
+
+  **Deferred:** the Dev Tunnel `devtunnel connect`-token hairpin for a genuinely-remote extension —
+  kept as a _documented escape hatch_ only (the ~24 h token → daily re-token friction rules it out as
+  a default). mTLS (per-provider identity + revocation) remains a later belt-and-suspenders; because
+  credentials ride the hello, swapping to it won't churn the app protocol.
+
+  **New surfaces at implementation:** gateway `startGateway` TLS option + the second listener +
+  self-signed cert-gen/persist + a PWA “connect an extension” endpoint/view; extension
+  `cloakcode.gatewayCaFile` / `cloakcode.gatewayCertFingerprint` settings + a pinned `ws` client; env
+  `CLOAKCODE_TLS_CERT_FILE` / `CLOAKCODE_TLS_KEY_FILE` / `CLOAKCODE_TLS_PORT`. No protocol schema
+  change for the transport itself (TLS is transport); the PWA connect-info response is a new
+  operator-facing RPC/endpoint. READMEs updated at implementation.
 
 - **Surface forked conversations as distinct sessions.** A forked chat does **not** get its own
   transcript — its turns land in an **existing** `transcripts/<sourceId>.jsonl` while the fork gets
@@ -329,9 +399,11 @@ the critical path.
   (2026-07-15).** The hook writes a spool entry on `PreToolUse` and deletes it on `PostToolUse`; a
   turn STOPPED mid-tool (force-stop button OR `workbench.action.chat.cancel`) never fires
   `PostToolUse`, so the file LINGERS (verified: 3 leaked after live stop-tests). Tracking does **not**
-  regress — `SpoolFollower` → `computePendingBlockers` filters every lingering entry via `isRetired`
-  (tool present in the transcript) AND `isSuperseded` (a later turn happened — built for exactly "a
-  tool call with no end because the turn was cancelled", docs/02 §4.19), both wired. So the overlay
+  regress — `SpoolFollower` → `computePendingBlockers` filters every lingering entry via
+  `isSuperseded` (a later turn happened — built for exactly "a tool call with no end because the turn
+  was cancelled", docs/02 §4.19). (An earlier `isRetired` also filtered on the tool's
+  `tool.execution_start` being in the transcript, but that fires while a `run_in_terminal` approval
+  is still LIVE, so it hid real approvals — removed 2026-07-18; §4.20.) So the overlay
   self-heals on the next turn and never shows a phantom blocker. (The stopped turn also has NO
   `assistant.turn_end` — the orphaned `tool.execution_start` jumps straight to the next
   `user.message`.) The gap is only that the leaked files are never unlinked. Follow-up: GC spool
@@ -509,7 +581,13 @@ the critical path.
   `stitchEvents` finds where the debug-log opens in it (its first user message) and prepends
   the earlier transcript events — the debug-log leads from there. Ids are namespaced
   (`tx-`/`dl-`) so the two logs don't collide, and the debug-log's opening turn is fixed so
-  the live tail stays resume-safe.
+  the live tail stays resume-safe. **Alignment robustness fix (2026-07-18):** `alignBoundary`
+  originally required the debug-log's **whole** user-message sequence to match the transcript
+  exactly — but VS Code rehydrates the transcript with **reordered/retimed** turns, so a later
+  turn diverges and the match failed, silently dropping ALL history (live: 705-turn transcript
+  → 0 `tx-` parts, and no `partial` flag). Now it aligns on the debug-log's **opening** message
+  (longest-prefix among repeats, still F7-safe) — same session → 10,935 `tx-` parts restored,
+  `partial=true` (docs/02.5 §4.14).
 - **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
   mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
   view can lag or omit the newest content (transcript flush lag §4.23; debug-log truncation §4.21) and

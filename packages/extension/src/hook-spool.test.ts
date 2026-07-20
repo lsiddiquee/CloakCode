@@ -8,9 +8,7 @@ import {
   spoolEntryPath,
   readSpoolDir,
   removeSpoolForSession,
-  transcriptToolCallIds,
   computePendingBlockers,
-  isRetired,
   isSuperseded,
   newestTurnTs,
   spoolRecordFor,
@@ -110,34 +108,6 @@ describe("spoolRecordSchema", () => {
   });
 });
 
-describe("transcriptToolCallIds", () => {
-  it("collects base ids from tool.execution_start events only", () => {
-    const content = [
-      JSON.stringify({
-        type: "tool.execution_start",
-        data: { toolCallId: BASE_QUESTION },
-      }),
-      JSON.stringify({
-        type: "tool.execution_complete",
-        data: { toolCallId: BASE_QUESTION },
-      }),
-      JSON.stringify({ type: "user.message", data: { content: "hi" } }),
-    ].join("\n");
-    const ids = transcriptToolCallIds(content);
-    expect(ids.has(BASE_QUESTION)).toBe(true);
-    expect(ids.size).toBe(1);
-  });
-});
-
-describe("isRetired", () => {
-  it("is true iff the record's base toolCallId is in the transcript", () => {
-    const record = rec(RAW_QUESTION, "vscode_askQuestions", questionInput);
-    expect(isRetired(record, new Set([BASE_QUESTION]))).toBe(true);
-    expect(isRetired(record, new Set())).toBe(false);
-    expect(isRetired(record, new Set([BASE_RUN]))).toBe(false);
-  });
-});
-
 describe("newestTurnTs", () => {
   it("returns the max timestamp over user.message + assistant.turn_start (robust to out-of-order)", () => {
     const content = [
@@ -201,7 +171,6 @@ describe("computePendingBlockers supersede", () => {
     const later = computePendingBlockers(
       [live, orphan],
       "sessA",
-      new Set(),
       "2026-07-09T11:31:00.000Z",
     );
     expect(later).toHaveLength(0);
@@ -209,7 +178,6 @@ describe("computePendingBlockers supersede", () => {
     const earlier = computePendingBlockers(
       [live, orphan],
       "sessA",
-      new Set(),
       "2026-07-09T11:30:00.000Z",
     );
     expect(earlier).toHaveLength(2);
@@ -243,14 +211,26 @@ describe("computePendingBlockers", () => {
     );
   });
 
-  it("subtracts blockers already present in the transcript (dedup safety net)", () => {
-    expect(
-      computePendingBlockers(
-        [rec(RAW_QUESTION, "vscode_askQuestions", questionInput)],
-        "sessA",
-        new Set([BASE_QUESTION]),
-      ),
-    ).toHaveLength(0);
+  it("surfaces a live run_in_terminal approval even though its start is already in the transcript (regression)", () => {
+    // A run_in_terminal approval writes its `tool.execution_start` to the
+    // transcript IMMEDIATELY, while still awaiting the operator (no matching
+    // execution_complete). The overlay must NOT retire it on that start landing
+    // — only a genuinely LATER turn (isSuperseded) retires. Regression guard for
+    // the removed `isRetired` (start-in-transcript) filter, which hid live
+    // terminal/tool approvals.
+    const live: SpoolRecord = {
+      sessionId: "sessA",
+      toolCallId: BASE_RUN,
+      toolName: "run_in_terminal",
+      input: { command: "rm -rf build" },
+      ts: "2026-07-09T11:30:25.455Z",
+      awaitingDecision: true,
+    };
+    // No newestTurn (or an older one) => not superseded => still pending.
+    const blockers = computePendingBlockers([live], "sessA", undefined);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]?.toolName).toBe("run_in_terminal");
+    expect(blockers[0]?.awaitingDecision).toBe(true);
   });
 
   it("isolates blockers by session", () => {
@@ -500,7 +480,7 @@ describe("SpoolFollower", () => {
     }
   });
 
-  it("self-heals: transcript catch-up clears AND unlinks a lingering file", async () => {
+  it("self-heals: a later turn supersedes AND unlinks a lingering file", async () => {
     const { base, spoolDir, transcriptFile } = await setup();
     await writeRecord(
       spoolDir,
@@ -518,13 +498,16 @@ describe("SpoolFollower", () => {
     try {
       await follower.start();
       expect(snapshots.at(-1)).toBe(1);
-      // Tool completed (its id lands in the transcript) but PostToolUse never
-      // deleted the spool file — the follower must retire AND remove it.
+      // The session advanced to a LATER turn but PostToolUse never deleted the
+      // spool file (turn cancelled / broke mid-tool) — the follower must retire
+      // AND remove the dangling file. (We deliberately do NOT retire on the
+      // tool's own execution_start landing in the transcript: that fires while a
+      // run_in_terminal approval is still pending.)
       await fs.writeFile(
         transcriptFile,
         JSON.stringify({
-          type: "tool.execution_start",
-          data: { toolCallId: BASE_RUN },
+          type: "assistant.turn_start",
+          timestamp: "2026-07-09T11:31:00.000Z",
         }),
       );
       await follower.refresh();
@@ -621,13 +604,11 @@ describe("SpoolFollower", () => {
     try {
       await follower.start();
       expect(sizes.at(-1)).toBe(0);
-      await fs.writeFile(
-        transcriptFile,
-        JSON.stringify({
-          type: "tool.execution_start",
-          data: { toolCallId: BASE_RUN },
-        }),
-      );
+      // Auto-approve: the tool completes and PostToolUse DELETES the spool file
+      // within the debounce window, so it never matures into a card. (Retirement
+      // is the file being removed, NOT the tool's execution_start landing in the
+      // transcript — that fires while a run_in_terminal approval is still live.)
+      await fs.rm(spoolEntryPath(spoolDir, BASE_RUN), { force: true });
       clock += 5000;
       await follower.refresh();
       expect(sizes.at(-1)).toBe(0);

@@ -9,8 +9,10 @@ Pairs with the **[CloakCode VS Code extension](https://marketplace.visualstudio.
 the extension observes and steers your Copilot sessions; the gateway is the shared hub your phone
 connects to.
 
-> Needs **Node ≥ 20**. There's no app-layer auth yet — keep it on loopback behind a private tunnel,
-> or only bind all interfaces on a trusted network (see [Security](#security)).
+> Needs **Node ≥ 20**. When the gateway is **exposed** (a wide `0.0.0.0` bind or a live tunnel) it
+> requires **operator TOTP** by default (secure-by-exposure — see [Operator auth](#operator-auth-totp)
+> and the [step-by-step setup](#full-setup--exposed-gateway-with-mfa-step-by-step)); still prefer a
+> **private tunnel** over a wide bind on an untrusted network (see [Security](#security)).
 
 ## Run it — `npx` (no install)
 
@@ -77,16 +79,126 @@ the mounted volume, so later runs sign in silently. `CLOAKCODE_TUNNEL_PROVIDER` 
 `microsoft`. The container runs as a non-root user (`app`). Prefer your own ingress instead? Leave the
 tunnel off and front the published port with Cloudflare Tunnel / Tailscale / a reverse proxy.
 
+### Persisting state across container upgrades (volumes)
+
+A container is **ephemeral** — without volumes, replacing it (an image upgrade, `docker rm`, a
+recreate) **regenerates the operator TOTP secret** (so every paired phone must re-enrol), **drops the
+Dev Tunnel sign-in**, and **discards the action log**. Mount a volume for each piece of state you want
+to keep — and you can **relocate** the files with env vars if you'd rather point them at one shared
+volume:
+
+| State                                  | Default path in the container         | Relocate with                       | Keep it with                                                                            |
+| -------------------------------------- | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------- |
+| **Operator TOTP secret** (+ confirmed) | `/home/app/.cloakcode/operator-totp.secret` | `CLOAKCODE_MFA_SECRET_FILE`         | `-v cloakcode-mfa:/home/app/.cloakcode`                                                  |
+| **Dev Tunnel sign-in token**           | `/home/app/.local/share/DevTunnels`   | _(fixed — mount the path)_          | `-v cloakcode-devtunnel:/home/app/.local/share/DevTunnels`                               |
+| **Action log** (JSONL)                 | `/app/cloakcode-gateway.jsonl`        | `CLOAKCODE_GATEWAY_LOG_FILE` (`""` = off) | point it into a mounted dir (see below)                                             |
+
+All three at once — TOTP secret survives upgrades, tunnel signs in once, and the action log lands on a
+named volume:
+
+```bash
+docker run -it -p 3543:3543 \
+  -v cloakcode-mfa:/home/app/.cloakcode \
+  -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
+  -v cloakcode-logs:/data \
+  -e CLOAKCODE_GATEWAY_LOG_FILE=/data/gateway.jsonl \
+  -e CLOAKCODE_TUNNEL=devtunnel \
+  -e CLOAKCODE_TUNNEL_PROVIDER=github \
+  ghcr.io/lsiddiquee/cloakcode-gateway:latest
+```
+
+Prefer **one** volume for everything? Relocate the secret + log into it and mount it once:
+`-e CLOAKCODE_MFA_SECRET_FILE=/data/totp.secret -e CLOAKCODE_GATEWAY_LOG_FILE=/data/gateway.jsonl -v cloakcode-data:/data`
+(the Dev Tunnel token dir is fixed, so mount it separately if you use the built-in tunnel).
+
+## Full setup — exposed gateway with MFA (step by step)
+
+When the gateway is **exposed** (a wide `0.0.0.0` bind — the Docker default — or a live tunnel),
+operator **TOTP is on automatically** (secure-by-exposure). Here's the whole flow: gateway → phone →
+extension. Force it on/off with `CLOAKCODE_MFA=required` / `CLOAKCODE_MFA=off`.
+
+### 1. Start the gateway
+
+```bash
+# Docker binds 0.0.0.0 by default, so MFA turns on. Mount a volume so the TOTP
+# secret survives container replacement.
+docker run -it -p 3543:3543 \
+  -v cloakcode-mfa:/home/app/.cloakcode \
+  ghcr.io/lsiddiquee/cloakcode-gateway:latest
+```
+
+On first run the console prints the instance name + the connect URLs and reports that **enrolment is
+required** — until you pair an authenticator the hub serves **only** the pairing screen, no session
+data. (Add `-e CLOAKCODE_TUNNEL=devtunnel -e CLOAKCODE_TUNNEL_PROVIDER=github` for a phone URL, or
+front the port with your own private tunnel.)
+
+### 2. Enrol an authenticator (operator — one time)
+
+Open the gateway app — **easiest on a desktop browser** so you can scan the on-screen QR with your
+phone's authenticator app:
+
+- **Local / LAN:** `http://<gateway-host>:<gateway-port>`
+- **Tunnel:** the phone URL printed in the console (`docker logs`).
+
+The app shows a **QR code**. Scan it into an authenticator app (Google Authenticator, 1Password, …),
+then **enter the current 6-digit code** to confirm. The secret is generated once and stored `0600`
+(in the mounted volume). Once confirmed, the gateway is **active** and serves normally.
+
+> **Desktop vs phone.** Opening the page on a **desktop** lets you scan the QR with your phone's
+> authenticator. If you open it **on the phone itself**, you can't scan a QR on the same screen —
+> tap/copy the shown secret into your authenticator instead.
+>
+> **Lock it down with strict enrolment.** By **default** (`CLOAKCODE_MFA_ENROL=browser`) the QR +
+> secret are served to whoever opens the gateway during enrolment — convenient, but it means **anyone
+> who reaches the gateway before you've paired could enrol their own authenticator and take over**.
+> Set `CLOAKCODE_MFA_ENROL=strict` so the secret is **never sent over the wire** — the QR + otpauth
+> URI are printed **only to the console** (`docker logs`), so only someone with console/log access can
+> pair. Scan from the console, then enter a code in the app.
+
+Every later phone/browser logs in with the current 6-digit code and gets a **session token** (12 h,
+or 30 days with "remember this device"), so reconnects don't re-prompt. Replayed and repeatedly wrong
+codes are rejected.
+
+### 3. Connect your VS Code extension (provider)
+
+In each VS Code window point the extension at the gateway:
+
+```json
+"cloakcode.gatewayUrl": "ws://<gateway-host>:<gateway-port>"
+```
+
+The extension connects, and because the gateway requires auth it asks the extension to **sign in** (it
+does **not** fall back to an embedded bridge). Click the **Sign In** prompt, or run **CloakCode: Sign
+in to Gateway** from the Command Palette, and enter a current 6-digit code from the **same**
+authenticator you enrolled in step 2. The extension stores the issued provider token (per gateway URL)
+and reconnects. _(Set the URL after activation? Run **CloakCode: Reconnect** or reload the window.)_
+
+> Headless/automation instead of interactive sign-in? Present a static machine-to-machine secret:
+> `CLOAKCODE_GATEWAY_TOKEN` on the gateway + `cloakcode.gatewayToken` on the extension
+> ([Provider token](#provider-token-shared-secret)).
+
+### 4. Validate
+
+Refresh the gateway in your browser/phone — the Copilot **sessions from that VS Code window now
+appear**. Open one to see the live transcript; a blocked session shows a **"Needs your input"** card
+you can answer remotely.
+
 ## Connect your VS Code extension
 
 In VS Code settings, point the extension at the gateway (several windows can share one):
 
 ```json
-"cloakcode.gatewayUrl": "ws://<gateway-host>:3543"
+"cloakcode.gatewayUrl": "ws://<gateway-host>:<gateway-port>"
 ```
 
 If you started the gateway with a token, set the **same** value on the extension so it can register
 as a provider — see [Provider token](#provider-token-shared-secret) below.
+
+If the gateway requires **operator TOTP** (the default when exposed), the extension connects but the
+gateway asks it to **sign in** — it does **not** fall back to an embedded bridge. Click the **Sign
+In** prompt (or run **CloakCode: Sign in to Gateway**) and enter a current 6-digit code from the
+authenticator you enrolled on the gateway; the extension stores the issued provider token per URL and
+reconnects. Full walkthrough: [Full setup](#full-setup--exposed-gateway-with-mfa-step-by-step).
 
 For a gateway on **another machine or container**, run it with `CLOAKCODE_GATEWAY_HOST=0.0.0.0` and
 use that host's IP in `gatewayUrl` (loopback only accepts same-host clients).
@@ -123,13 +235,16 @@ docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/
 
 The **phone → gateway** boundary is gated by a time-based one-time code (RFC 6238 TOTP) whenever the
 hub is **exposed** — a wide bind or a live tunnel. Force it with `CLOAKCODE_MFA=required`, turn it
-off with `CLOAKCODE_MFA=off`; unset means secure-by-exposure (off for pure loopback dev).
+off with `CLOAKCODE_MFA=off`; unset means secure-by-exposure (off for pure loopback dev). For the
+end-to-end walkthrough see [Full setup](#full-setup--exposed-gateway-with-mfa-step-by-step).
 
-**Pair once:** on first run the gateway generates a secret, persists it `0600` to
-`CLOAKCODE_MFA_SECRET_FILE` (default `~/.cloakcode/operator-totp.secret`), and prints a **QR + the
-otpauth URI + the base32 secret** to the console. Scan the QR into an authenticator app (Google
-Authenticator, 1Password, …). The secret is shown **once**; later runs reuse the file and never
-reprint it.
+**Pair once (enrolment).** On first run the gateway generates a secret and persists it `0600` to
+`CLOAKCODE_MFA_SECRET_FILE` (default `~/.cloakcode/operator-totp.secret`). A fresh secret is
+**unconfirmed** — the hub runs in **enrolment mode**, serving only the pairing screen until you verify
+a code. **Default (browser):** open the gateway URL and the app shows the **QR** — scan it into an
+authenticator app, then enter a code to confirm. **Strict** (`CLOAKCODE_MFA_ENROL=strict`): the
+secret is never sent over the wire — the QR + otpauth URI are printed to the **console** instead; scan
+there and verify in the app. Either way the secret is shown **once**; later runs reuse the file.
 
 **Each phone logs in** with the current 6-digit code; the gateway returns a signed **session token**
 (12h, or 30d with “remember this device”) so reconnects don't re-prompt until it expires. A reused
@@ -149,15 +264,11 @@ with no configuration.
 two identical hostnames. The VS Code extension stores each gateway's issued token separately (per
 URL), so switching `cloakcode.gatewayUrl` between them never re-pairs.
 
-In **Docker**, mount a volume so the secret survives container replacement (the image runs as `app`,
-so its home is `/home/app`):
-
-```bash
-docker run -it -p 3543:3543 \
-  -e CLOAKCODE_MFA=required \
-  -v cloakcode-mfa:/home/app/.cloakcode \
-  ghcr.io/lsiddiquee/cloakcode-gateway:latest
-```
+In **Docker**, mount `-v cloakcode-mfa:/home/app/.cloakcode` so the TOTP secret survives container
+replacement (the image runs as `app`, so its home is `/home/app`), or relocate it with
+`CLOAKCODE_MFA_SECRET_FILE` — see
+[Persisting state across container upgrades](#persisting-state-across-container-upgrades-volumes) for
+all the volumes (secret, tunnel token, action log).
 
 ## Configuration (environment variables)
 
@@ -190,6 +301,17 @@ The two trust boundaries are authenticated separately:
   6-digit code and resumes with a 12h/30d session token.
 - **Provider (extension) → gateway: shared token.** Set `CLOAKCODE_GATEWAY_TOKEN` so only
   extensions holding the secret can register (machine-to-machine; never shown to the phone).
+
+**Both set together?** The two hops authenticate **independently** — enabling one never disables the
+other:
+
+- **Phone (operator) → gateway:** always **TOTP** when MFA is on. The static token is **never** used
+  on this hop.
+- **Extension (provider) → gateway:** `verifyProviderCredential` accepts **either** a TOTP-issued
+  token **or** the static token — an **OR**, not a priority or override. With **MFA only**, the
+  extension must sign in with a code to obtain a token, so **TOTP gates this hop too**; adding a
+  static token just supplies a **second accepted credential** (the headless escape hatch). On its
+  side, the extension prefers its stored sign-in token and falls back to the static one.
 
 Still prefer **loopback + a private tunnel** (default host `127.0.0.1`; the Dev Tunnel is private,
 sign-in required) over a wide `0.0.0.0` bind on an untrusted network — TOTP gates control, but a

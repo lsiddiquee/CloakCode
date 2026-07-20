@@ -11,14 +11,25 @@
 # front the published port with your own private tunnel/ingress.
 FROM node:24-slim AS build
 WORKDIR /repo
-RUN corepack enable
+# Optional private/corporate npm registry for networks where the public
+# registry.npmjs.org is unreachable (e.g. a Microsoft package-feed proxy). Empty
+# ⇒ default public npm. Passed by `scripts/docker-gateway.sh --registry <url>`
+# (or NPM_REGISTRY); applies to the pnpm install AND the pnpm-via-npm bootstrap.
+ARG NPM_REGISTRY=
+# Point npm (and thus pnpm, which reads the same ~/.npmrc) at the registry before
+# anything is fetched.
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi
 COPY . .
-# The repo carries no .npmrc, so the default public npm registry applies here.
-# The committed pnpm-lock.yaml is registry-portable (integrity-only, no absolute
-# tarball URLs), so --frozen-lockfile installs it from public npm with every
-# version pin intact.
-# pnpm 11.9 needs Node >=22.13 (why the base is node:24).
-RUN pnpm install --frozen-lockfile \
+# Install pnpm via **npm**, not corepack: corepack fetches from a non-standard
+# registry path (`<registry>/pnpm/<version>`) that corporate mirrors/proxies
+# often 404, whereas `npm i -g` is an ordinary package install every feed serves.
+# The version is pinned to the root `packageManager` field (one source of truth,
+# no drift). The committed pnpm-lock.yaml is registry-portable (integrity-only,
+# no absolute tarball URLs), so --frozen-lockfile installs from ANY registry with
+# every version pin intact. pnpm 11.9 needs Node >=22.13 (why the base is node:24).
+RUN PNPM_VERSION="$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")" \
+  && npm install -g "pnpm@${PNPM_VERSION}" \
+  && pnpm install --frozen-lockfile \
   && pnpm --filter @cloakcode/protocol build \
   && pnpm --filter @cloakcode/gateway bundle \
   && pnpm --filter @cloakcode/web build
@@ -26,12 +37,18 @@ RUN pnpm install --frozen-lockfile \
 FROM node:24-slim AS runtime
 # Bundle the Microsoft Dev Tunnels CLI so `CLOAKCODE_TUNNEL=devtunnel` works out
 # of the box (inert unless enabled). It's a self-contained .NET single-file that
-# needs libsecret at runtime; invariant globalization avoids a libicu dependency.
-# Downloaded directly (arch-aware) rather than via the aka.ms installer, which
-# does its own `sudo apt-get` + PATH edits we don't want in an image layer.
-ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+# needs libsecret AND ICU (libicu) at runtime: the current build aborts on
+# startup under invariant globalization ("Couldn't find a valid ICU package…" —
+# its LimitsCommand reads TimeZoneInfo/CurrentUICulture), so we install the ICU
+# runtime instead of relying on DOTNET_SYSTEM_GLOBALIZATION_INVARIANT. The libicu
+# package is SO-versioned per Debian release (libicu72/76/…), so resolve whatever
+# this base image ships rather than pinning. Downloaded directly (arch-aware)
+# rather than via the aka.ms installer, which does its own `sudo apt-get` + PATH
+# edits we don't want in an image layer.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates libsecret-1-0 curl \
+  && apt-get install -y --no-install-recommends \
+       "$(apt-cache search --names-only '^libicu[0-9]+$' | cut -d' ' -f1 | sort -V | tail -n1)" \
   && arch="$(dpkg --print-architecture)" \
   && case "$arch" in \
        amd64) t=linux-x64 ;; \

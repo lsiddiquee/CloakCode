@@ -343,8 +343,11 @@ export function SessionView({
 
 /**
  * Compact session-telemetry bar (docs/02 §4.14): total tokens, AI Units, request
- * count, and the model(s). Shows a "partial" note when the stream carries
- * transcript-stitched history whose turns predate the debug-log's telemetry.
+ * count, and the model(s). An **ⓘ** marker is ALWAYS shown — the counts come from
+ * the on-disk debug log, so the authoritative figure is VS Code's own Session
+ * Cost. A firm **partial** chip is added when history was transcript-stitched
+ * (`tx-` parts), whose turns carry no telemetry, so the totals cover the recent
+ * (debug-log) turns only.
  */
 function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
   return (
@@ -375,11 +378,18 @@ function UsageBar({ usage }: { usage: UsageSummary }): JSX.Element {
       {usage.partial && (
         <span
           className="usage-partial"
-          title="Earlier history predates this session's telemetry log, so these totals cover the recent turns only."
+          title="Partial: earlier history was stitched from the transcript, which carries no telemetry — so these totals cover the recent (debug-log) turns only."
         >
           partial
         </span>
       )}
+      <span
+        className="usage-info"
+        title="Usage is counted from the on-disk debug log. The authoritative figure is VS Code's own Session Cost (and your GitHub Copilot usage)."
+        aria-label="About these usage numbers"
+      >
+        ⓘ
+      </span>
     </div>
   );
 }

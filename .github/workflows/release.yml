@@ -39,7 +39,8 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
-
+        with:
+          fetch-depth: 0 # full history + tags — scripts/changelog.mjs needs the log since the last tag
       - name: Install pnpm
         uses: pnpm/action-setup@v6
       - name: Setup Node
@@ -86,16 +87,26 @@ jobs:
       - name: Tar the gateway bundle
         run: tar -C dist -czf "cloakcode-gateway-${GITHUB_REF_NAME}.tgz" gateway
 
+      # Build categorized release notes from Conventional Commits. GitHub's own
+      # generate_release_notes only lists merged PRs since the last tag — our flow
+      # lands work on main directly and cuts a release via one chore(release) PR,
+      # so those notes are near-empty. scripts/changelog.mjs reads the git log and
+      # groups commits by type (features / fixes / … ) — useful by default.
+      - name: Generate release notes
+        run: node scripts/changelog.mjs --to "$GITHUB_REF_NAME" > RELEASE_NOTES.md
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
       # --- Always: a GitHub Release with the artifacts (no external secrets) ---
       - name: GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          body_path: RELEASE_NOTES.md
           files: |
             dist/extension/*.vsix
             dist/extension/install.sh
             dist/extension/uninstall.sh
             cloakcode-gateway-*.tgz
-          generate_release_notes: true
 
       # --- Gated: VS Code Marketplace (needs VSCE_PAT; consider OVSX_TOKEN too) ---
       - name: Publish extension → VS Code Marketplace

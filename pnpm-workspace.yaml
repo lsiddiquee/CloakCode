@@ -15,9 +15,42 @@ pmOnFail: ignore
 
 # pnpm 11 build-script allowlist (replaces the removed onlyBuiltDependencies /
 # ignoredBuiltDependencies keys). esbuild (via vitest/vite) needs its platform
-# binary linked → allow. vsce-sign + keytar are publish/signing-only native
-# modules that `vsce package` never needs → deny (don't build).
+# binary linked → allow. vsce-sign is publish/signing-only native code that
+# `vsce package` never needs → deny (don't build).
 allowBuilds:
   esbuild: true
   "@vscode/vsce-sign": false
-  keytar: false
+
+# VSCE's optional keytar integration stores publishing credentials. CloakCode
+# only uses VSCE for local packaging, so omit that unused native module and its
+# deprecated prebuild-install dependency.
+ignoredOptionalDependencies:
+  - keytar
+
+# Supply-chain hardening (https://pnpm.io/supply-chain-security).
+# Delay resolving freshly-published versions so a compromised release is likely
+# caught + yanked before we ever install it. pnpm v11 defaults this to 1440
+# (1 day); we widen it to 1 week. NOTE: pnpm also validates the committed
+# lockfile against this policy on `--frozen-lockfile`, so the lockfile must only
+# pin versions old enough to pass (rebuild if it flags a
+# MINIMUM_RELEASE_AGE_VIOLATION). (Dependabot has its own delay: the `cooldown`
+# block in .github/dependabot.yml.)
+minimumReleaseAge: 10080 # minutes = 7 days
+
+# Refuse a version whose trust level dropped versus a prior release (e.g. it lost
+# its trusted-publisher / provenance evidence) — a common compromise signature.
+trustPolicy: no-downgrade
+# Narrow exemption: two transitive dev-toolchain deps by the SAME maintainer
+# (Andrey Sitnik / "ai") that this environment's MS package-feed mirror re-serves
+# WITHOUT npm provenance attestations → pnpm reads a "trust downgrade" (false
+# positive: legit packages, no CVE / Dependabot alert). no-downgrade stays fully
+# enforced for every other package.
+trustPolicyExclude:
+  - browserslist
+  - nanoid
+
+# Refuse transitive dependencies pulled from exotic sources (git repos, direct
+# tarball URLs) — force every sub-dependency to resolve from the registry,
+# closing a common malware-injection vector. (Verified: the committed lockfile
+# has no exotic sources, so this is a forward-guard, not a breaking change.)
+blockExoticSubdeps: true

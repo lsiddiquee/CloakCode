@@ -13,6 +13,10 @@
 #   --image  NAME   image tag to build/run     (env IMAGE,      default cloakcode-gateway:dev)
 #   --port   PORT   host port for the test run  (env HOST_PORT,  default 3543)
 #   --no-cache      build without the layer cache
+#   --registry URL  private npm registry for the build (npm bootstrap + pnpm),
+#                   for networks where registry.npmjs.org is blocked; env NPM_REGISTRY
+#   --network MODE  docker build network (e.g. 'host' — the usual WSL2 fix for a
+#                   TLS/handshake failure reaching registry.npmjs.org); env DOCKER_NETWORK
 #   --keep          leave the test container running (for debugging)
 #   -h | --help     show this help
 #
@@ -35,6 +39,8 @@ IMAGE="${IMAGE:-cloakcode-gateway:dev}"
 HOST_PORT="${HOST_PORT:-3543}"
 CONTAINER_PORT=3543
 NO_CACHE=""
+NETWORK="${DOCKER_NETWORK:-}"
+REGISTRY="${NPM_REGISTRY:-}"
 KEEP=0
 CMD="all"
 
@@ -47,9 +53,13 @@ while [ "$#" -gt 0 ]; do
     --port) HOST_PORT="$2"; shift ;;
     --port=*) HOST_PORT="${1#*=}" ;;
     --no-cache) NO_CACHE="--no-cache" ;;
+    --registry) REGISTRY="$2"; shift ;;
+    --registry=*) REGISTRY="${1#*=}" ;;
+    --network) NETWORK="$2"; shift ;;
+    --network=*) NETWORK="${1#*=}" ;;
     --keep) KEEP=1 ;;
     -h | --help)
-      sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -70,8 +80,23 @@ log() { printf '\033[36mdocker-gateway:\033[0m %s\n' "$*"; }
 
 build_image() {
   log "building ${IMAGE} from ${DOCKERFILE} (context: repo root)"
-  # shellcheck disable=SC2086 # NO_CACHE is intentionally word-split (empty or a flag).
-  "${DOCKER}" build ${NO_CACHE} -f "${DOCKERFILE}" -t "${IMAGE}" .
+  local flags=(-f "${DOCKERFILE}" -t "${IMAGE}")
+  [ -n "${NO_CACHE}" ] && flags+=(--no-cache)
+  if [ -n "${NETWORK}" ]; then
+    flags+=(--network "${NETWORK}")
+    log "build network: ${NETWORK}"
+  fi
+  if [ -n "${REGISTRY}" ]; then
+    flags+=(--build-arg "NPM_REGISTRY=${REGISTRY}")
+    log "npm registry: ${REGISTRY}"
+  fi
+  # Forward any shell proxy settings to the build (BuildKit treats these as
+  # predefined build args), so a corporate proxy reaches npm during install.
+  local v
+  for v in HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy; do
+    [ -n "${!v:-}" ] && flags+=(--build-arg "${v}=${!v}")
+  done
+  "${DOCKER}" build "${flags[@]}" .
   log "built ${IMAGE}"
 }
 

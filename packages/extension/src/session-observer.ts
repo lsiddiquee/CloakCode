@@ -418,30 +418,46 @@ function userTexts(events: SessionEvent[]): string[] {
 }
 
 /**
- * Index in `transcript` where the debug-log's user-message SEQUENCE first aligns
- * (the earliest user-message append after which the transcript's user texts start
- * with `dlTexts`). Aligning the whole sequence — not just the first text — is
- * what disambiguates a REPEATED prompt: matching only `dlTexts[0]` would pick an
- * earlier identical prompt and stitch at the wrong boundary (F7). Returns -1 when
- * the debug-log's opening isn't found in the transcript.
+ * Transcript event index where the debug-log OPENS — the user-message append
+ * matching `dlTexts[0]`, choosing (among repeats) the one with the LONGEST
+ * aligned prefix of `dlTexts`. This disambiguates a REPEATED opening prompt (F7)
+ * WITHOUT requiring the whole sequence to match: VS Code rehydrates the
+ * transcript with reordered/retimed turns (docs/06), so demanding a full match
+ * made alignment fail and drop all history. Returns -1 when the opening isn't in
+ * the transcript.
  */
 function alignBoundary(transcript: SessionEvent[], dlTexts: string[]): number {
+  if (dlTexts.length === 0) return -1;
   const users: { index: number; text: string }[] = [];
   transcript.forEach((e, i) => {
     if (e.type === "append" && e.part.kind === "userMessage")
       users.push({ index: i, text: e.part.text });
   });
+  // Align on the debug-log's OPENING message, disambiguating a REPEATED opening
+  // prompt (F7) by the LONGEST aligned prefix — NOT by requiring the WHOLE
+  // sequence to match. VS Code rehydrates the transcript with reordered/retimed
+  // turns (docs/06 "rehydrated timestamps are replay time"), so later turns
+  // routinely diverge from the debug-log's order; demanding a full-sequence match
+  // there made alignment FAIL and silently drop ALL earlier history (2026-07-18).
+  // The debug-log leads from the boundary, so we only need to find WHERE it opens.
+  let best = -1;
+  let bestScore = 0;
   for (let p = 0; p < users.length; p++) {
-    let aligned = true;
-    for (let k = 0; k < dlTexts.length && p + k < users.length; k++) {
-      if (users[p + k]!.text !== dlTexts[k]) {
-        aligned = false;
-        break;
-      }
+    if (users[p]!.text !== dlTexts[0]) continue;
+    let score = 1;
+    while (
+      score < dlTexts.length &&
+      p + score < users.length &&
+      users[p + score]!.text === dlTexts[score]
+    ) {
+      score++;
     }
-    if (aligned) return users[p]!.index;
+    if (score > bestScore) {
+      bestScore = score;
+      best = users[p]!.index;
+    }
   }
-  return -1;
+  return best;
 }
 
 /**

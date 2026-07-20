@@ -426,6 +426,30 @@ describe("PendingCard answer submit", () => {
     expect(badge?.textContent).toContain("5.00 AIU");
   });
 
+  it("always shows the ⓘ info marker; no partial chip when history is not stitched", async () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    act(() => {
+      // Only a debug-log usage part, no `tx-` stitched history → no firm partial,
+      // but the ⓘ marker (counts are debug-log-based) is always present.
+      h.emitEvent({
+        type: "append",
+        seq: 0,
+        part: {
+          kind: "usage",
+          id: "dl-usage-0",
+          model: "claude-opus-4.8",
+          inputTokens: 1000,
+          outputTokens: 100,
+          cachedTokens: 900,
+          nanoAiu: 5_000_000_000,
+        },
+      });
+    });
+    await screen.findByText("ⓘ");
+    expect(document.querySelector(".usage-info")).toBeTruthy();
+    expect(document.querySelector(".usage-partial")).toBeNull(); // not stitched
+  });
+
   it("shows a jump-to-latest button when parked above the bottom, and returns on click", () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     const el = document.querySelector("main.transcript") as HTMLElement;

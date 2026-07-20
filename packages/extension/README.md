@@ -94,9 +94,18 @@ Run from the Command Palette (prefix **CloakCode:**):
 | **Set Up Phone Tunnel**                  | Guided Dev Tunnel setup (install + sign-in).         |
 | **Reconnect**                            | Re-establish the bridge / gateway connection.        |
 | **Set Instance ID**                      | Name this machine for a stable, distinct phone URL.  |
+| **Pair Operator Access (TOTP)**          | Show the QR to enrol an authenticator for phone auth. _Embedded mode only._ |
+| **Reset Operator Access (TOTP)**         | Regenerate the phone-auth TOTP secret (lockout recovery). _Embedded mode only._ |
+| **Sign in to Gateway**                   | Enter a TOTP code to authenticate this window with a gateway. _Gateway mode only._ |
 | **Install / Repair Copilot Hook**        | (Re)install the notifier hook.                       |
 | **Remove Copilot Hook (all workspaces)** | Remove the per-environment hook.                     |
 | **Show Diagnostics**                     | Dump current status for troubleshooting.             |
+
+**Mode-gated commands.** The Command Palette hides commands that don't apply to the current mode
+(via the `cloakcode.embedded` context key): the two **Operator Access (TOTP)** commands manage the
+**embedded** bridge's own phone auth and appear **only when this window runs the embedded gateway**;
+**Sign in to Gateway** appears **only in gateway mode** (`cloakcode.gatewayUrl` set). See _Sharing
+one hub across windows_ below.
 
 ## Naming this instance (the instance id)
 
@@ -124,8 +133,19 @@ endpoint, run the standalone **[CloakCode gateway](https://www.npmjs.com/package
 "cloakcode.gatewayUrl": "ws://<gateway-host>:7900"
 ```
 
-If the gateway is unreachable at startup, the extension logs a warning and falls back to embedded
-mode. See the gateway package for npm / Docker usage.
+If the gateway is **unreachable** at startup, the extension logs a warning and falls back to
+embedded mode. If the gateway is reachable but **requires sign-in** (operator MFA is on), it does
+**not** fall back — it stays in gateway mode and asks you to authenticate, so it never spins up a
+second, competing bridge:
+
+1. Run **CloakCode: Sign in to Gateway** and enter the current 6-digit code from the authenticator
+   you enrolled against **the gateway** (the QR/secret it printed on first run — not the embedded
+   bridge's "Pair Operator Access" code).
+2. The extension stores the issued provider token (per gateway URL) and reconnects automatically.
+
+The two **Pair / Reset Operator Access (TOTP)** commands manage the _embedded_ bridge's own phone
+auth, so they're hidden in gateway mode; **Sign in to Gateway** is hidden in embedded mode. See the
+gateway package for npm / Docker usage.
 
 ## Privacy & security
 
