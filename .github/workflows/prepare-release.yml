@@ -24,7 +24,7 @@ jobs:
     name: Bump + push release branch
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # set-version.mjs is stdlib-only Node; it validates SemVer and rejects
       # pre-release suffixes (the Marketplace can't take them). Runner Node is fine.

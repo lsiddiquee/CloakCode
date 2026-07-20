@@ -38,7 +38,7 @@ jobs:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history + tags — scripts/changelog.mjs needs the log since the last tag
       - name: Install pnpm
