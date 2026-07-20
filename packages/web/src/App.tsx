@@ -5,7 +5,8 @@ import { onEnrolmentRequired, onNeedsAuth } from "./auth";
 import { AuthPrompt } from "./AuthPrompt";
 import { EnrolView } from "./EnrolView";
 import { dotClass, statusLabel } from "./format";
-import { groupByWorkspace } from "./grouping";
+import { groupByWorkspace, isOwnedGroup } from "./grouping";
+import { loadPrefs, savePrefs, type SessionListPrefs } from "./prefs";
 import { SessionView } from "./SessionView";
 
 type LoadState =
@@ -18,6 +19,19 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<SessionSummary | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [enrolOpen, setEnrolOpen] = useState(false);
+  const [prefs, setPrefs] = useState<SessionListPrefs>(() => loadPrefs());
+
+  // Persist list preferences to the browser whenever they change.
+  useEffect(() => savePrefs(prefs), [prefs]);
+
+  function toggleCollapsed(hash: string): void {
+    setPrefs((p) => ({
+      ...p,
+      collapsed: p.collapsed.includes(hash)
+        ? p.collapsed.filter((h) => h !== hash)
+        : [...p.collapsed, hash],
+    }));
+  }
 
   async function load(): Promise<void> {
     setState({ kind: "loading" });
@@ -124,49 +138,95 @@ export function App(): JSX.Element {
         )}
 
         {state.kind === "ready" &&
-          groupByWorkspace(state.sessions).map((group) => {
-            const owned = group.rows.every((s) => s.owned);
-            return (
-              <section key={group.workspaceHash}>
-                <div className="group-label">
-                  workspace {group.workspace}
-                  {owned
-                    ? ` · ${group.instanceId}`
-                    : " · read-only (no extension here)"}
-                </div>
-                {group.rows.map((s) => (
-                  <div
-                    key={s.sessionId}
-                    className={`row ${s.status === "blocked" ? "blocked" : ""}${
-                      s.owned ? "" : " locked"
-                    }`}
-                    onClick={() => setSelected(s)}
-                  >
-                    <span className={`dot ${dotClass(s.status)}`} />
-                    <div className="body">
-                      <div className="name">{s.title}</div>
-                      <div className="meta">
-                        <span title={`session ${s.sessionId}`}>
-                          session {s.sessionId.slice(0, 8)}
-                        </span>
-                        <span>·</span>
-                        <span>{s.turns} turns</span>
-                        <span>·</span>
-                        <span>{statusLabel(s.status, s.idleSeconds)}</span>
-                      </div>
-                    </div>
-                    {s.owned ? (
-                      s.status === "blocked" && (
-                        <span className="needs">Needs input</span>
-                      )
-                    ) : (
-                      <span className="needs locked">read-only</span>
-                    )}
-                  </div>
-                ))}
-              </section>
+          state.sessions.length > 0 &&
+          (() => {
+            const groups = groupByWorkspace(state.sessions);
+            const readOnlyCount = groups.filter((g) => !isOwnedGroup(g)).length;
+            const collapsed = new Set(prefs.collapsed);
+            const visible = groups.filter(
+              (g) => prefs.showReadOnly || isOwnedGroup(g),
             );
-          })}
+            return (
+              <>
+                {readOnlyCount > 0 && (
+                  <label className="listtoggle">
+                    <input
+                      type="checkbox"
+                      checked={prefs.showReadOnly}
+                      onChange={(e) =>
+                        setPrefs((p) => ({
+                          ...p,
+                          showReadOnly: e.target.checked,
+                        }))
+                      }
+                    />
+                    Show read-only ({readOnlyCount})
+                  </label>
+                )}
+                {visible.map((group) => {
+                  const owned = isOwnedGroup(group);
+                  const isCollapsed = collapsed.has(group.workspaceHash);
+                  return (
+                    <section key={group.workspaceHash}>
+                      <button
+                        type="button"
+                        className="group-label"
+                        aria-expanded={!isCollapsed}
+                        onClick={() => toggleCollapsed(group.workspaceHash)}
+                      >
+                        <span
+                          className={`chevron ${isCollapsed ? "collapsed" : ""}`}
+                          aria-hidden="true"
+                        >
+                          ▾
+                        </span>
+                        <span className="group-name">
+                          workspace {group.workspace}
+                          {owned
+                            ? ` · ${group.instanceId}`
+                            : " · read-only (no extension here)"}
+                        </span>
+                        <span className="group-count">{group.rows.length}</span>
+                      </button>
+                      {!isCollapsed &&
+                        group.rows.map((s) => (
+                          <div
+                            key={s.sessionId}
+                            className={`row ${
+                              s.status === "blocked" ? "blocked" : ""
+                            }${s.owned ? "" : " locked"}`}
+                            onClick={() => setSelected(s)}
+                          >
+                            <span className={`dot ${dotClass(s.status)}`} />
+                            <div className="body">
+                              <div className="name">{s.title}</div>
+                              <div className="meta">
+                                <span title={`session ${s.sessionId}`}>
+                                  session {s.sessionId.slice(0, 8)}
+                                </span>
+                                <span>·</span>
+                                <span>{s.turns} turns</span>
+                                <span>·</span>
+                                <span>
+                                  {statusLabel(s.status, s.idleSeconds)}
+                                </span>
+                              </div>
+                            </div>
+                            {s.owned ? (
+                              s.status === "blocked" && (
+                                <span className="needs">Needs input</span>
+                              )
+                            ) : (
+                              <span className="needs locked">read-only</span>
+                            )}
+                          </div>
+                        ))}
+                    </section>
+                  );
+                })}
+              </>
+            );
+          })()}
       </main>
     </div>
   );

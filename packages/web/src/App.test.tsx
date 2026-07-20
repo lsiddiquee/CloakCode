@@ -55,6 +55,7 @@ function listResult(
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe("App", () => {
@@ -91,15 +92,78 @@ describe("App", () => {
     expect(await screen.findByText(/No Copilot sessions found/)).toBeTruthy();
   });
 
-  it("marks a session with no local extension as read-only", async () => {
+  it("hides read-only workspaces until the toggle is enabled, then reveals them", async () => {
     fetchSessionsMock.mockResolvedValue(
       listResult([summary({ owned: false })]),
     );
     render(<App />);
+    // Default: read-only workspaces are hidden; only the toggle is shown.
+    const toggle = await screen.findByText(/Show read-only \(1\)/);
+    expect(toggle).toBeTruthy();
+    expect(screen.queryByText(/read-only \(no extension here\)/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox"));
     expect(
       await screen.findByText(/read-only \(no extension here\)/),
     ).toBeTruthy();
     expect(screen.getByText("read-only")).toBeTruthy();
+  });
+
+  it("persists the show-read-only toggle across remounts", async () => {
+    fetchSessionsMock.mockResolvedValue(
+      listResult([summary({ owned: false })]),
+    );
+    const first = render(<App />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    await screen.findByText(/read-only \(no extension here\)/);
+    first.unmount();
+
+    render(<App />);
+    // The persisted pref re-reveals the read-only workspace without re-toggling.
+    expect(
+      await screen.findByText(/read-only \(no extension here\)/),
+    ).toBeTruthy();
+  });
+
+  it("collapses a workspace's rows when its header is clicked, and persists it", async () => {
+    fetchSessionsMock.mockResolvedValue(listResult([summary({})]));
+    const first = render(<App />);
+    await screen.findByText("My session");
+
+    fireEvent.click(screen.getByText(/workspace repo/));
+    expect(screen.queryByText("My session")).toBeNull();
+    first.unmount();
+
+    render(<App />);
+    // Collapsed state persisted: the header shows but the row stays hidden.
+    expect(await screen.findByText(/workspace repo/)).toBeTruthy();
+    expect(screen.queryByText("My session")).toBeNull();
+  });
+
+  it("orders owned workspaces above read-only ones", async () => {
+    fetchSessionsMock.mockResolvedValue(
+      listResult([
+        summary({
+          sessionId: "ro",
+          workspaceHash: "RO",
+          title: "readonly one",
+          owned: false,
+        }),
+        summary({
+          sessionId: "own",
+          workspaceHash: "OWN",
+          title: "owned one",
+          owned: true,
+        }),
+      ]),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("checkbox")); // reveal read-only
+    const labels = screen
+      .getAllByText(/workspace repo/)
+      .map((el) => el.textContent ?? "");
+    expect(labels[0]).toMatch(/i1/); // owned group's instanceId label leads
+    expect(labels[1]).toMatch(/read-only/); // read-only group sinks below
   });
 
   it("shows the error state and retries on demand", async () => {

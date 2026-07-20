@@ -153,6 +153,53 @@ body {
   letter-spacing: 0.8px;
   margin: 10px 4px 4px;
 }
+/* The label doubles as a collapse toggle: reset button chrome, keep it inline. */
+button.group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  padding: 0;
+}
+.group-label .chevron {
+  font-size: 9px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.group-label .chevron.collapsed {
+  transform: rotate(-90deg);
+}
+.group-label .group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-label .group-count {
+  flex: none;
+  opacity: 0.7;
+  text-transform: none;
+}
+.listtoggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 4px 2px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.listtoggle input {
+  cursor: pointer;
+}
 
 .row {
   display: flex;
