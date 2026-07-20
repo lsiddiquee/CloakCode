@@ -195,11 +195,16 @@ export async function startBridge(
       res.end("CloakCode bridge: WebSocket only");
       return;
     }
-    const file = resolveStaticPath(serveDir, req.url ?? "/");
-    // resolveStaticPath already rejects traversal; re-assert containment at the
-    // read sink so the guarantee is explicit to static analysis (defense-in-depth).
+    const resolved = resolveStaticPath(serveDir, req.url ?? "/");
+    if (!resolved) {
+      res.writeHead(400).end();
+      return;
+    }
+    // Normalize + re-assert containment at the sink so the traversal guarantee
+    // resolveStaticPath enforces is explicit to static analysis (CodeQL barrier).
     const root = path.resolve(serveDir);
-    if (!file || (file !== root && !file.startsWith(root + path.sep))) {
+    const file = path.resolve(resolved);
+    if (file !== root && !file.startsWith(root + path.sep)) {
       res.writeHead(400).end();
       return;
     }
