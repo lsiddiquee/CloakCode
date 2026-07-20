@@ -24,8 +24,11 @@ CloakCode runs in one of two shapes. **Embedded is the default and the safest.**
 
 - **Default bind is `127.0.0.1` (loopback only)** — both the gateway and the extension's embedded
   bridge. Reachable only from the same host / network namespace.
-- **No app-layer auth yet (until M4).** Any wider bind is **trusted-network-only**; the phone hop
-  leans on the **private tunnel**'s own sign-in.
+- **Authenticated, but not yet encrypted.** An exposed hub is gated by **operator TOTP** (phone) + a
+  **provider token** (extension) — F2a — so it is not open. But the extension↔gateway hop is still
+  plain `ws://`, so any wider bind stays **trusted-network-only** until transport encryption lands
+  (see [Transport confidentiality](04-security-and-compliance.md#tunnel--transport)). The phone hop is
+  already TLS via the **private tunnel**.
 - **Loopback only reaches the same network namespace.** Cross-namespace hops (container↔host,
   WSL↔container, WSL↔Windows) do **not** see each other's `127.0.0.1` — that's the whole problem a
   tunnel or port-forward solves.
