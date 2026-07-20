@@ -6,10 +6,12 @@
 #
 # With CLOAKCODE_TUNNEL=devtunnel it ensures a Dev Tunnels sign-in before start:
 #   * already signed in (persisted token volume) → straight through.
-#   * not signed in → a **device-code** login (works headless: the code prints to
-#     the console / `docker logs`, you finish it in any browser, and hosting
-#     starts once it completes). The provider is REQUIRED and explicit via
-#     CLOAKCODE_TUNNEL_PROVIDER=github|microsoft (no default).
+#   * not signed in → a **device-code** login. This works HEADLESS: `docker run
+#     -it` is NOT required — the code prints to the console / `docker logs`, you
+#     finish it in any browser, and hosting starts once it completes. The login
+#     provider defaults to GitHub; set CLOAKCODE_TUNNEL_PROVIDER=microsoft for a
+#     Microsoft account. If the device code expires the login fails and the
+#     container exits (set -eu) — just restart and try again.
 #
 # The token persists under $HOME/.local/share/DevTunnels — mount it as a volume
 # (`-v cloakcode-devtunnel:/home/app/.local/share/DevTunnels`) to sign in once.
@@ -21,22 +23,26 @@ if [ "${CLOAKCODE_TUNNEL:-}" = "devtunnel" ]; then
   if devtunnel user show 2>/dev/null | grep -q "Logged in as"; then
     echo "CloakCode: Dev Tunnels — already signed in."
   else
-    case "${CLOAKCODE_TUNNEL_PROVIDER:-}" in
+    # Pick the login provider. Default GitHub (most CloakCode users already have a
+    # GitHub account); set CLOAKCODE_TUNNEL_PROVIDER=microsoft for a Microsoft
+    # account. A typo'd value fails fast instead of silently picking a provider.
+    provider="${CLOAKCODE_TUNNEL_PROVIDER:-github}"
+    case "$provider" in
       github) prov="-g" ;;
       microsoft) prov="" ;;
       *)
-        echo "CloakCode: CLOAKCODE_TUNNEL=devtunnel needs a one-time sign-in." >&2
-        echo "  1. Set CLOAKCODE_TUNNEL_PROVIDER=github or microsoft." >&2
-        echo "  2. Run interactively (docker run -it …) and complete the device-code login." >&2
-        echo "  3. Persist it so you only sign in once:" >&2
-        echo "       -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels" >&2
+        echo "CloakCode: invalid CLOAKCODE_TUNNEL_PROVIDER='$provider' (use 'github' or 'microsoft')." >&2
         exit 1
         ;;
     esac
-    echo "CloakCode: signing in to Dev Tunnels via device code (${CLOAKCODE_TUNNEL_PROVIDER})…"
-    echo "CloakCode: open the URL below and enter the code; hosting starts once you finish."
-    # `-d` forces device-code (no browser needed here); it prints the code + URL
-    # and blocks until you complete it, then returns.
+    # Device-code sign-in is HEADLESS — no TTY, so `docker run -it` is NOT needed.
+    # `-d` forces the device-code flow: it prints a URL + code (also in
+    # `docker logs`), then BLOCKS until you complete it in any browser and hosting
+    # starts. If the code expires the login fails and the container exits (set -eu)
+    # — just restart. Persist the token to sign in only once:
+    #   -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels
+    echo "CloakCode: signing in to Dev Tunnels via device code (${provider})…"
+    echo "CloakCode: open the URL below and enter the code (also in \`docker logs\`); hosting starts once you finish."
     devtunnel user login -d $prov
   fi
 fi

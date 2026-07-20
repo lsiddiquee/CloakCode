@@ -110,7 +110,10 @@ virtual-interface bind, and keep the phone on the tunnel rather than a LAN IP.
 ## Docker
 
 The gateway ships as a container image that **bundles the `devtunnel` CLI**, so it can host the
-phone tunnel itself (device-code sign-in at startup). See the
+phone tunnel itself. Sign-in is **device-code, so it runs headless — no `docker run -it`**: the code
+prints to `docker logs`, the login blocks until you finish it in any browser, and the container exits
+if the code expires (just restart). It defaults to a **GitHub** login
+(`CLOAKCODE_TUNNEL_PROVIDER=microsoft` for a Microsoft account). See the
 [gateway README — Docker](../packages/gateway/README.md#run-it--docker) for the run commands, the
 `CLOAKCODE_TUNNEL` / `CLOAKCODE_TUNNEL_PROVIDER` variables, and the persist volume.
 

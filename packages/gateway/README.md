@@ -62,22 +62,22 @@ docker run --rm -p 8080:8080 \
 ### Phone tunnel from the container
 
 The image **bundles the `devtunnel` CLI** (inert unless you enable it). To host a private Dev Tunnel
-straight from the container, enable it, pick a login provider (**required — no default**), and mount a
-volume for the token so you only sign in once:
+straight from the container, enable it and mount a volume for the token so you only sign in once:
 
 ```bash
-docker run -it -p 3543:3543 \
+docker run -p 3543:3543 \
   -e CLOAKCODE_TUNNEL=devtunnel \
-  -e CLOAKCODE_TUNNEL_PROVIDER=github \
   -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
-On first run it prints a **device code + URL** to the console — open the URL in any browser, enter the
-code, and the tunnel starts (works detached too: read the code from `docker logs`). The token lives in
-the mounted volume, so later runs sign in silently. `CLOAKCODE_TUNNEL_PROVIDER` must be `github` or
-`microsoft`. The container runs as a non-root user (`app`). Prefer your own ingress instead? Leave the
-tunnel off and front the published port with Cloudflare Tunnel / Tailscale / a reverse proxy.
+On first run it prints a **device code + URL** to the console (`docker logs`) — open the URL in any
+browser and enter the code. The sign-in is **device-code, so `-it` is not needed** (it runs fully
+detached); it blocks until you finish, and if the code expires the container exits — just restart. The
+token lives in the mounted volume, so later runs sign in silently. Sign-in defaults to **GitHub**; set
+`-e CLOAKCODE_TUNNEL_PROVIDER=microsoft` for a Microsoft account. The container runs as a non-root user
+(`app`). Prefer your own ingress instead? Leave the tunnel off and front the published port with
+Cloudflare Tunnel / Tailscale / a reverse proxy.
 
 ### Persisting state across container upgrades (volumes)
 
@@ -97,13 +97,12 @@ All three at once — TOTP secret survives upgrades, tunnel signs in once, and t
 named volume:
 
 ```bash
-docker run -it -p 3543:3543 \
+docker run -p 3543:3543 \
   -v cloakcode-mfa:/home/app/.cloakcode \
   -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   -v cloakcode-logs:/data \
   -e CLOAKCODE_GATEWAY_LOG_FILE=/data/gateway.jsonl \
   -e CLOAKCODE_TUNNEL=devtunnel \
-  -e CLOAKCODE_TUNNEL_PROVIDER=github \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
@@ -122,14 +121,14 @@ extension. Force it on/off with `CLOAKCODE_MFA=required` / `CLOAKCODE_MFA=off`.
 ```bash
 # Docker binds 0.0.0.0 by default, so MFA turns on. Mount a volume so the TOTP
 # secret survives container replacement.
-docker run -it -p 3543:3543 \
+docker run -p 3543:3543 \
   -v cloakcode-mfa:/home/app/.cloakcode \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
 On first run the console prints the instance name + the connect URLs and reports that **enrolment is
 required** — until you pair an authenticator the hub serves **only** the pairing screen, no session
-data. (Add `-e CLOAKCODE_TUNNEL=devtunnel -e CLOAKCODE_TUNNEL_PROVIDER=github` for a phone URL, or
+data. (Add `-e CLOAKCODE_TUNNEL=devtunnel` for a phone URL — a headless GitHub device-code sign-in, or
 front the port with your own private tunnel.)
 
 ### 2. Enrol an authenticator (operator — one time)
@@ -277,7 +276,7 @@ all the volumes (secret, tunnel token, action log).
 | `CLOAKCODE_GATEWAY_HOST`    | `127.0.0.1` (`0.0.0.0` image) | bind address; `0.0.0.0` to accept LAN / container / WSL clients          |
 | `CLOAKCODE_GATEWAY_PORT`    | `3543`                      | listen port — also the port segment of the Dev Tunnel URL; `0` = ephemeral |
 | `CLOAKCODE_TUNNEL`          | _(off)_                     | `devtunnel` → auto-host a **private** tunnel and print the phone URL     |
-| `CLOAKCODE_TUNNEL_PROVIDER` | _(none)_                    | Docker only: `github` or `microsoft` for the container's device-code sign-in (required when the image must log in) |
+| `CLOAKCODE_TUNNEL_PROVIDER` | `github`                    | Docker only: `github` or `microsoft` for the container's device-code sign-in; defaults to GitHub |
 | `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed **and** authenticator label (e.g. `office`/`home`, so multiple gateways are distinguishable in your app) |
 | `CLOAKCODE_GATEWAY_TOKEN`   | _(off)_                     | provider↔gateway shared secret; extensions must present the same value  |
 | `CLOAKCODE_MFA`             | _(secure by exposure)_      | operator TOTP: `required` to force it, `off` to disable; unset ⇒ **on when the hub is exposed** (wide bind / live tunnel), off for pure loopback |

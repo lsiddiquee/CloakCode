@@ -7,8 +7,9 @@
 # over a wide bind on an untrusted network. Persist the MFA secret across container
 # replacement with `-v cloakcode-mfa:/home/app/.cloakcode` (see the gateway README).
 # The image bundles the `devtunnel` CLI so it can host a private tunnel itself
-# (opt in with CLOAKCODE_TUNNEL=devtunnel + CLOAKCODE_TUNNEL_PROVIDER); otherwise
-# front the published port with your own private tunnel/ingress.
+# (opt in with CLOAKCODE_TUNNEL=devtunnel; headless device-code sign-in defaults
+# to GitHub, CLOAKCODE_TUNNEL_PROVIDER=microsoft for Microsoft); otherwise front
+# the published port with your own private tunnel/ingress.
 FROM node:24-slim AS build
 WORKDIR /repo
 # Optional private/corporate npm registry for networks where the public
