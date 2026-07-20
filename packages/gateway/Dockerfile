@@ -10,7 +10,7 @@
 # (opt in with CLOAKCODE_TUNNEL=devtunnel; headless device-code sign-in defaults
 # to GitHub, CLOAKCODE_TUNNEL_PROVIDER=microsoft for Microsoft); otherwise front
 # the published port with your own private tunnel/ingress.
-FROM node:24-slim AS build
+FROM node:25-slim AS build
 WORKDIR /repo
 # Optional private/corporate npm registry for networks where the public
 # registry.npmjs.org is unreachable (e.g. a Microsoft package-feed proxy). Empty
@@ -35,7 +35,7 @@ RUN PNPM_VERSION="$(node -p "require('./package.json').packageManager.split('@')
   && pnpm --filter @cloakcode/gateway bundle \
   && pnpm --filter @cloakcode/web build
 
-FROM node:24-slim AS runtime
+FROM node:25-slim AS runtime
 # Bundle the Microsoft Dev Tunnels CLI so `CLOAKCODE_TUNNEL=devtunnel` works out
 # of the box (inert unless enabled). It's a self-contained .NET single-file that
 # needs libsecret AND ICU (libicu) at runtime: the current build aborts on
