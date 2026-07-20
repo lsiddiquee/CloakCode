@@ -19,7 +19,7 @@ jobs:
     name: Node — build · typecheck · lint · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # pnpm BEFORE setup-node so the pnpm cache can be wired. Version comes from
       # the `packageManager` pin in package.json (pnpm@11.9.0).
@@ -50,7 +50,7 @@ jobs:
     name: Gateway image — build · smoke-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # The ONE way to build + smoke-test the gateway image, shared with the
       # local WSL/host flow (scripts/docker-gateway.sh) so the two can't drift.
       # Runners ship Docker + curl; the script builds from packages/gateway/
@@ -62,7 +62,7 @@ jobs:
     name: pre-commit (gitleaks · markdownlint · prettier · ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install pnpm
         uses: pnpm/action-setup@v6
       - name: Setup Node
@@ -96,7 +96,7 @@ jobs:
     steps:
       # Check out the PR head (not the merge commit) so coverage line numbers map
       # to the diff for the github-code-quality[bot] PR comment.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pnpm
