@@ -588,6 +588,21 @@ the critical path.
   → 0 `tx-` parts, and no `partial` flag). Now it aligns on the debug-log's **opening** message
   (longest-prefix among repeats, still F7-safe) — same session → 10,935 `tx-` parts restored,
   `partial=true` (docs/02.5 §4.14).
+- **Large-session read cliff — stream the tail, don't `readFile` whole (2026-07-21 — documented, UNBUILT).**
+  The observer reads each log **whole** as a UTF-8 string (`fs.readFile(file, "utf8")`), so once the
+  **debug-log crosses ~512 MiB** it throws `ERR_STRING_TOO_LONG` (V8 `MAX_STRING_LENGTH`) and — because
+  `pump()` swallows it in a bare `catch` with no logger — the session loads **blank** while the spool
+  tool-cards still show, silently (proven on a 581 MB `main.jsonl`; §4.31). It also re-reads the whole
+  file on **every** change (O(n²) live; §4.32). **Remediation (unbuilt):** an **offset-incremental,
+  streaming** tail (`createReadStream({start})` + `readline`, advance to the last `\n`, reset on
+  truncation) feeding a **resumable** parser state machine — and **initial load must stream too**, or
+  the cap just moves from tailing to open. The transcript↔debug-log **stitch** stays keyed on
+  **user-message text** via `alignBoundary` sequence-matching (**tool-call ids don't cross-match** —
+  §4.33; the debug-log's structured spans use OTel `spanId`); the **sequence** match disambiguates a
+  repeated short opening (`continue`), so we ship that **now** and keep the **tool-name-sequence**
+  enrichment as a deferred hardening lever. The **observability fix** (log the read failure once +
+  push a `kind:"error"` subscribe frame) should ship **independently** of the rewrite. Full design:
+  [docs/02.6](02.6-large-session-tailing.md).
 - **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
   mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
   view can lag or omit the newest content (transcript flush lag §4.23; debug-log truncation §4.21) and

@@ -171,6 +171,12 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   **count**, not a byte offset) because the JSONL parsers are whole-file pure (positional ids +
   retroactive resolves) → **O(n²) live**. Fix (unbuilt): **offset tail** (advance to last `\n`,
   reset on truncation) + a **resumable** parser state machine; JSONL keeps `JSON.parse(line)` as-is.
+- **§4.33** Cross-file join key (transcript ↔ debug-log): **user-message text matches exactly**
+  (top-level `content` in both — the stitch anchor); **`toolCallId` does not** — its base (`toolu_…`,
+  minus the transcript's `__vscode-<ts>` suffix) appears only **embedded in the debug-log's
+  `llm_request.inputMessages` blob** (fuzzy, repeated), while the debug-log's structured `tool_call`
+  spans key on OTel `spanId` (no match). Stitch on user text (greedy, first K), **never** tool id;
+  initial load must **stream** too (same §4.31 cap).
 
 ---
 
