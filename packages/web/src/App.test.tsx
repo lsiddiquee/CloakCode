@@ -92,29 +92,32 @@ describe("App", () => {
     expect(await screen.findByText(/No Copilot sessions found/)).toBeTruthy();
   });
 
-  it("hides read-only workspaces until the toggle is enabled, then reveals them", async () => {
+  it("hides read-only workspaces until the setting is enabled, then reveals them", async () => {
     fetchSessionsMock.mockResolvedValue(
       listResult([summary({ owned: false })]),
     );
     render(<App />);
-    // Default: read-only workspaces are hidden; only the toggle is shown.
-    const toggle = await screen.findByText(/Show read-only \(1\)/);
-    expect(toggle).toBeTruthy();
+    // Default: read-only workspaces are hidden; the gear is the only affordance.
+    const gear = await screen.findByRole("button", { name: "Settings" });
     expect(screen.queryByText(/read-only \(no extension here\)/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(gear);
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Show read-only workspaces" }),
+    );
     expect(
       await screen.findByText(/read-only \(no extension here\)/),
     ).toBeTruthy();
     expect(screen.getByText("read-only")).toBeTruthy();
   });
 
-  it("persists the show-read-only toggle across remounts", async () => {
+  it("persists the show-read-only setting across remounts", async () => {
     fetchSessionsMock.mockResolvedValue(
       listResult([summary({ owned: false })]),
     );
     const first = render(<App />);
-    fireEvent.click(await screen.findByRole("checkbox"));
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("switch"));
     await screen.findByText(/read-only \(no extension here\)/);
     first.unmount();
 
@@ -158,7 +161,8 @@ describe("App", () => {
       ]),
     );
     render(<App />);
-    fireEvent.click(await screen.findByRole("checkbox")); // reveal read-only
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("switch")); // reveal read-only
     const labels = screen
       .getAllByText(/workspace repo/)
       .map((el) => el.textContent ?? "");

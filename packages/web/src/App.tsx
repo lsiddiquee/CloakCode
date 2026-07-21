@@ -8,6 +8,7 @@ import { dotClass, statusLabel } from "./format";
 import { groupByWorkspace, isOwnedGroup } from "./grouping";
 import { loadPrefs, savePrefs, type SessionListPrefs } from "./prefs";
 import { SessionView } from "./SessionView";
+import { SettingsMenu, Toggle } from "./SettingsMenu";
 
 type LoadState =
   | { kind: "loading" }
@@ -92,6 +93,9 @@ export function App(): JSX.Element {
     state.kind === "ready"
       ? state.sessions.filter((s) => s.status === "blocked").length
       : 0;
+  // Group once so the app bar (settings menu) and the list share one result.
+  const groups = state.kind === "ready" ? groupByWorkspace(state.sessions) : [];
+  const readOnlyCount = groups.filter((g) => !isOwnedGroup(g)).length;
 
   return (
     <div className="app">
@@ -110,6 +114,24 @@ export function App(): JSX.Element {
                 : "offline"}
           </div>
         </div>
+        {state.kind === "ready" && (
+          <SettingsMenu>
+            <Toggle
+              label="Show read-only workspaces"
+              description={
+                readOnlyCount === 0
+                  ? "none in this environment"
+                  : prefs.showReadOnly
+                    ? `${readOnlyCount} shown`
+                    : `${readOnlyCount} hidden — no local extension`
+              }
+              checked={prefs.showReadOnly}
+              onChange={(next) =>
+                setPrefs((p) => ({ ...p, showReadOnly: next }))
+              }
+            />
+          </SettingsMenu>
+        )}
         <button className="conn" onClick={() => void load()} title="Refresh">
           <span className={`dot ${connected ? "green" : "grey"}`} />
           {connected ? "connected" : "reconnect"}
@@ -140,29 +162,12 @@ export function App(): JSX.Element {
         {state.kind === "ready" &&
           state.sessions.length > 0 &&
           (() => {
-            const groups = groupByWorkspace(state.sessions);
-            const readOnlyCount = groups.filter((g) => !isOwnedGroup(g)).length;
             const collapsed = new Set(prefs.collapsed);
             const visible = groups.filter(
               (g) => prefs.showReadOnly || isOwnedGroup(g),
             );
             return (
               <>
-                {readOnlyCount > 0 && (
-                  <label className="listtoggle">
-                    <input
-                      type="checkbox"
-                      checked={prefs.showReadOnly}
-                      onChange={(e) =>
-                        setPrefs((p) => ({
-                          ...p,
-                          showReadOnly: e.target.checked,
-                        }))
-                      }
-                    />
-                    Show read-only ({readOnlyCount})
-                  </label>
-                )}
                 {visible.map((group) => {
                   const owned = isOwnedGroup(group);
                   const isCollapsed = collapsed.has(group.workspaceHash);
