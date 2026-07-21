@@ -3,7 +3,11 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
-import type { SessionSummary } from "@cloakcode/protocol";
+import {
+  createLogger,
+  type LogRecord,
+  type SessionSummary,
+} from "@cloakcode/protocol";
 import { OperatorAuth } from "@cloakcode/gateway";
 import { startBridge, type BridgeDeps } from "./bridge.js";
 import { parseSessionEvents } from "./session-observer.js";
@@ -147,6 +151,43 @@ describe("startBridge", () => {
         error: { message: expect.any(String) },
       });
       expect(respondCalled).toBe(false);
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("logs rpc.failed server-side when an op handler throws (code only, no message)", async () => {
+    const records: LogRecord[] = [];
+    const logger = createLogger({
+      sink: (r) => records.push(r),
+      level: "debug",
+    });
+    const bridge = await startBridge(
+      deps({
+        logger,
+        respond: async () => {
+          throw new Error("boom");
+        },
+      }),
+      { port: 0 },
+    );
+    try {
+      const res = await request(bridge.port, {
+        id: "9",
+        op: "session.respond",
+        params: { instanceId: "i", sessionId: "s", text: "hi" },
+        traceId: "tr1",
+      });
+      expect(res).toMatchObject({ id: "9", ok: false });
+      const failed = records.filter((r) => r.event === "rpc.failed");
+      expect(failed).toHaveLength(1);
+      expect(failed[0]!.level).toBe("warn");
+      // code + op + traceId only — never the thrown message (may carry data).
+      expect(failed[0]!.fields).toMatchObject({
+        op: "session.respond",
+        code: "Error",
+        traceId: "tr1",
+      });
     } finally {
       await bridge.close();
     }

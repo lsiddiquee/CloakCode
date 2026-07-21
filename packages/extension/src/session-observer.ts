@@ -3,11 +3,14 @@ import * as fsSync from "node:fs";
 import * as path from "node:path";
 import type {
   Choice,
+  Logger,
+  LogFields,
   SessionEvent,
   SessionPart,
   ToolStatus,
 } from "@cloakcode/protocol";
 import { INTERACTIVE_TOOL_HINTS, computeInTurn } from "./scanner.js";
+import { errorCode } from "./errors.js";
 
 /**
  * Port of `research/inspect_session.py`, mapping the on-disk event stream onto
@@ -516,6 +519,7 @@ export interface SessionLog {
 export async function findSessionLog(
   root: string,
   sessionId: string,
+  logger?: Logger,
 ): Promise<SessionLog | undefined> {
   let hashDirs: string[];
   try {
@@ -547,8 +551,14 @@ export async function findSessionLog(
     let history: SessionEvent[] = [];
     try {
       history = parseSessionEvents(await fs.readFile(transcript, "utf8"));
-    } catch {
-      // no transcript alongside -> debug-log leads alone
+    } catch (err) {
+      // ENOENT is the common, benign case (no transcript alongside → the
+      // debug-log leads alone). Anything else — ERR_STRING_TOO_LONG on a huge
+      // transcript (docs/02.6 §4.31), EISDIR, EACCES — silently drops history,
+      // so surface it instead of swallowing.
+      if (errorCode(err) !== "ENOENT") {
+        logger?.warn("stitch.transcript_read_failed", { code: errorCode(err) });
+      }
     }
     return {
       file: debugLog,
@@ -592,6 +602,15 @@ export type SessionEventSink = (event: SessionEvent) => void;
 /** Sink for live mid-turn transitions (only fired on change). */
 export type TurnSink = (inTurn: boolean) => void;
 
+/** File size in bytes for a diagnostic, or undefined if it can't be stat'd. */
+async function fileSizeOrUndefined(file: string): Promise<number | undefined> {
+  try {
+    return (await fs.stat(file)).size;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Tails a single transcript file: emits every event past `sinceSeq` on start,
  * then re-emits the growing tail on each change. Uses BOTH `fs.watch` (for
@@ -618,6 +637,9 @@ export class SessionFollower {
   private readonly parse: (content: string) => SessionEvent[];
   private readonly turnFile: string | undefined;
   private readonly onTurn: TurnSink | undefined;
+  private readonly logger: Logger | undefined;
+  /** Last error code per phase, so a persistent failure logs once, not per poll. */
+  private lastCodeByPhase: Record<string, string | undefined> = {};
 
   constructor(
     private readonly filePath: string,
@@ -628,6 +650,7 @@ export class SessionFollower {
       parse?: (content: string) => SessionEvent[];
       turnFile?: string;
       onTurn?: TurnSink;
+      logger?: Logger;
     } = {},
   ) {
     this.emitted = sinceSeq;
@@ -635,6 +658,7 @@ export class SessionFollower {
     this.parse = options.parse ?? parseSessionEvents;
     this.turnFile = options.turnFile;
     this.onTurn = options.onTurn;
+    this.logger = options.logger;
   }
 
   async start(): Promise<void> {
@@ -644,8 +668,9 @@ export class SessionFollower {
       this.watcher = fsSync.watch(this.filePath, () => {
         void this.refresh();
       });
-    } catch {
-      // file removed between read and watch; nothing to tail
+    } catch (err) {
+      // file removed between read and watch; the poll fallback still covers it.
+      this.report("watch", "debug", err);
     }
     // Watch the transcript for turn transitions when it is a distinct file.
     if (this.turnFile && this.onTurn && this.turnFile !== this.filePath) {
@@ -653,8 +678,9 @@ export class SessionFollower {
         this.turnWatcher = fsSync.watch(this.turnFile, () => {
           void this.refresh();
         });
-      } catch {
-        // not present yet; the poll fallback covers it
+      } catch (err) {
+        // not present yet; the poll fallback covers it.
+        this.report("watch", "debug", err);
       }
     }
     // Poll fallback: catches flushes when inotify events are missed/delayed.
@@ -677,9 +703,20 @@ export class SessionFollower {
     let content: string;
     try {
       content = await fs.readFile(this.filePath, "utf8");
-    } catch {
-      return; // transient read error; a later change will retrigger
+    } catch (err) {
+      // The swallow that silently blanked huge sessions: a >512 MiB debug-log
+      // throws ERR_STRING_TOO_LONG (docs/02.6 §4.31). Surface it with the file
+      // size, deduped so a permanent failure logs once — not on every poll.
+      const bytes = await fileSizeOrUndefined(this.filePath);
+      this.report(
+        "read",
+        "warn",
+        err,
+        bytes !== undefined ? { bytes } : undefined,
+      );
+      return; // a later change re-triggers; a good read clears the dedup.
     }
+    this.clear("read");
     const events = this.parse(content);
     for (let i = this.emitted; i < events.length; i += 1) {
       if (this.stopped) return;
@@ -702,16 +739,40 @@ export class SessionFollower {
     if (this.turnFile !== this.filePath) {
       try {
         content = await fs.readFile(this.turnFile, "utf8");
-      } catch {
-        return; // transcript not readable yet; a later change retriggers
+      } catch (err) {
+        // transcript not readable yet; a later change retriggers.
+        this.report("turn", "debug", err);
+        return;
       }
     }
     if (this.stopped) return;
+    this.clear("turn");
     const inTurn = computeInTurn(content);
     if (inTurn !== this.lastInTurn) {
       this.lastInTurn = inTurn;
       this.onTurn(inTurn);
     }
+  }
+
+  /**
+   * Log a follow error at `level`, deduped by phase so a persistent failure
+   * (e.g. a debug-log stuck over the string cap) logs ONCE, not on every 400 ms
+   * poll. `clear` resets a phase after a good read so a recurrence logs again.
+   */
+  private report(
+    phase: "read" | "turn" | "watch",
+    level: "warn" | "debug",
+    err: unknown,
+    extra?: LogFields,
+  ): void {
+    const code = errorCode(err);
+    if (this.lastCodeByPhase[phase] === code) return;
+    this.lastCodeByPhase[phase] = code;
+    this.logger?.[level](`follower.${phase}_failed`, { code, ...extra });
+  }
+
+  private clear(phase: "read" | "turn"): void {
+    this.lastCodeByPhase[phase] = undefined;
   }
 
   stop(): void {

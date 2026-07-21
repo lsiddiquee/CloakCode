@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { SessionEvent } from "@cloakcode/protocol";
+import {
+  createLogger,
+  type LogRecord,
+  type SessionEvent,
+} from "@cloakcode/protocol";
 import {
   SessionFollower,
   findTranscript,
@@ -375,6 +379,73 @@ describe("SessionFollower", () => {
     follower.stop();
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ seq: 1, part: { text: "two" } });
+  });
+
+  it("logs a read failure once (deduped) via the injected logger", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "one" } }]),
+    );
+    const records: LogRecord[] = [];
+    const logger = createLogger({
+      sink: (r) => records.push(r),
+      level: "debug",
+    });
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      logger,
+    });
+    await follower.start();
+    const reads = (): LogRecord[] =>
+      records.filter((r) => r.event === "follower.read_failed");
+    expect(reads()).toHaveLength(0); // a clean read logs nothing
+
+    await fs.rm(file); // now every read throws ENOENT
+    await follower.refresh();
+    await follower.refresh(); // same code → deduped, still ONE record
+    follower.stop();
+
+    expect(reads()).toHaveLength(1);
+    expect(reads()[0]!.level).toBe("warn");
+    expect(reads()[0]!.fields).toMatchObject({ code: "ENOENT" });
+  });
+
+  it("findSessionLog surfaces a non-ENOENT transcript read failure (silent on ENOENT)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cc-stitch-"));
+    dirs.push(root);
+    const base = path.join(root, "H", "GitHub.copilot-chat");
+    await fs.mkdir(path.join(base, "debug-logs", "sessX"), { recursive: true });
+    await fs.writeFile(
+      path.join(base, "debug-logs", "sessX", "main.jsonl"),
+      "",
+    );
+    await fs.mkdir(path.join(base, "transcripts"), { recursive: true });
+    // A DIRECTORY where the transcript file is expected → readFile throws EISDIR.
+    await fs.mkdir(path.join(base, "transcripts", "sessX.jsonl"));
+
+    const records: LogRecord[] = [];
+    const logger = createLogger({
+      sink: (r) => records.push(r),
+      level: "debug",
+    });
+    const log = await findSessionLog(root, "sessX", logger);
+    expect(log?.file).toContain("main.jsonl"); // debug-log still leads
+    const fails = records.filter(
+      (r) => r.event === "stitch.transcript_read_failed",
+    );
+    expect(fails).toHaveLength(1);
+    expect(fails[0]!.fields).toMatchObject({ code: "EISDIR" });
+
+    // A MISSING transcript (ENOENT) is the normal case and must stay silent.
+    await fs.mkdir(path.join(base, "debug-logs", "sessY"), { recursive: true });
+    await fs.writeFile(
+      path.join(base, "debug-logs", "sessY", "main.jsonl"),
+      "",
+    );
+    records.length = 0;
+    await findSessionLog(root, "sessY", logger);
+    expect(
+      records.filter((r) => r.event === "stitch.transcript_read_failed"),
+    ).toHaveLength(0);
   });
 
   it("streams inTurn transitions via onTurn (open → close, only on change)", async () => {

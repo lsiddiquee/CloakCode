@@ -16,6 +16,7 @@ import {
 } from "@cloakcode/protocol";
 import { SessionFollower, type SessionLog } from "./session-observer.js";
 import { SpoolFollower } from "./hook-spool.js";
+import { errorCode } from "./errors.js";
 import {
   contentTypeFor,
   listenWithFallback,
@@ -330,6 +331,9 @@ export async function handleMessage(
   try {
     request = rpcRequestSchema.parse(JSON.parse(raw));
   } catch {
+    // Malformed/invalid RPC — reply to the operator and log at debug (this is
+    // attacker-reachable input, so keep it quiet but not invisible).
+    deps.logger?.debug("rpc.invalid");
     socket.send(
       JSON.stringify({
         id: salvageRequestId(raw),
@@ -434,6 +438,13 @@ export async function handleMessage(
                 }),
               );
             },
+            ...(deps.logger
+              ? {
+                  logger: deps.logger.child({
+                    sessionId: request.params.sessionId,
+                  }),
+                }
+              : {}),
           },
         );
         followers.set(request.params.sessionId, follower);
@@ -623,6 +634,14 @@ export async function handleMessage(
       }
     }
   } catch (err) {
+    // An op handler threw (e.g. an actuator command failed). Reply to the
+    // operator AND log it server-side (code only — never the message, which can
+    // carry paths/args), correlated by op + traceId, so it isn't a silent 500.
+    deps.logger?.warn("rpc.failed", {
+      op: request.op,
+      code: errorCode(err),
+      ...(request.traceId !== undefined ? { traceId: request.traceId } : {}),
+    });
     socket.send(
       JSON.stringify({
         id: request.id,

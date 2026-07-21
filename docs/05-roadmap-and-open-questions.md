@@ -600,9 +600,11 @@ the critical path.
   **user-message text** via `alignBoundary` sequence-matching (**tool-call ids don't cross-match** —
   §4.33; the debug-log's structured spans use OTel `spanId`); the **sequence** match disambiguates a
   repeated short opening (`continue`), so we ship that **now** and keep the **tool-name-sequence**
-  enrichment as a deferred hardening lever. The **observability fix** (log the read failure once +
-  push a `kind:"error"` subscribe frame) should ship **independently** of the rewrite. Full design:
-  [docs/02.6](02.6-large-session-tailing.md).
+  enrichment as a deferred hardening lever. The **observability fix ships in two halves: the logging
+  half SHIPPED 2026-07-21** — the follower takes a `sessionId`-bound child logger and logs deduped
+  read/turn/watch failures (with the file size), `findSessionLog` surfaces a non-ENOENT transcript
+  read failure, and the bridge logs `rpc.failed` / `rpc.invalid`; the client-facing `kind:"error"`
+  subscribe frame is still pending. Full design: [docs/02.6](02.6-large-session-tailing.md).
 - **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
   mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
   view can lag or omit the newest content (transcript flush lag §4.23; debug-log truncation §4.21) and

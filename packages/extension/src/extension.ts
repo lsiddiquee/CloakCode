@@ -295,7 +295,7 @@ export async function activate(
 
   const deps: BridgeDeps = {
     listSessions,
-    findSessionLog: (sessionId) => findSessionLog(root, sessionId),
+    findSessionLog: (sessionId) => findSessionLog(root, sessionId, log),
     findTranscript: (sessionId) => findTranscript(root, sessionId),
     // Gate actuators on ownership: only a session THIS window owns is actuatable
     // (defense-in-depth beyond the UI — F3). Reuses the same scan the list uses.
