@@ -23,6 +23,8 @@ several first-pass conclusions were wrong, and the wrong turns are themselves us
   storage, truncation, the chronicle DB.
 - [02.5 — Session state](02.5-session-state.md) — the client-side `ChatModel`, title, telemetry,
   session controls, attachments, forks.
+- [02.6 — Large-session tailing](02.6-large-session-tailing.md) — the >512 MiB read cliff, the
+  whole-file re-read, and the incremental-tail design.
 
 ---
 
@@ -158,6 +160,17 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   server-side.
 - **§4.30** Session controls: **READ** on-disk (`models.json` + `llm_request`); **SET** is arg-driven
   & session-targeted (corrected — not actuator-only).
+
+### Large-session tailing & scaling — [02.6](02.6-large-session-tailing.md)
+
+- **§4.31** The observer reads each log **whole** (`readFile` + `utf8`); a **>512 MiB** debug-log
+  throws `ERR_STRING_TOO_LONG` (V8 `MAX_STRING_LENGTH` = 536,870,888) → the session loads **blank**
+  while spool tool-cards still show, and the read error is **silently swallowed** (no logger).
+  Proven on a 581 MB `main.jsonl`. Data crossed a latent limit — **not** a code regression.
+- **§4.32** The follower re-reads + re-parses the **whole** file per change (keeps an emitted-event
+  **count**, not a byte offset) because the JSONL parsers are whole-file pure (positional ids +
+  retroactive resolves) → **O(n²) live**. Fix (unbuilt): **offset tail** (advance to last `\n`,
+  reset on truncation) + a **resumable** parser state machine; JSONL keeps `JSON.parse(line)` as-is.
 
 ---
 
