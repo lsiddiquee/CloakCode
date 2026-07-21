@@ -47,6 +47,7 @@ for (const f of required) {
 const stage = mkdtempSync(join(tmpdir(), "cloakcode-vsix-"));
 try {
   cpSync(join(EXT, "dist"), join(stage, "dist"), { recursive: true });
+  cpSync(join(EXT, "media"), join(stage, "media"), { recursive: true });
   if (existsSync(join(EXT, "README.md"))) {
     cpSync(join(EXT, "README.md"), join(stage, "README.md"));
   }
@@ -63,6 +64,7 @@ try {
     description: src.description,
     version: src.version,
     publisher: src.publisher,
+    icon: src.icon,
     license: src.license,
     repository: src.repository,
     homepage: src.homepage,

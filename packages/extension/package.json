@@ -6,6 +6,7 @@
   "type": "module",
   "displayName": "CloakCode",
   "publisher": "rexwel",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/lsiddiquee/CloakCode.git"

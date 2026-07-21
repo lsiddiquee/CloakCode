@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
 
 // Dev-only UI playground for @cloakcode/web. It imports the REAL App + styles
 // from the web package (via that package's `exports`) and swaps the global
@@ -8,6 +9,7 @@ import react from "@vitejs/plugin-react";
 // the reverse, so nothing here can ever reach the shipped web build/vsix.
 export default defineConfig({
   plugins: [react()],
+  publicDir: resolve(__dirname, "../web/public"),
   // Both this package and @cloakcode/web declare react ^18.3.1; force ONE
   // physical copy so hooks in the cross-package App don't hit "invalid hook
   // call" from a duplicate React.
