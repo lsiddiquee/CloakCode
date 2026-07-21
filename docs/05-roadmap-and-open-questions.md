@@ -603,8 +603,10 @@ the critical path.
   enrichment as a deferred hardening lever. The **observability fix ships in two halves: the logging
   half SHIPPED 2026-07-21** — the follower takes a `sessionId`-bound child logger and logs deduped
   read/turn/watch failures (with the file size), `findSessionLog` surfaces a non-ENOENT transcript
-  read failure, and the bridge logs `rpc.failed` / `rpc.invalid`; the client-facing `kind:"error"`
-  subscribe frame is still pending. Full design: [docs/02.6](02.6-large-session-tailing.md).
+  read failure, and the bridge logs `rpc.failed` / `rpc.invalid`. The client-facing `kind:"error"`
+  subscribe frame **also SHIPPED** — the follower emits it (redaction-safe `code` + `bytes`) and the
+  web client shows a reason ("too large to load") instead of a silent blank. Full design:
+  [docs/02.6](02.6-large-session-tailing.md).
 - **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
   mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
   view can lag or omit the newest content (transcript flush lag §4.23; debug-log truncation §4.21) and

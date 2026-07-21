@@ -122,6 +122,19 @@ export function fetchSessions(
   });
 }
 
+/**
+ * A human reason for a terminal `session.subscribe` error frame — maps the
+ * redaction-safe `code` (+ optional size) to a message the operator sees in
+ * place of a silent blank session (docs/02.6 §4.31).
+ */
+export function describeSubscribeError(code: string, bytes?: number): string {
+  if (code === "ERR_STRING_TOO_LONG") {
+    const size = bytes ? ` (${Math.round(bytes / 1_000_000)} MB)` : "";
+    return `This session is too large to load${size} — it exceeds the size CloakCode can read in one pass.`;
+  }
+  return `Couldn't load this session (${code}).`;
+}
+
 /** Live connection lifecycle of a session subscription. */
 export type ConnState = "connecting" | "open" | "reconnecting" | "closed";
 
@@ -204,8 +217,12 @@ export function subscribeSession(
           onEvent(event);
         } else if (frame.data.kind === "pending") {
           onPending(frame.data.blockers);
-        } else {
+        } else if (frame.data.kind === "turn") {
           onTurn(frame.data.inTurn);
+        } else {
+          // kind === "error": the session couldn't be read (e.g. too large to
+          // read in one pass, docs/02.6 §4.31) — show a reason, not a blank.
+          onError(describeSubscribeError(frame.data.code, frame.data.bytes));
         }
         return;
       }

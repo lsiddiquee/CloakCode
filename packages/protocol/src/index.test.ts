@@ -520,6 +520,17 @@ describe("response schemas", () => {
     expect(sessionSubscribeEventSchema.parse(frame)).toEqual(frame);
   });
 
+  it("parses a session.subscribe error frame (session too large to read)", () => {
+    const frame = {
+      id: "2",
+      op: "session.subscribe" as const,
+      kind: "error" as const,
+      code: "ERR_STRING_TOO_LONG",
+      bytes: 581_573_539,
+    };
+    expect(sessionSubscribeEventSchema.parse(frame)).toEqual(frame);
+  });
+
   it("discriminates subscribe frames by kind", () => {
     expect(
       sessionSubscribeEventSchema.safeParse({

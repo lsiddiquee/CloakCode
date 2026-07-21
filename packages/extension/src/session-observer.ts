@@ -602,6 +602,12 @@ export type SessionEventSink = (event: SessionEvent) => void;
 /** Sink for live mid-turn transitions (only fired on change). */
 export type TurnSink = (inTurn: boolean) => void;
 
+/** Sink for a terminal read failure surfaced to the client (docs/02.6 §4.31). */
+export type FollowerErrorSink = (info: {
+  code: string;
+  bytes?: number;
+}) => void;
+
 /** File size in bytes for a diagnostic, or undefined if it can't be stat'd. */
 async function fileSizeOrUndefined(file: string): Promise<number | undefined> {
   try {
@@ -637,6 +643,7 @@ export class SessionFollower {
   private readonly parse: (content: string) => SessionEvent[];
   private readonly turnFile: string | undefined;
   private readonly onTurn: TurnSink | undefined;
+  private readonly onError: FollowerErrorSink | undefined;
   private readonly logger: Logger | undefined;
   /** Last error code per phase, so a persistent failure logs once, not per poll. */
   private lastCodeByPhase: Record<string, string | undefined> = {};
@@ -650,6 +657,7 @@ export class SessionFollower {
       parse?: (content: string) => SessionEvent[];
       turnFile?: string;
       onTurn?: TurnSink;
+      onError?: FollowerErrorSink;
       logger?: Logger;
     } = {},
   ) {
@@ -658,6 +666,7 @@ export class SessionFollower {
     this.parse = options.parse ?? parseSessionEvents;
     this.turnFile = options.turnFile;
     this.onTurn = options.onTurn;
+    this.onError = options.onError;
     this.logger = options.logger;
   }
 
@@ -769,6 +778,13 @@ export class SessionFollower {
     if (this.lastCodeByPhase[phase] === code) return;
     this.lastCodeByPhase[phase] = code;
     this.logger?.[level](`follower.${phase}_failed`, { code, ...extra });
+    // Only a READ failure blanks the client's content — surface THAT (a terminal
+    // notice) so the phone shows a reason, not an empty session. Watch/turn are
+    // internal recovery, logged only.
+    if (phase === "read" && this.onError) {
+      const bytes = extra?.["bytes"];
+      this.onError(typeof bytes === "number" ? { code, bytes } : { code });
+    }
   }
 
   private clear(phase: "read" | "turn"): void {

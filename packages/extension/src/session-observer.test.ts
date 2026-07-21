@@ -381,7 +381,7 @@ describe("SessionFollower", () => {
     expect(seen[0]).toMatchObject({ seq: 1, part: { text: "two" } });
   });
 
-  it("logs a read failure once (deduped) via the injected logger", async () => {
+  it("logs a read failure once (deduped) and surfaces it via onError", async () => {
     const file = await tmpFile(
       jsonl([{ type: "user.message", data: { content: "one" } }]),
     );
@@ -390,9 +390,11 @@ describe("SessionFollower", () => {
       sink: (r) => records.push(r),
       level: "debug",
     });
+    const errors: { code: string; bytes?: number }[] = [];
     const follower = new SessionFollower(file, () => {}, 0, {
       pollIntervalMs: 0,
       logger,
+      onError: (e) => errors.push(e),
     });
     await follower.start();
     const reads = (): LogRecord[] =>
@@ -407,6 +409,9 @@ describe("SessionFollower", () => {
     expect(reads()).toHaveLength(1);
     expect(reads()[0]!.level).toBe("warn");
     expect(reads()[0]!.fields).toMatchObject({ code: "ENOENT" });
+    // The read failure is ALSO surfaced to the client (deduped) so the phone
+    // can show a reason instead of a silent blank.
+    expect(errors).toEqual([{ code: "ENOENT" }]);
   });
 
   it("findSessionLog surfaces a non-ENOENT transcript read failure (silent on ENOENT)", async () => {

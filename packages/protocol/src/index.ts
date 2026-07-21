@@ -483,7 +483,10 @@ export type SessionStopResponse = z.infer<typeof sessionStopResponseSchema>;
  * `SessionSummary.inTurn`) so the composer flips steer/queue↔send the moment the
  * turn opens or closes, without waiting for a `sessions.list` refresh. Keeping
  * them distinct means the history channel stays prefix-stable while the overlay
- * and turn flag update idempotently.
+ * and turn flag update idempotently. A terminal `error` frame (a redaction-safe
+ * `code`, e.g. `ERR_STRING_TOO_LONG`, plus the offending `bytes`) tells the
+ * client the session could not be read, so it shows a reason instead of a silent
+ * blank (docs/02.6 §4.31).
  */
 export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -503,6 +506,15 @@ export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
     op: z.literal("session.subscribe"),
     kind: z.literal("turn"),
     inTurn: z.boolean(),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.subscribe"),
+    kind: z.literal("error"),
+    // A redaction-safe error CODE (e.g. ERR_STRING_TOO_LONG) — never a message.
+    code: z.string(),
+    // The offending file's size, when the failure is a size cap (docs/02.6 §4.31).
+    bytes: z.number().optional(),
   }),
 ]);
 export type SessionSubscribeEvent = z.infer<typeof sessionSubscribeEventSchema>;

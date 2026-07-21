@@ -438,6 +438,17 @@ export async function handleMessage(
                 }),
               );
             },
+            onError: (info) => {
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  op: "session.subscribe",
+                  kind: "error",
+                  code: info.code,
+                  ...(info.bytes !== undefined ? { bytes: info.bytes } : {}),
+                }),
+              );
+            },
             ...(deps.logger
               ? {
                   logger: deps.logger.child({

@@ -214,6 +214,30 @@ describe("subscribeSession", () => {
     });
     expect(turns).toEqual([true, false]);
   });
+
+  it("surfaces a kind:error frame via onError with a friendly reason", () => {
+    const errors: string[] = [];
+    subscribeSession(
+      { sessionId: "s" },
+      () => {},
+      undefined,
+      (m) => errors.push(m),
+      undefined,
+      "ws://test/bridge",
+      () => {},
+    );
+    socket(0).open();
+    socket(0).message({
+      id: "srv",
+      op: "session.subscribe",
+      kind: "error",
+      code: "ERR_STRING_TOO_LONG",
+      bytes: 581_573_539,
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("too large");
+    expect(errors[0]).toContain("MB");
+  });
 });
 
 describe("bridgeUrl", () => {
