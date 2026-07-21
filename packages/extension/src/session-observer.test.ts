@@ -421,6 +421,321 @@ describe("SessionFollower", () => {
     follower.stop();
     expect(turns).toEqual([false, true, false]);
   });
+
+  it("streams a non-interactive tool call: running append, then updateStatus done on completion", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "go" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e));
+    await follower.start();
+    expect(seen).toHaveLength(1);
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "tool.execution_start",
+        data: {
+          toolCallId: "t1",
+          toolName: "read_file",
+          arguments: { p: "x" },
+        },
+      })}`,
+    );
+    await follower.refresh();
+    expect(seen[1]).toMatchObject({
+      type: "append",
+      part: {
+        kind: "toolCall",
+        id: "tool-t1",
+        name: "read_file",
+        status: "running",
+      },
+    });
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "tool.execution_complete",
+        data: { toolCallId: "t1", success: true },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(seen).toHaveLength(3);
+    expect(seen[2]).toMatchObject({
+      type: "updateStatus",
+      id: "tool-t1",
+      status: "done",
+    });
+  });
+
+  it("marks a failed tool call as error on completion (success:false)", async () => {
+    const file = await tmpFile(
+      jsonl([
+        {
+          type: "tool.execution_start",
+          data: { toolCallId: "t9", toolName: "run_in_terminal" },
+        },
+      ]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e));
+    await follower.start();
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "tool.execution_complete",
+        data: { toolCallId: "t9", success: false },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(seen[seen.length - 1]).toMatchObject({
+      type: "updateStatus",
+      id: "tool-t9",
+      status: "error",
+    });
+  });
+
+  it("streams an interactive blocker: confirmation append, then resolve on completion", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "go" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e));
+    await follower.start();
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "tool.execution_start",
+        data: {
+          toolCallId: "q1",
+          toolName: "vscode_askQuestions",
+          arguments: {
+            questions: [
+              {
+                question: "Proceed?",
+                options: [{ label: "Yes" }, { label: "No" }],
+              },
+            ],
+          },
+        },
+      })}`,
+    );
+    await follower.refresh();
+    const conf = seen[1];
+    if (conf?.type !== "append" || conf.part.kind !== "confirmation") {
+      throw new Error("expected a confirmation append");
+    }
+    expect(conf.part).toMatchObject({
+      id: "conf-q1-0",
+      prompt: "Proceed?",
+      allowFreeform: true,
+    });
+    expect(conf.part.options).toHaveLength(2);
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "tool.execution_complete",
+        data: { toolCallId: "q1", success: true },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(seen[2]).toMatchObject({ type: "resolve", id: "conf-q1-0" });
+  });
+
+  it("streams assistant reasoning + message as thinking then markdown", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "go" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e));
+    await follower.start();
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "assistant.message",
+        data: { reasoningText: "planning", content: "On it." },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(seen.slice(1)).toMatchObject([
+      { type: "append", part: { kind: "thinking", text: "planning" } },
+      { type: "append", part: { kind: "markdown", text: "On it." } },
+    ]);
+  });
+
+  it("tails a debug-log-format file (spans) via the parse option, emitting usage", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user_message", attrs: { content: "go" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      parse: parseDebugLogEvents,
+    });
+    await follower.start();
+    expect(seen[0]).toMatchObject({
+      type: "append",
+      part: { kind: "userMessage", text: "go" },
+    });
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "agent_response",
+        attrs: {
+          reasoning: "think",
+          response: [
+            { role: "assistant", parts: [{ type: "text", content: "hello" }] },
+          ],
+        },
+      })}`,
+    );
+    await follower.refresh();
+    expect(seen.slice(1)).toMatchObject([
+      { type: "append", part: { kind: "thinking", text: "think" } },
+      { type: "append", part: { kind: "markdown", text: "hello" } },
+    ]);
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "tool_call",
+        spanId: "s1",
+        name: "read_file",
+        attrs: { args: { p: "x" } },
+      })}`,
+    );
+    await follower.refresh();
+    expect(seen[seen.length - 1]).toMatchObject({
+      type: "append",
+      part: {
+        kind: "toolCall",
+        id: "tool-s1",
+        name: "read_file",
+        status: "done",
+      },
+    });
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "llm_request",
+        dur: 1200,
+        attrs: {
+          model: "gpt-4o",
+          inputTokens: 10,
+          outputTokens: 20,
+          cachedTokens: 2,
+          ttft: 300,
+          copilotUsageNanoAiu: 5_000_000_000,
+        },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(seen[seen.length - 1]).toMatchObject({
+      type: "append",
+      part: {
+        kind: "usage",
+        model: "gpt-4o",
+        inputTokens: 10,
+        outputTokens: 20,
+        cachedTokens: 2,
+        ttftMs: 300,
+        durationMs: 1200,
+        nanoAiu: 5_000_000_000,
+      },
+    });
+  });
+
+  it("tails through the real stitched closure (transcript history + debug-log lead)", async () => {
+    // Mirrors findSessionLog's closure: history from the transcript, the
+    // debug-log leads from where it opens; the debug-log file is what's tailed.
+    const history = parseSessionEvents(
+      jsonl([
+        { type: "user.message", data: { content: "q0" } },
+        { type: "assistant.message", data: { content: "a0" } },
+        { type: "user.message", data: { content: "q1" } },
+        { type: "assistant.message", data: { content: "a1" } },
+      ]),
+    );
+    const file = await tmpFile(
+      jsonl([{ type: "user_message", attrs: { content: "q1" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      parse: (c) => stitchEvents(history, parseDebugLogEvents(c)),
+    });
+    await follower.start();
+    // Older transcript turn (q0/a0) prepended as tx-, then the debug-log opens (dl-).
+    expect(
+      seen.flatMap((e) => (e.type === "append" ? [e.part.id] : [])),
+    ).toEqual(["tx-user-0", "tx-msg-0", "dl-user-0"]);
+
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({
+        type: "agent_response",
+        attrs: {
+          response: [
+            {
+              role: "assistant",
+              parts: [{ type: "text", content: "a1-live" }],
+            },
+          ],
+        },
+      })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    // Only the NEW debug-log tail is emitted, keyed dl-, seq contiguous.
+    expect(seen[seen.length - 1]).toMatchObject({
+      type: "append",
+      part: { kind: "markdown", id: "dl-msg-0", text: "a1-live" },
+    });
+    expect(seen.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("skips blank and malformed lines while tailing", async () => {
+    const one = JSON.stringify({
+      type: "user.message",
+      data: { content: "one" },
+    });
+    const two = JSON.stringify({
+      type: "user.message",
+      data: { content: "two" },
+    });
+    const file = await tmpFile(`${one}\n\n{ not json ]\n${two}`);
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e));
+    await follower.start();
+    expect(
+      seen.map((e) =>
+        e.type === "append" && e.part.kind === "userMessage"
+          ? e.part.text
+          : null,
+      ),
+    ).toEqual(["one", "two"]);
+
+    const three = JSON.stringify({
+      type: "user.message",
+      data: { content: "three" },
+    });
+    await fs.appendFile(file, `\n   \n{bad\n${three}`);
+    await follower.refresh();
+    follower.stop();
+    expect(seen).toHaveLength(3);
+    expect(seen[2]).toMatchObject({
+      type: "append",
+      part: { kind: "userMessage", text: "three" },
+    });
+  });
 });
 
 describe("findTranscript", () => {

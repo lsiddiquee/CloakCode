@@ -237,4 +237,97 @@ describe("e2e: transcript → provider → gateway → operator", () => {
       event: { type: "append", part: { kind: "userMessage" } },
     });
   });
+
+  it("streams every part kind (message, reasoning, question, tool call) through the relay", async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-e2e-"));
+    const file = path.join(dir, "sessE2E.jsonl");
+    await fs.writeFile(
+      file,
+      [
+        JSON.stringify({ type: "user.message", data: { content: "go" } }),
+        JSON.stringify({
+          type: "assistant.message",
+          data: { reasoningText: "planning", content: "On it." },
+        }),
+        JSON.stringify({
+          type: "tool.execution_start",
+          data: {
+            toolCallId: "q1",
+            toolName: "vscode_askQuestions",
+            arguments: {
+              questions: [
+                {
+                  question: "Proceed?",
+                  options: [{ label: "Yes" }, { label: "No" }],
+                },
+              ],
+            },
+          },
+        }),
+        JSON.stringify({
+          type: "tool.execution_complete",
+          data: { toolCallId: "q1", success: true },
+        }),
+        JSON.stringify({
+          type: "tool.execution_start",
+          data: {
+            toolCallId: "t2",
+            toolName: "run_in_terminal",
+            arguments: { command: "ls" },
+          },
+        }),
+        JSON.stringify({
+          type: "tool.execution_complete",
+          data: { toolCallId: "t2", success: true },
+        }),
+      ].join("\n"),
+    );
+
+    const deps: BridgeDeps = {
+      listSessions: async () => [summary],
+      findTranscript: async () => file,
+      findSessionLog: async () => ({ file, parse: parseSessionEvents }),
+    };
+
+    gateway = await startGateway({
+      host: "127.0.0.1",
+      port: 0,
+      fallbackToEphemeral: true,
+      logger: silentLogger(),
+    });
+    client = await connectGateway(
+      `ws://127.0.0.1:${gateway.port}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+    );
+
+    // The initial stream carries 7 conversation events + 1 `turn` frame (initial
+    // inTurn=false), which can interleave with the events — collect all 8 and
+    // filter to the `event` frames so the assertion is order-independent.
+    const frames = await operator(
+      gateway.port,
+      {
+        id: "2",
+        op: "session.subscribe",
+        params: { sessionId: "sessE2E" },
+      },
+      8,
+    );
+    const kinds = frames
+      .filter((f) => f.kind === "event")
+      .map((f) => {
+        const ev = f.event as { type: string; part?: { kind: string } };
+        return ev.type === "append" ? ev.part!.kind : ev.type;
+      });
+    expect(kinds).toEqual([
+      "userMessage",
+      "thinking",
+      "markdown",
+      "confirmation",
+      "resolve",
+      "toolCall",
+      "updateStatus",
+    ]);
+  });
 });
