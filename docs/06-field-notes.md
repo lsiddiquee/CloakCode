@@ -231,6 +231,23 @@ Base: `~/.vscode-server/data/User/`
   relying on the invariant flag (removed 2026-07-18). `libicu` is SO-versioned per Debian release
   (`libicu72` bookworm / `libicu76` trixie / …), so the Dockerfile resolves whichever the base image
   ships via `apt-cache search --names-only '^libicu[0-9]+$' | sort -V | tail -n1` rather than pinning.
+- **UI playground = a separate dev-only package + a fake WebSocket (2026-07-21).** To design the PWA
+  with no gateway, `@cloakcode/web-playground` renders the **real** `@cloakcode/web` `App` and just
+  swaps `globalThis.WebSocket` for an in-browser fake that replies from fixtures. Two design points
+  that keep it clean: (1) **one seam** — every bridge call funnels through `new WebSocket(url)`
+  (`sessions.list`, `session.subscribe`, the actuator RPCs), so a single fake global covers the whole
+  app with **zero production edits** (no `import.meta.env.MOCK` branch in `bridge.ts`). (2) **one-way
+  package edge** — `playground → web` only (web exposes `App` + `styles.css` via package `exports`);
+  the shipped `web` build/vsix can't reference the mock even by accident. Import the real component
+  cross-package by the package name (Vite/pnpm transpile the linked TSX source; add
+  `resolve.dedupe: ['react','react-dom']` so hooks don't hit a duplicate React). **Gotcha when
+  driving it headless:** the transcript stream is coalesced through `requestAnimationFrame`
+  ([SessionView](../packages/web/src/SessionView.tsx)) — and rAF is **paused in a hidden tab**
+  (`document.visibilityState==='hidden'`), so a Playwright-driven page shows a perpetual "Loading
+  transcript…" even though the fake emitted valid events. It renders fine in a real foreground
+  browser; to force it under automation, enable CDP `Emulation.setFocusEmulationEnabled {enabled:true}`
+  (un-throttles rAF). A session with **no fixture events** also legitimately shows "Loading
+  transcript…" — give every fixture session a transcript.
 - **A DESKTOP extension host ≠ a server/container host (2026-07-14, "broken fully on Windows").** Two
   assumptions that hold on server/container/WSL silently break on a **local desktop** VS Code:
   (1) **`process.execPath` is Electron, not node.** On desktop it's the `Code.exe` binary, so

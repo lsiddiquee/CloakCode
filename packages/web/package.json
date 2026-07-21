@@ -4,6 +4,10 @@
   "private": true,
   "description": "Phone-first React + Vite PWA client. Renders the live session mirror and answers blockers remotely.",
   "type": "module",
+  "exports": {
+    "./App": "./src/App.tsx",
+    "./styles.css": "./src/styles.css"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

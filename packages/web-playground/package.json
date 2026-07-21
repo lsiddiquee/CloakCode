@@ -1,0 +1,26 @@
+{
+  "name": "@cloakcode/web-playground",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only UI playground: renders the REAL @cloakcode/web App against an in-browser fake bridge + fixtures, so the PWA can be designed with no gateway. Never shipped; the dependency edge points playground → web only, so nothing here can reach the web build.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@cloakcode/protocol": "workspace:*",
+    "@cloakcode/web": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.0",
+    "vite": "6.4.3"
+  }
+}

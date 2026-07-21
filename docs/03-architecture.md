@@ -272,9 +272,11 @@ flowchart TB
 | `@cloakcode/agent`     | Pausable tool-calling + confirmation loop (pure).            | No                   |
 | `@cloakcode/extension` | Model port (`vscode.lm`), observer, bridge server, actuator. | **Yes** (only here)  |
 | `@cloakcode/web`       | Phone-first React/Vite PWA client.                           | No                   |
+| `@cloakcode/web-playground` | **Dev-only** UI bench: renders the real `web` `App` against an in-browser fake bridge + fixtures. Depends on `web` (one-way), never shipped. | No |
 
 Keeping `vscode` isolated to one package makes the protocol and agent unit-testable
-without an extension host.
+without an extension host. The `web-playground` edge points **one way** (`playground → web`), so
+the shipped `web` build (and the `.vsix` that bundles it) can never reference the mock.
 
 ### The gateway (one port serves the PWA + `/bridge`)
 
