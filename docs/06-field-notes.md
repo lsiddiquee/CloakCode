@@ -117,6 +117,24 @@ Base: `~/.vscode-server/data/User/`
   vulnerability (`pnpm audit` is clean). Do not silence it with `allowedDeprecatedVersions` or
   override the required transitive dependency; wait for VSCE/Cheerio upstream.
 
+- **Major dep bump that changes generated `.d.ts` → `pnpm -r build` BEFORE `pnpm -r typecheck`
+  (2026-07-22).** After bumping zod 3→4, `pnpm -r typecheck` failed only in `@cloakcode/gateway`
+  with `z.infer` collapsing to `unknown` (`req.data`/`parsed.data` typed `unknown`). Cause: the
+  gateway consumes `@cloakcode/protocol`'s **built `dist/*.d.ts`**, which was still generated
+  against zod 3 — typecheck does not rebuild dependencies. `pnpm -r build` regenerates protocol's
+  emitted types against the new zod, after which typecheck/lint/test are clean with **no source
+  changes**. Rule: when a bump changes a library's generated types (zod is the classic), rebuild the
+  workspace before trusting a typecheck. Not a code bug — a stale-artifact ordering trap.
+
+- **Lockfile-sharing Dependabot PRs pile up — combine, don't rebase-loop (2026-07-22).** N npm PRs
+  that each rewrite `pnpm-lock.yaml` conflict with _each other_, not just with `main`: merging one
+  re-conflicts the rest, so they can only land sequentially with a rebase between each (`@dependabot
+  rebase` auto-reapplies but can't dodge the sequence). Fast clear = one local combined-update PR
+  (bump all the manifests, one regenerated lockfile, `Closes #a #b #c`, then close the originals as
+  superseded). Prevention = a Dependabot `group` per ecosystem (see `.github/dependabot.yml`
+  `production-dependencies`/`development-dependencies`, minor+patch) so weekly bumps arrive as one
+  PR; majors stay ungrouped for review and are the rare case that still needs the combined-PR trick.
+
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
   the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does
