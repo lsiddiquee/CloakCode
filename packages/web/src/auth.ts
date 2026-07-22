@@ -44,7 +44,7 @@ export function clearStoredToken(): void {
 /** A fresh `auth` frame resuming with a stored token, for a new socket. */
 export function tokenAuthFrame(token: string): string {
   return JSON.stringify({
-    id: `auth-${Math.random().toString(36).slice(2)}`,
+    id: `auth-${crypto.randomUUID()}`,
     op: "auth",
     params: { token },
   });
@@ -107,7 +107,7 @@ export function submitAuthCode(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const id = `auth-${Math.random().toString(36).slice(2)}`;
+    const id = `auth-${crypto.randomUUID()}`;
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("bridge timed out"));
@@ -165,7 +165,7 @@ export function beginEnrolment(
 ): Promise<EnrolProvisioning> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const id = `enrol-${Math.random().toString(36).slice(2)}`;
+    const id = `enrol-${crypto.randomUUID()}`;
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("bridge timed out"));

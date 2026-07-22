@@ -66,7 +66,7 @@ export function fetchSessions(
 ): Promise<SessionsListResult> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const id = Math.random().toString(36).slice(2);
+    const id = crypto.randomUUID();
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("bridge timed out"));
@@ -168,7 +168,7 @@ export function subscribeSession(
     onStatus(attempt === 0 ? "connecting" : "reconnecting");
     const socket = new WebSocket(url);
     ws = socket;
-    const id = Math.random().toString(36).slice(2);
+    const id = crypto.randomUUID();
 
     socket.addEventListener("open", () => {
       attempt = 0;
@@ -266,7 +266,7 @@ function oneShotRpc(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const id = Math.random().toString(36).slice(2);
+    const id = crypto.randomUUID();
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("bridge timed out"));

@@ -87,7 +87,7 @@ function appendFrame(seq: number): unknown {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.spyOn(Math, "random").mockReturnValue(0); // deterministic id + zero jitter
+  vi.spyOn(Math, "random").mockReturnValue(0); // zero backoff jitter (ids are crypto UUIDs)
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
 });

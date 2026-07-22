@@ -175,6 +175,32 @@ Base: `~/.vscode-server/data/User/`
   cooldown change is warranted (the proxy lag itself adds real-age protection and Dependabot's 7d
   gates the update flow); just be aware the local gate ≈ npm-publish + mirror-lag + 7d.
 
+- **A security override only helps if a PATCHED version is mirrored — and a still-vulnerable
+  override actively fails `dependency-review` (2026-07-22).** `dependency-review-action`
+  (`fail-on-severity: high`) reviews only the **diff**: a pre-existing vulnerable transitive left
+  untouched passes (it stays a Dependabot _alert_, not a PR blocker), but the moment a PR **changes**
+  that dep to another version still inside the advisory range it fails the check. Learned the hard way
+  on `fast-uri`: the alert cited `<= 3.1.3` (GHSA-cq4c-9wjx-4gp7), but a newer advisory
+  (GHSA-v2hh-gcrm-f6hx / CVE-2026-16221) extended the affected range to `>= 4.0.0, <= 4.1.0`, so an
+  `overrides: fast-uri: ^4.1.0` resolved to the **still-vulnerable** 4.1.0 — no fix, plus a red gate.
+  The only patched lines are **2.4.3 / 3.1.4 / 4.1.1**, and **none of them is mirrored on the MS feed
+  proxy yet** (its fast-uri history is 3.1.3 → 4.0.0 → 4.0.1 → 4.1.0), so the lockfile **cannot** be
+  regenerated with the fix locally. Correct play: **do not land a security override until a patched
+  version is actually resolvable on your registry** — ship the independent fixes, leave the
+  transitive unchanged (Dependabot handles it against real npm once the point-fix lands / the proxy
+  mirrors it), and always **cross-check the CURRENT advisory range** (not just the version the alert
+  first cited) before picking the target.
+- **Correlation/frame ids must be `crypto.randomUUID()`, never `Math.random()` — CodeQL
+  `js/insecure-randomness` (2026-07-22).** Any random value that flows into a request/frame id (which a
+  scanner treats as a security sink) trips the High CodeQL alert even for our benign RPC-correlation
+  use — and even when the flagged file is a _downstream_ sink (the alert pointed at the dev-only
+  `web-playground` echo, but the tainted **source** was `web`'s `Math.random` ids). Fix at the source:
+  browser + Node ≥19 both expose `crypto.randomUUID()` (web has it via the DOM lib in a secure/localhost
+  context; in the extension's Node context `import { randomUUID } from "node:crypto"` — do **not** reach
+  for `globalThis.crypto` there). Genuinely non-security `Math.random` is fine and should stay:
+  reconnect-backoff **jitter** and the crypto-first, clearly-local-only `newTraceId` **fallback** are
+  not sinks — don't cargo-cult them into UUIDs.
+
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
   the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does
