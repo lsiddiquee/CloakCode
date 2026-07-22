@@ -30,7 +30,7 @@
     "@cloakcode/protocol": "workspace:*",
     "otpauth": "^9.5.1",
     "qrcode-generator": "^2.0.4",
-    "ws": "^8.18.0"
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
