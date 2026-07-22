@@ -147,6 +147,33 @@ Base: `~/.vscode-server/data/User/`
   superseded). Prevention = a Dependabot `group` per ecosystem (see `.github/dependabot.yml`
   `production-dependencies`/`development-dependencies`, minor+patch) so weekly bumps arrive as one
   PR; majors stay ungrouped for review and are the rare case that still needs the combined-PR trick.
+  **Exception — coupled families that must version in lockstep** (react + react-dom + their `@types`)
+  get a dedicated `patterns` group covering **all** update-types, so a React major lands as ONE
+  reviewable PR instead of separate PRs that each fail CI alone (react without react-dom = mismatched
+  runtime). Whenever you clear such a pileup by hand, add/extend the matching group in the SAME change
+  so it can't recur. Dependabot assigns a dep to the FIRST matching group — list coupled pattern
+  groups before the broad type groups.
+
+- **`pnpm update <pkg>` at root is a silent no-op for workspace-package deps — use `pnpm -r update`
+  (2026-07-22).** Bumping a lockfile pin only works if the manifest that declares the dep is in
+  scope. Deps declared in the workspace packages (e.g. `ws` in `packages/extension` +
+  `packages/gateway`, not root) are invisible to a plain `pnpm update ws@x` run at the repo root — it
+  prints "Already up to date" and changes nothing (`pnpm why ws` at root is also empty). Use
+  `pnpm -r update ws@8.21.1` (recursive), which also bumps the manifest ranges. This — not any
+  proxy/cooldown gap — was the real cause of a long "can't bump ws locally" rabbit hole. (Editing
+  `package.json` + `pnpm install` also works and is what a manifest-first flow does.)
+- **`minimumReleaseAge` cooldown is measured against the proxy's MIRROR time, and its cache lags
+  (2026-07-22).** pnpm reads publish dates from the registry `time` field; the Microsoft package-feed
+  proxy **rewrites `time` to when _it_ mirrored** the version (e.g. `ws@8.21.1` = `2026-07-14T17:12Z`
+  on the proxy, days after npm's real publish). So our 7-day (`minimumReleaseAge: 10080`) local
+  cooldown starts at mirror time, i.e. lags npm by the proxy's mirror delay — whereas Dependabot's
+  own 7-day cooldown uses npm's real publish time. A version can therefore be green in CI (real npm)
+  yet briefly not-yet-cooldown-cleared locally. Two more traps: pnpm caches the time-bearing packument
+  separately in `~/.cache/pnpm/v11/metadata-full/…/<pkg>.jsonl` (distinct from the abbreviated
+  `metadata/` cache), and that full cache can be **stale** (missing a just-mirrored version) even when
+  the abbreviated one is fresh — delete the stale `metadata-full/<pkg>.jsonl` to force a refetch. No
+  cooldown change is warranted (the proxy lag itself adds real-age protection and Dependabot's 7d
+  gates the update flow); just be aware the local gate ≈ npm-publish + mirror-lag + 7d.
 
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in

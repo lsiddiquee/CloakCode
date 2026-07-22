@@ -22,9 +22,23 @@ updates:
     # Group minor/patch bumps into ONE PR per type so weekly updates don't each
     # rewrite pnpm-lock.yaml and pile up mutual merge conflicts (a shared-lockfile
     # PR pileup has to be merged sequentially with a rebase between each). Majors
-    # are deliberately left ungrouped so each gets individual review; a rare
-    # multi-major clash is cleared with a one-off combined-update PR.
+    # are deliberately left ungrouped so each gets individual review, EXCEPT for
+    # tightly-coupled families that MUST version in lockstep (e.g. react +
+    # react-dom + their @types): those get a dedicated pattern group covering
+    # ALL update-types, so a React major arrives as one reviewable PR instead of
+    # separate PRs that each fail CI alone. A rare clash between unrelated majors
+    # is still cleared with a one-off combined-update PR.
+    #
+    # Precedence: Dependabot puts a dependency in the FIRST matching group, so the
+    # coupled pattern groups are listed before the broad type groups.
     groups:
+      react:
+        # Runtime + its types must move together, including on majors (18 -> 19).
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
       development-dependencies:
         dependency-type: development
         update-types:
