@@ -65,10 +65,17 @@ Before making or reviewing any change, read and follow:
    treated as trusted user intent; **never log** secrets, tokens, or raw code/prompts.
 4. **YAGNI on the actuator.** The actuator (answer/steer) is unsolved — do **not** build speculative
    abstractions for steer / queue / own-loop until a concrete slice needs one. No compatibility
-   shims/aliases/dual code paths for unreleased in-progress work.
+   shims/aliases/dual code paths for unreleased in-progress work. YAGNI limits *scope* only — it is
+   **never** licence to leave a regression (rule 6).
 5. **Do not re-derive proven research.** The on-disk event vocabulary, the blocker signature, and the
    storage paths are already proven in `docs/02` — cite it, do not re-run the investigation. Port the
    Python PoCs in `research/` faithfully.
+6. **No introduced regressions — status quo or better.** A change may never *add* a new deprecation
+   notice, build/test warning, peer-dependency warning, lint suppression, or `@ts-expect-error`. If a
+   change (e.g. a dependency bump) surfaces a new warning, fix it **in the same change** — bump/replace
+   the offending dependency, migrate the config, or update the call site. Never wave it off with YAGNI
+   or "it's from a dependency, not our code"; if it truly cannot be fixed now, keep the status quo
+   (don't land the noisy change) or record an explicit, tracked follow-up in `docs/`.
 
 ## Docs-sync rule
 
@@ -82,6 +89,8 @@ Before making or reviewing any change, read and follow:
 - Failing test first, then minimal code, then refactor. Aim high on the pure packages
   (`protocol`/`agent`); keep `extension` a thin adapter. Never delete a test to go green.
 - Green build: `pnpm -r typecheck` + `pnpm -r lint`; `poetry run ruff check .` + `poetry run mypy research`.
+- **No new noise:** the change adds no deprecation/build/test/peer warning, lint suppression, or
+  `@ts-expect-error` — fix any it surfaces in the same change (see hard rule 6).
 - Conventional Commit message (enforced by the `commit-msg` hook).
 
 ## Working method
@@ -101,6 +110,8 @@ Before making or reviewing any change, read and follow:
 - **Security gate:** confirm no new egress path (mirror/relay; own-entitlement model loop; no
   auto-harvest), localhost-only, provenance tags, no secret logging.
 - **YAGNI:** confirm no speculative actuator abstraction added.
+- **No regressions:** confirm the change adds no new deprecation/build/test/peer warning, lint
+  suppression, or `@ts-expect-error` (or names the tracked follow-up if truly unavoidable).
 - **Tests:** failing-test-first evidence + pass/fail of the narrowest run.
 - **Docs sync:** updated / not required, with why.
 - **Validation summary:** commands run + outcomes.

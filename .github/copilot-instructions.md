@@ -99,7 +99,17 @@ research/     Python PoCs: session lister + transcript/blocker inspector (stdlib
 - **YAGNI.** Build the smallest thing that ships the current milestone (see docs/05). The
   **actuator is unsolved** — do **not** build speculative abstractions for steer / queue /
   own-loop until a slice actually needs one. No compatibility shims, aliases, or dual code paths
-  for unreleased in-progress work.
+  for unreleased in-progress work. YAGNI limits _scope_ — it is **never** licence to leave a
+  regression (see next bullet).
+- **No introduced regressions — leave the tree no noisier than you found it.** A change must keep
+  quality at **status quo or better**; it may never _add_ a new deprecation notice, build/test
+  warning, peer-dependency warning, lint suppression, or `@ts-expect-error`. If your change
+  surfaces a new warning (e.g. a dependency bump that deprecates an option or unmets a peer), fix
+  it **in the same change** — bump/replace the offending dependency, migrate the config, or update
+  the call site. If it genuinely cannot be resolved now, it is **not** waved off with YAGNI: keep
+  the status quo (don't land the noisy change) or record it as an explicit, tracked follow-up in
+  `docs/` with the reason it's deferred. "It comes from a dependency, not our code" is not an
+  exemption — we own our dependency choices.
 - **DRY.** First instance stays local; a second is compared carefully; a third stable instance
   earns a shared abstraction **in the right layer** (usually `@cloakcode/protocol`). Never
   duplicate the `SessionPart` / RPC shapes across packages.
