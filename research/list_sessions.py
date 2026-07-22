@@ -96,12 +96,12 @@ def human_age(seconds: int) -> str:
 
 def main() -> None:
     rows = scan()
-    print(f'{"#":>2}  {"WORKSPACE":14} {"SESSION":36} {"TURNS":>5} {"STATUS":8} {"AGE":>4}  TITLE')
+    print(f"{'#':>2}  {'WORKSPACE':14} {'SESSION':36} {'TURNS':>5} {'STATUS':8} {'AGE':>4}  TITLE")
     print("-" * 120)
     for i, r in enumerate(rows, 1):
         print(
-            f'{i:>2}  {r["workspace"][:14]:14} {r["session_id"]:36} '
-            f'{r["turns"]:>5} {r["status"]:8} {human_age(r["idle_seconds"]):>4}  {r["title"]}'
+            f"{i:>2}  {r['workspace'][:14]:14} {r['session_id']:36} "
+            f"{r['turns']:>5} {r['status']:8} {human_age(r['idle_seconds']):>4}  {r['title']}"
         )
     print(f"\n{len(rows)} sessions total")
 

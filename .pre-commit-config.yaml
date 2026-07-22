@@ -53,14 +53,26 @@ repos:
       - id: gitleaks
 
   # ---------------------------------------------------------------------------
-  # Python — lint + format the research/observer tooling with ruff.
-  # ---------------------------------------------------------------------------
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+  # Python — lint + format the research/observer tooling with ruff. Run from the
+  # Poetry-managed in-project venv (.venv — poetry.toml) so ruff's VERSION has a
+  # SINGLE source of truth: pyproject.toml's dev dependency. This mirrors the
+  # eslint/prettier hooks below (which run node_modules/.bin/*) and removes the
+  # drift a hosted `rev:` pin causes: Dependabot has no pre-commit ecosystem, so
+  # a second `rev:` pin would silently lag the pyproject/pip bump. Requires the
+  # venv — the devcontainer runs `poetry install`; CI runs `poetry install
+  # --only dev` before the hooks. Fails loudly if .venv/bin/ruff is missing.
+  - repo: local
     hooks:
       - id: ruff
-        args: ["--fix"]
+        name: ruff
+        language: system
+        types_or: [python, pyi]
+        entry: .venv/bin/ruff check --fix
       - id: ruff-format
+        name: ruff-format
+        language: system
+        types_or: [python, pyi]
+        entry: .venv/bin/ruff format
 
   # ---------------------------------------------------------------------------
   # Markdown — lint AND auto-fix staged Markdown repo-wide. markdownlint-cli2
