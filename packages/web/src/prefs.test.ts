@@ -7,20 +7,33 @@ afterEach(() => {
 
 describe("session-list prefs", () => {
   it("defaults to read-only hidden and nothing collapsed when storage is empty", () => {
-    expect(loadPrefs()).toEqual({ showReadOnly: false, collapsed: [] });
+    expect(loadPrefs()).toEqual({
+      showReadOnly: false,
+      showWorkspaceId: false,
+      collapsed: [],
+    });
   });
 
   it("round-trips saved preferences", () => {
-    savePrefs({ showReadOnly: true, collapsed: ["H1", "H2"] });
+    savePrefs({
+      showReadOnly: true,
+      showWorkspaceId: true,
+      collapsed: ["H1", "H2"],
+    });
     expect(loadPrefs()).toEqual({
       showReadOnly: true,
+      showWorkspaceId: true,
       collapsed: ["H1", "H2"],
     });
   });
 
   it("falls back to defaults on corrupt JSON", () => {
     localStorage.setItem("cloakcode.sessionListPrefs.v1", "{not json");
-    expect(loadPrefs()).toEqual({ showReadOnly: false, collapsed: [] });
+    expect(loadPrefs()).toEqual({
+      showReadOnly: false,
+      showWorkspaceId: false,
+      collapsed: [],
+    });
   });
 
   it("sanitises unexpected shapes to defaults", () => {
@@ -28,6 +41,10 @@ describe("session-list prefs", () => {
       "cloakcode.sessionListPrefs.v1",
       JSON.stringify({ showReadOnly: "yes", collapsed: [1, "H", null] }),
     );
-    expect(loadPrefs()).toEqual({ showReadOnly: false, collapsed: ["H"] });
+    expect(loadPrefs()).toEqual({
+      showReadOnly: false,
+      showWorkspaceId: false,
+      collapsed: ["H"],
+    });
   });
 });

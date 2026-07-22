@@ -187,6 +187,15 @@ button.group-label {
   opacity: 0.7;
   text-transform: none;
 }
+.group-hash {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0 4px 6px 19px;
+  word-break: break-all;
+  user-select: all;
+}
 
 /* App-bar settings menu (gear + popover). */
 .settings {

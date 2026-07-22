@@ -117,7 +117,9 @@ describe("App", () => {
     );
     const first = render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Show read-only workspaces" }),
+    );
     await screen.findByText(/read-only \(no extension here\)/);
     first.unmount();
 
@@ -126,6 +128,19 @@ describe("App", () => {
     expect(
       await screen.findByText(/read-only \(no extension here\)/),
     ).toBeTruthy();
+  });
+
+  it("reveals the workspace hash when the Show workspace ID setting is on", async () => {
+    fetchSessionsMock.mockResolvedValue(
+      listResult([summary({ workspaceHash: "ws-hash-xyz" })]),
+    );
+    render(<App />);
+    await screen.findByText("My session");
+    expect(screen.queryByText("ws-hash-xyz")).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show workspace ID" }));
+    expect(screen.getByText("ws-hash-xyz")).toBeTruthy();
   });
 
   it("collapses a workspace's rows when its header is clicked, and persists it", async () => {
@@ -162,7 +177,9 @@ describe("App", () => {
     );
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("switch")); // reveal read-only
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Show read-only workspaces" }),
+    ); // reveal read-only
     const labels = screen
       .getAllByText(/workspace repo/)
       .map((el) => el.textContent ?? "");

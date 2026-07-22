@@ -130,6 +130,14 @@ export function App(): JSX.Element {
                 setPrefs((p) => ({ ...p, showReadOnly: next }))
               }
             />
+            <Toggle
+              label="Show workspace ID"
+              description="The workspaceStorage folder hash"
+              checked={prefs.showWorkspaceId}
+              onChange={(next) =>
+                setPrefs((p) => ({ ...p, showWorkspaceId: next }))
+              }
+            />
           </SettingsMenu>
         )}
         <button className="conn" onClick={() => void load()} title="Refresh">
@@ -193,6 +201,14 @@ export function App(): JSX.Element {
                         </span>
                         <span className="group-count">{group.rows.length}</span>
                       </button>
+                      {prefs.showWorkspaceId && (
+                        <div
+                          className="group-hash"
+                          title="workspaceStorage folder"
+                        >
+                          {group.workspaceHash}
+                        </div>
+                      )}
                       {!isCollapsed &&
                         group.rows.map((s) => (
                           <div
