@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { rpcErrorSchema, sessionAuthResponseSchema } from "@cloakcode/protocol";
 
@@ -58,7 +59,7 @@ export function exchangeCodeForToken(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    const id = `auth-${Math.random().toString(36).slice(2)}`;
+    const id = `auth-${randomUUID()}`;
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("gateway timed out"));

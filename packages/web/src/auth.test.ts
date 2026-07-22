@@ -46,7 +46,6 @@ class MockWebSocket {
 }
 
 beforeEach(() => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
   localStorage.clear();
@@ -85,6 +84,13 @@ describe("tokenAuthFrame", () => {
     const frame = JSON.parse(tokenAuthFrame("tok"));
     expect(frame.op).toBe("auth");
     expect(frame.params).toEqual({ token: "tok" });
+  });
+
+  it("uses a cryptographically-random (UUID) correlation id, not Math.random", () => {
+    const id = JSON.parse(tokenAuthFrame("tok")).id as string;
+    expect(id).toMatch(
+      /^auth-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
   });
 });
 
