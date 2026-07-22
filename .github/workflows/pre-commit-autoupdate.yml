@@ -1,0 +1,60 @@
+# =============================================================================
+# Weekly staleness check for the PINNED pre-commit hooks that Dependabot cannot
+# see. Dependabot has no `pre-commit` ecosystem, so the hosted `rev:` hooks in
+# .pre-commit-config.yaml (gitleaks, markdownlint-cli2, conventional-pre-commit,
+# pre-commit-hooks) never get an update PR and silently rot. This job flags that.
+#
+# ZERO-CODE-SYNC by design: this workflow NEVER pushes repo content. It has no
+# `contents: write`, opens no branch, and runs no `git push`. On a stale hook it
+# only opens/updates a tracking ISSUE (a text notification); a maintainer then
+# runs `pre-commit autoupdate` locally and commits. This deliberately avoids the
+# common "auto-open a PR" pattern, which would require a push path in the repo.
+#
+# NOTE: ruff is intentionally NOT covered here — it is single-sourced via the
+# Poetry dev dependency (pyproject.toml) and its pre-commit hook runs the venv
+# binary, so a normal pip Dependabot PR keeps it current (see docs/06 field note
+# "No duplicate tool-version pins").
+# =============================================================================
+name: pre-commit autoupdate check
+
+on:
+  schedule:
+    - cron: "30 6 * * 1" # Mondays 06:30 UTC, alongside the Dependabot windows
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Check pinned pre-commit hooks are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Detect stale hooks and notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m pip install --upgrade pre-commit
+          # Modifies the working copy only — never committed or pushed.
+          pre-commit autoupdate
+          if git diff --quiet -- .pre-commit-config.yaml; then
+            echo "pre-commit hooks are up to date."
+            exit 0
+          fi
+          diff="$(git --no-pager diff -- .pre-commit-config.yaml)"
+          echo "Stale hooks detected:"
+          echo "$diff"
+          title="chore: pinned pre-commit hooks are out of date"
+          body="$(printf 'The weekly check found newer pinned revisions for pre-commit hooks that Dependabot cannot bump (it has no `pre-commit` ecosystem).\n\nRun `pre-commit autoupdate` locally, review, and commit the result.\n\n```diff\n%s\n```\n' "$diff")"
+          existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label dependencies
+          fi

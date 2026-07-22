@@ -144,6 +144,26 @@ Base: `~/.vscode-server/data/User/`
   (`packages/gateway/scripts/bundle.mjs`, `packages/extension/scripts/bundle.mjs`; the extension
   `bundle` script is `node scripts/bundle.mjs`). vitest/vite use esbuild's JS API internally, so
   tests were always unaffected. Do **not** re-add an `esbuild …` CLI call to any npm script.
+- **Dependabot has no LTS awareness — pin the non-LTS Node majors, not "all majors" (2026-07-22).**
+  Dependabot always proposes the newest tag and can't be told "LTS only"
+  (dependabot/dependabot-core#2247, open since 2018). The gateway image must stay on a Node **LTS**
+  line, so `.github/dependabot.yml` (docker ecosystem) has `ignore: node versions: ["25"]`. Ignore
+  the **specific non-LTS version(s)**, NOT `update-types: version-update:semver-major` — under the
+  new schedule (nodejs.org "Evolving the Node.js release schedule") **every major from 26 onward is
+  LTS**, so a blanket major-ignore would wrongly block the next LTS bumps. 25 is the last non-LTS
+  release (older odd 21/23 are EOL). When bumping the major manually, change **both** `FROM node:`
+  stages in `packages/gateway/Dockerfile` (build + runtime) together.
+- **No duplicate tool-version pins — run the tool from the project's dep manager (2026-07-22).**
+  Dependabot has **no `pre-commit` ecosystem**, so a tool version living in a pre-commit `rev:` never
+  gets a Dependabot PR. If that same tool is _also_ pinned elsewhere (e.g. ruff in both
+  `.pre-commit-config.yaml` `rev:` and `pyproject.toml`), Dependabot bumps only one side and they
+  **drift**. Fix = single source of truth: run the tool from the project's dependency manager via a
+  `language: system` local hook — `node_modules/.bin/*` for JS (eslint/prettier already do this) and
+  `.venv/bin/<tool>` for Python (ruff now does; needs `poetry install --only dev` in the CI `hooks`
+  job to create the venv). Then one npm/pip Dependabot PR moves both the tool and its enforcement.
+  Pre-commit-**only** hosted hooks (gitleaks, markdownlint-cli2, conventional-pre-commit,
+  pre-commit-hooks) have a single pin so they don't drift, but Dependabot can't bump them either —
+  they only move via `pre-commit autoupdate`.
 - **Edit-tool unicode trap.** The string-replace edit tools can write `\uXXXX` escapes as **literal
   text**. Use the actual glyphs (em-dash —, middot ·, arrow →, section §) in the replacement, or a
   Python heredoc with ASCII anchors for unicode-heavy edits.
