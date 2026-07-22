@@ -19,9 +19,19 @@ updates:
       default-days: 7
     commit-message:
       prefix: "chore(deps)"
+    # Group minor/patch bumps into ONE PR per type so weekly updates don't each
+    # rewrite pnpm-lock.yaml and pile up mutual merge conflicts (a shared-lockfile
+    # PR pileup has to be merged sequentially with a rebase between each). Majors
+    # are deliberately left ungrouped so each gets individual review; a rare
+    # multi-major clash is cleared with a one-off combined-update PR.
     groups:
       development-dependencies:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
+      production-dependencies:
+        dependency-type: production
         update-types:
           - minor
           - patch
