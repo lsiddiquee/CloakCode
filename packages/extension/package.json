@@ -216,7 +216,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^26.1.1",
     "@types/vscode": "^1.90.0",
     "@types/ws": "^8.5.12",
     "@vscode/vsce": "^3.9.2",
