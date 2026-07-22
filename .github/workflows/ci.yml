@@ -123,7 +123,7 @@ jobs:
       # repo's Code security settings (the action 404s the upload until then).
       - name: Upload protocol coverage
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1
+        uses: actions/upload-code-coverage@v1.3.0
         with:
           file: packages/protocol/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -131,7 +131,7 @@ jobs:
           fail-on-error: false
       - name: Upload gateway coverage
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1
+        uses: actions/upload-code-coverage@v1.3.0
         with:
           file: packages/gateway/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -139,7 +139,7 @@ jobs:
           fail-on-error: false
       - name: Upload web coverage
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1
+        uses: actions/upload-code-coverage@v1.3.0
         with:
           file: packages/web/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -147,7 +147,7 @@ jobs:
           fail-on-error: false
       - name: Upload extension coverage
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1
+        uses: actions/upload-code-coverage@v1.3.0
         with:
           file: packages/extension/coverage/cobertura-coverage.xml
           language: TypeScript
