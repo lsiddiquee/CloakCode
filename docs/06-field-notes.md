@@ -126,6 +126,19 @@ Base: `~/.vscode-server/data/User/`
   changes**. Rule: when a bump changes a library's generated types (zod is the classic), rebuild the
   workspace before trusting a typecheck. Not a code bug — a stale-artifact ordering trap.
 
+- **A major dep bump can emit NEW deprecation/peer warnings — fix them in the same change, never
+  wave off with YAGNI (2026-07-22).** Bumping vite 6→8 introduced two warnings where there were
+  none: (1) build-time deprecation spam from the still-babel `@vitejs/plugin-react@4`
+  (`esbuild` option deprecated → use `oxc`; `optimizeDeps.rollupOptions` → `rolldownOptions`; "switch
+  to `@vitejs/plugin-react-oxc`") — the fix is the **vite-8-native major `@vitejs/plugin-react@6`**
+  (its extra peers `@rolldown/plugin-babel` + `babel-plugin-react-compiler` are `optional`), NOT the
+  suggested `plugin-react-oxc` (still peers vite ^6/^7 — stale advice). (2) an unmet-peer warning:
+  vite 8 wants `esbuild ^0.27||^0.28` but extension+gateway pinned `esbuild 0.25.12` → bump both to
+  `0.28.1` (our bundlers call esbuild's **JS API** in `scripts/bundle.mjs`, so the CLI-shim gotcha
+  below doesn't apply; verify both bundles + `pnpm peers check` after). Rule: `pnpm peers check` and
+  scan build output for `deprecat`/`warning` after any bundler/framework major, and clear anything
+  new in the same PR (see the no-regression discipline in `.github/copilot-instructions.md`).
+
 - **Lockfile-sharing Dependabot PRs pile up — combine, don't rebase-loop (2026-07-22).** N npm PRs
   that each rewrite `pnpm-lock.yaml` conflict with _each other_, not just with `main`: merging one
   re-conflicts the rest, so they can only land sequentially with a rebase between each (`@dependabot
