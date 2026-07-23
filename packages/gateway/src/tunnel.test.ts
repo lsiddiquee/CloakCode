@@ -4,6 +4,7 @@ import {
   devTunnelInstallHint,
   devTunnelName,
   isExistsConflict,
+  parsePortList,
   parseTunnelUrl,
 } from "./tunnel.js";
 
@@ -48,6 +49,31 @@ describe("parseTunnelUrl", () => {
     expect(parseTunnelUrl(out, 9999)).toBe(
       "https://cloakcode-ab12cd34-7801.euw.devtunnels.ms",
     );
+  });
+});
+
+describe("parsePortList", () => {
+  it("extracts standalone port integers from a port-list table", () => {
+    const out = [
+      "Ports for tunnel cloakcode-2856ebf5:",
+      "Port  Protocol  URI",
+      "7905  https     https://cloakcode-2856ebf5-7905.usw2.devtunnels.ms/",
+      "7990  https     https://cloakcode-2856ebf5-7990.usw2.devtunnels.ms/",
+    ].join("\n");
+    expect(parsePortList(out).sort((a, b) => a - b)).toEqual([7905, 7990]);
+  });
+
+  it("never matches a name/hash/region or a URL's embedded -<port>", () => {
+    // The only bare integer token is the real port; the name, the region label,
+    // and the URL (with an embedded -7443) must NOT be parsed as ports.
+    const out =
+      "cloakcode-2856ebf5 usw2 https://cloakcode-2856ebf5-7443.usw2.devtunnels.ms/ 7443";
+    expect(parsePortList(out)).toEqual([7443]);
+  });
+
+  it("returns [] when no ports are forwarded", () => {
+    expect(parsePortList("No ports are currently forwarded.")).toEqual([]);
+    expect(parsePortList("")).toEqual([]);
   });
 });
 

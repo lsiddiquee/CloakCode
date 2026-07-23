@@ -105,12 +105,67 @@ async function ensureTunnel(
 ): Promise<void> {
   log(`$ devtunnel create ${name}`);
   await cli(["create", name]).catch(ignoreExists);
+  // Remove any STALE forwarded port from a previous run BEFORE adding ours, so the
+  // persistent tunnel exposes ONLY the current port. A leftover port has no server
+  // behind it now, so its `<name>-<port>` URL 502s for anyone who reaches it
+  // (including a phone that cached it, or `firstTunnelUrl` picking it). Best-effort.
+  await reconcileStalePorts(name, port, log);
   log(`$ devtunnel port create ${name} -p ${port}`);
   await cli(["port", "create", name, "-p", String(port)]).catch(ignoreExists);
 }
 
+/**
+ * Delete every forwarded port on `name` except `keepPort`. Best-effort: an older
+ * CLI without `port list`, or a transient failure, MUST NOT block hosting — every
+ * step is caught and logged. Deleting a non-existent port is a harmless no-op, so
+ * a stray parsed integer only costs a wasted call.
+ */
+async function reconcileStalePorts(
+  name: string,
+  keepPort: number,
+  log: TunnelLog,
+): Promise<void> {
+  let listing: string;
+  try {
+    listing = await cliOut(["port", "list", name]);
+  } catch (err) {
+    log(`tunnel: skipping stale-port cleanup (${errText(err)})`);
+    return;
+  }
+  for (const p of parsePortList(listing)) {
+    if (p === keepPort) continue;
+    log(`$ devtunnel port delete ${name} -p ${p} (stale)`);
+    await cli(["port", "delete", name, "-p", String(p)]).catch((err) =>
+      log(`tunnel: could not delete stale port ${p} (${errText(err)})`),
+    );
+  }
+}
+
+/**
+ * Forwarded port numbers in `devtunnel port list` output. Matches only
+ * **standalone** integer tokens in `1–65535` (the table's Port column), so a
+ * tunnel name/ID/region or a URL's embedded `-<port>` never false-matches. Pure.
+ */
+export function parsePortList(output: string): number[] {
+  const ports = new Set<number>();
+  for (const tok of output.split(/\s+/)) {
+    if (!/^[0-9]{1,5}$/.test(tok)) continue;
+    const n = Number(tok);
+    if (n >= 1 && n <= 65535) ports.add(n);
+  }
+  return [...ports];
+}
+
 async function cli(args: string[]): Promise<void> {
   await execFileAsync("devtunnel", args, { timeout: CLI_TIMEOUT_MS });
+}
+
+/** Like {@link cli} but returns stdout (for read-only queries e.g. `port list`). */
+async function cliOut(args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("devtunnel", args, {
+    timeout: CLI_TIMEOUT_MS,
+  });
+  return typeof stdout === "string" ? stdout : "";
 }
 
 /**

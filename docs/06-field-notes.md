@@ -426,3 +426,17 @@ Base: `~/.vscode-server/data/User/`
   settings, then re-add the `actions/upload-code-coverage` steps + `code-quality: write` permission
   (no `fail-on-error: false` mask — a real upload failure should fail CI).
   Details in docs/02.3 §4.27 + docs/02.4 §4.28.
+- **Named Dev Tunnels are ADDITIVE — a stale forwarded port lingers and 502s (2026-07-23).** Our
+  tunnel name is stable per instance (`cloakcode-<hash>`) and `ensureTunnel` only ever `port create`s
+  (both `create` + `port create` are `.catch(ignoreExists)`), so a port from a **previous** run stays
+  on the tunnel. Its `<name>-<port>.<region>.devtunnels.ms` URL now has **no server behind it**, so
+  anyone who reaches it (a phone that cached it, or `firstTunnelUrl` picking the wrong scoped URL) gets
+  a **502**. Symptom (cost real time): a run with `CLOAKCODE_GATEWAY_PORT=7990` still exposed a stale
+  `-7905` from an earlier run → 502. Fix: `startDevTunnel` now **reconciles** — `reconcileStalePorts`
+  lists ports and deletes every one ≠ the current, **best-effort** (list/delete failures are caught +
+  logged, never block hosting; deleting a non-existent port is a harmless no-op). `parsePortList`
+  matches only **standalone** integer tokens (`1–65535`) so the tunnel name/hash/region and a URL's
+  embedded `-<port>` never false-match. **Caveat:** the `devtunnel port list` table format was **not**
+  verifiable in this dev container (no CLI) — if a future CLI formats ports with adjacent chars the
+  parse could miss one (then it is no worse than before; verify against a live `devtunnel port list`
+  if cleanup ever seems to skip a stale port).

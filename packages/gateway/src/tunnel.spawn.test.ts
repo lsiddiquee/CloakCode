@@ -57,8 +57,8 @@ describe("startDevTunnel", () => {
 
     const tunnel = await p;
     expect(tunnel.url).toBe(URL);
-    // ensureTunnel ran create + port create before hosting.
-    expect(execFileMock).toHaveBeenCalledTimes(2);
+    // ensureTunnel ran create + port list (stale-port cleanup) + port create.
+    expect(execFileMock).toHaveBeenCalledTimes(3);
     expect(spawnMock).toHaveBeenCalledWith(
       "devtunnel",
       ["host", "cloakcode-x"],
@@ -109,6 +109,36 @@ describe("startDevTunnel", () => {
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
     child.stdout.emit("data", Buffer.from(URL));
     expect((await p).url).toBe(URL);
+  });
+
+  it("deletes a STALE forwarded port before hosting, keeping the current one", async () => {
+    const deleted: string[][] = [];
+    execFileMock.mockImplementation(
+      (
+        _c: string,
+        args: string[],
+        _o: unknown,
+        cb: (...a: unknown[]) => void,
+      ) => {
+        if (args[0] === "port" && args[1] === "list") {
+          // A previous run left 7905; the current port is 7801.
+          cb(null, { stdout: "Port\n7905\n7801\n", stderr: "" });
+          return;
+        }
+        if (args[0] === "port" && args[1] === "delete") deleted.push(args);
+        cb(null, { stdout: "", stderr: "" });
+      },
+    );
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const p = startDevTunnel(7801, "n");
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    child.stdout.emit("data", Buffer.from(URL));
+    await p;
+
+    // Only the stale 7905 is deleted; the current 7801 is preserved.
+    expect(deleted).toEqual([["port", "delete", "n", "-p", "7905"]]);
   });
 
   it("rejects with a 'missing' TunnelError when the CLI is absent (ENOENT)", async () => {
