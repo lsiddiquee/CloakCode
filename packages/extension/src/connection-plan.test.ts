@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { resolveConnectionPlan } from "./connection-plan.js";
+import {
+  resolveConnectionPlan,
+  resolveGatewayToken,
+} from "./connection-plan.js";
 
 describe("resolveConnectionPlan", () => {
   it("uses an explicit gatewayUrl, trimmed", () => {
@@ -43,5 +46,36 @@ describe("resolveConnectionPlan", () => {
         envGatewayUrl: "ws://:7900",
       }),
     ).toEqual({ kind: "embedded" });
+  });
+});
+
+describe("resolveGatewayToken (S4 — env overrides the setting)", () => {
+  it("uses the setting, trimmed, when no env is set", () => {
+    expect(resolveGatewayToken({ gatewayToken: "  s3cr3t " })).toBe("s3cr3t");
+  });
+
+  it("CLOAKCODE_GATEWAY_TOKEN (env) overrides the setting", () => {
+    expect(
+      resolveGatewayToken({
+        gatewayToken: "from-setting",
+        envGatewayToken: "  from-env ",
+      }),
+    ).toBe("from-env");
+  });
+
+  it("falls back to the setting when env is empty/whitespace", () => {
+    expect(
+      resolveGatewayToken({
+        gatewayToken: "from-setting",
+        envGatewayToken: "   ",
+      }),
+    ).toBe("from-setting");
+  });
+
+  it("is undefined when neither is set (loopback dev / sign-in path)", () => {
+    expect(resolveGatewayToken({ gatewayToken: undefined })).toBeUndefined();
+    expect(
+      resolveGatewayToken({ gatewayToken: "  ", envGatewayToken: "" }),
+    ).toBeUndefined();
   });
 });

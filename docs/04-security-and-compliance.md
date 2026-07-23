@@ -201,7 +201,12 @@ only a derived token.
     add a second, confusing operator-MFA enrolment). It connects once the user signs in.
   - **Static shared secret (demoted escape hatch).** `CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`
     still works, verified **timing-safe** (`verifyGatewayToken`) — for headless / automation /
-    bootstrap setups where interactive sign-in isn't practical.
+    bootstrap setups where interactive sign-in isn't practical. The `cloakcode.gatewayUrl` /
+    `cloakcode.gatewayToken` settings are **`machine`-scoped, not `machine-overridable`** — a
+    workspace's `.vscode/settings.json` can **not** silently redirect the extension at an attacker
+    gateway or inject a token (drift audit S4); it's a user/machine-only decision. When both a setting
+    and env var are present the **env var wins** (`resolveGatewayToken` / `resolveConnectionPlan` are
+    env-first), matching the manifest so a deployment's env overrides a stale machine setting.
   When **neither** is configured the provider link is open (loopback dev). The **embedded** bridge
   has no provider link at all — the operator TOTP is its whole story. The credential is **never**
   exchanged with, embedded in a link/QR for, or shown to the operator. **mTLS** (per-provider

@@ -29,3 +29,24 @@ function usableGatewayUrl(raw: string | undefined): string | undefined {
   if (!url) return undefined;
   return /^wss?:\/\/[^/:?#]/i.test(url) ? url : undefined;
 }
+
+/**
+ * Resolve the provider↔gateway shared secret. Pure. The `CLOAKCODE_GATEWAY_TOKEN`
+ * env var **overrides** the `cloakcode.gatewayToken` setting — matching the
+ * manifest and the env-first URL resolution above — so a deployment's env wins
+ * over a stale machine-level setting rather than the setting silently winning
+ * (drift audit S4). Empty/whitespace on both → `undefined` (no static token: the
+ * loopback-dev / interactive **Sign in to Gateway** path).
+ */
+export function resolveGatewayToken(input: {
+  gatewayToken: string | undefined;
+  envGatewayToken?: string | undefined;
+}): string | undefined {
+  return nonEmpty(input.envGatewayToken) ?? nonEmpty(input.gatewayToken);
+}
+
+/** A trimmed, non-empty string, or `undefined`. */
+function nonEmpty(raw: string | undefined): string | undefined {
+  const v = raw?.trim();
+  return v ? v : undefined;
+}

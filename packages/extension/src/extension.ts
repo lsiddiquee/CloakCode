@@ -9,7 +9,10 @@ import {
   GatewayAuthRequiredError,
   type GatewayClient,
 } from "./gateway-client.js";
-import { resolveConnectionPlan } from "./connection-plan.js";
+import {
+  resolveConnectionPlan,
+  resolveGatewayToken,
+} from "./connection-plan.js";
 import { createOutputChannelLogger } from "./logger.js";
 import { type Logger, type LogLevel } from "@cloakcode/protocol";
 import {
@@ -419,13 +422,14 @@ export async function activate(
       gatewayUrl: cfgNow.get<string>("gatewayUrl"),
       envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
     });
-    // Provider↔gateway shared secret (machine-to-machine): setting wins, else
-    // env; unset → no auth (loopback dev). Presented in the provider hello —
-    // never operator-facing (docs/04).
-    const gatewayToken =
-      (cfgNow.get<string>("gatewayToken") ?? "").trim() ||
-      process.env["CLOAKCODE_GATEWAY_TOKEN"] ||
-      undefined;
+    // Provider↔gateway shared secret (machine-to-machine): the env var wins,
+    // else the setting; unset → no auth (loopback dev). Presented in the
+    // provider hello — never operator-facing (docs/04). Env-first matches the
+    // manifest + the URL resolution above (drift audit S4).
+    const gatewayToken = resolveGatewayToken({
+      gatewayToken: cfgNow.get<string>("gatewayToken"),
+      envGatewayToken: process.env["CLOAKCODE_GATEWAY_TOKEN"],
+    });
     const gatewayUrl = plan.kind === "gateway" ? plan.url : undefined;
     // Operator TOTP for the embedded bridge (gateway/client mode authenticates
     // the operator at the hub instead). Resolved from the current settings.
