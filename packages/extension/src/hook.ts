@@ -19,12 +19,13 @@
  * Usage in a hook config command:
  *   <node> <dist>/hook.cjs PreToolUse
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import {
   defaultSpoolDir,
   eventToolCallId,
   spoolEntryPath,
   spoolRecordFor,
+  writeSpoolRecord,
 } from "./hook-spool.js";
 
 /** Defer / no-decision output — VS Code's native approval drives the call. */
@@ -85,11 +86,7 @@ export function runHook(
         warn("PreToolUse: unrecognized tool-call shape; nothing spooled");
         return DEFER;
       }
-      mkdirSync(spoolDir, { recursive: true });
-      writeFileSync(
-        spoolEntryPath(spoolDir, record.toolCallId),
-        JSON.stringify(record),
-      );
+      writeSpoolRecord(spoolDir, record.toolCallId, JSON.stringify(record));
       return DEFER;
     }
     if (event === "PostToolUse") {

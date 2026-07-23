@@ -131,6 +131,9 @@ async function ensureStableHook(extHookBin: string): Promise<string> {
     const current = await fs.readFile(stable).catch(() => null);
     if (!current || !current.equals(bundle)) {
       await fs.mkdir(path.dirname(stable), { recursive: true });
+      // Keep the per-env dir private (0700) — it neighbours the spool that holds
+      // raw tool input (docs/04 S8). Best-effort; a pre-existing dir may deny it.
+      await fs.chmod(path.dirname(stable), 0o700).catch(() => {});
       const tmp = `${stable}.tmp-${process.pid}`;
       await fs.writeFile(tmp, bundle);
       await fs.rename(tmp, stable);

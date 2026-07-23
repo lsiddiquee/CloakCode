@@ -6,6 +6,7 @@ import {
   spoolRecordSchema,
   baseToolCallId,
   spoolEntryPath,
+  writeSpoolRecord,
   readSpoolDir,
   removeSpoolForSession,
   computePendingBlockers,
@@ -68,6 +69,30 @@ async function writeRecord(dir: string, r: SpoolRecord): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(spoolEntryPath(dir, r.toolCallId), JSON.stringify(r));
 }
+
+describe("writeSpoolRecord (S8 — restrictive spool perms)", () => {
+  it("creates the spool dir 0700 and each record 0600 (umask-independent)", async () => {
+    const base = path.join(
+      os.tmpdir(),
+      `cc-spool-${process.pid}-${Math.random().toString(36).slice(2)}`,
+    );
+    const dir = path.join(base, "spool");
+    try {
+      writeSpoolRecord(
+        dir,
+        RAW_RUN,
+        JSON.stringify({ command: "echo secret-tool-input" }),
+      );
+      const dirMode = (await fs.stat(dir)).mode & 0o777;
+      const fileMode =
+        (await fs.stat(spoolEntryPath(dir, RAW_RUN))).mode & 0o777;
+      expect(dirMode).toBe(0o700);
+      expect(fileMode).toBe(0o600);
+    } finally {
+      await fs.rm(base, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("baseToolCallId", () => {
   it("strips the __vscode-<n> suffix", () => {

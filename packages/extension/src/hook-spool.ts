@@ -193,6 +193,32 @@ export function spoolEntryPath(dir: string, toolCallId: string): string {
 }
 
 /**
+ * Write one spool record with restrictive permissions — the spool dir `0700`,
+ * the record file `0600` — so raw tool input (commands/args) isn't readable by
+ * other users on a shared host (docs/04 S8). `chmod` after create makes the mode
+ * **umask-independent**. Synchronous to match the short-lived hook process.
+ */
+export function writeSpoolRecord(
+  spoolDir: string,
+  toolCallId: string,
+  json: string,
+): void {
+  fsSync.mkdirSync(spoolDir, { recursive: true, mode: 0o700 });
+  try {
+    fsSync.chmodSync(spoolDir, 0o700);
+  } catch {
+    /* best-effort — a pre-existing/shared dir we don't own may deny chmod */
+  }
+  const entry = spoolEntryPath(spoolDir, toolCallId);
+  fsSync.writeFileSync(entry, json, { mode: 0o600 });
+  try {
+    fsSync.chmodSync(entry, 0o600);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
  * Extract the routing keys the hook cares about from a `PreToolUse`/`PostToolUse`
  * stdin payload (`{ session_id, tool_name, tool_use_id, tool_input }`). Shared by
  * every record builder so the field names live in exactly one place.

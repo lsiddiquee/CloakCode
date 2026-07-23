@@ -199,7 +199,9 @@ files can't accumulate. (Retirement is deliberately **not** keyed on the tool's 
 `tool.execution_start` landing in the transcript: a `run_in_terminal` approval writes that
 immediately, while still awaiting the operator, so keying on it would delete a live blocker.) As a
 fast path, when a session has no spool file the follower skips reading/parsing the transcript
-entirely.
+entirely. Records carry **raw `tool_input`** (commands/args), so the writer creates the spool dir
+**`0700`** and each record **`0600`** (chmod-hardened, umask-independent — docs/04 S8) to keep them
+off other users on a shared host.
 
 The hook spools **every** tool call (`spoolRecordFor` — interactive tools as questions, the rest
 as `awaitingDecision` approvals), since it runs before VS Code’s approve/confirm decision and
