@@ -251,6 +251,16 @@ Base: `~/.vscode-server/data/User/`
   before staging so the commit doesn't leave an unstaged reformat.
 - **markdownlint (docs/).** Underscores for italics (MD049), `**` for bold; verify with
   `pre-commit run markdownlint-cli2 --files <f>` before committing docs.
+- **A hook that rewrites a staged file + unstaged changes elsewhere = silent commit rollback
+  (2026-07-23).** When `pnpm-lock.yaml` is staged (e.g. after adding a dep) the `pnpm-lock-portable`
+  hook strips its tarball URLs and modifies it. pre-commit stashes your **unstaged** changes first;
+  when a hook then edits a staged file, that patch can conflict with the stash, so pre-commit
+  **rolls back the fix and aborts the commit** — output ends with `Restored changes from …patch`
+  and **no `[main <hash>]` line**, which is easy to miss. Since `.vscode/launch.json` is usually
+  dirty (user WIP we never commit), this bites most `pnpm-lock.yaml` commits. Fix: **pre-apply the
+  hook** so it's a no-op — `pre-commit run pnpm-lock-portable --files pnpm-lock.yaml && git add
+  pnpm-lock.yaml`, then commit. (Same idea for any auto-fixing hook: run it, re-`git add`, commit.)
+  Always confirm the `[main <hash>]` line — if it's absent, the commit did **not** land.
 - **`.local/` is gitignored** → `grep_search` needs `includeIgnoredFiles: true` and `file_search`
   won't find it. Vendored VS Code source anchor = `.local/research/vscode/extensions/copilot`
   (Copilot Chat is **built into core VS Code**; `microsoft/vscode-copilot-chat` was archived

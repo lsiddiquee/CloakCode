@@ -79,6 +79,8 @@ denies anything. It's on by default (`cloakcode.installHook`); turn it off to ma
 | `cloakcode.tunnel`            | `off`     | `off` = VS Code's automatic forwarding; `devtunnel` = host a private Dev Tunnel and get a phone URL automatically.                  |
 | `cloakcode.gatewayUrl`        | _(empty)_ | Connect to a standalone [gateway](https://www.npmjs.com/package/@cloakcode/gateway) instead of hosting in-editor. Empty = embedded. |
 | `cloakcode.gatewayToken`      | _(empty)_ | Shared secret to register with a gateway that requires provider auth (machine-to-machine; never shown to the phone).                |
+| `cloakcode.gatewayCaFile`     | _(empty)_ | Path to the gateway's TLS cert (PEM) to trust when connecting over `wss://` to a **self-signed** gateway. Not needed for a real/BYO CA. Copy it from the gateway's **Connect an extension** view. |
+| `cloakcode.gatewayCertFingerprint` | _(empty)_ | Expected **SHA-256 fingerprint** of the gateway's TLS cert — the out-of-band pin. Verified on every `wss://` connect; a mismatch **fails closed** (no downgrade). |
 | `cloakcode.port`              | _(auto)_  | Localhost port (bound to `127.0.0.1`). Unset → try `3543` then an ephemeral port; a fixed value keeps the phone URL stable.         |
 | `cloakcode.installHook`       | `true`    | Install the Copilot notifier hook that powers the live-pending overlay.                                                             |
 | `cloakcode.surfaceDebounceMs` | `3000`    | Wait this long before showing a pending tool call, so VS Code's fast auto-approvals resolve first.                                  |

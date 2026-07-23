@@ -232,6 +232,31 @@ docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/
 - Use any hard-to-guess value; e.g. `openssl rand -hex 32`. The `CLOAKCODE_GATEWAY_TOKEN` env var
   overrides the `cloakcode.gatewayToken` setting on the extension side.
 
+## Encrypted provider link (wss)
+
+The provider (extension → gateway) hop is plain `ws://` by default — fine on loopback or behind an
+**encrypted overlay / reverse proxy** (Tailscale, WireGuard, `ssh -L`, Caddy/nginx), which is the
+lowest-friction path when you already have one. For a **direct** LAN/container link with no proxy,
+turn on CloakCode's own TLS:
+
+```bash
+CLOAKCODE_TLS_PORT=7443 npx @cloakcode/gateway
+# or BYO cert/key (real CA / mkcert / corporate PKI):
+CLOAKCODE_TLS_PORT=7443 CLOAKCODE_TLS_CERT_FILE=./gw.crt CLOAKCODE_TLS_KEY_FILE=./gw.key npx @cloakcode/gateway
+```
+
+The gateway then serves a **dedicated `wss://` listener** on that port (the loopback HTTP listener for
+the tunnelled PWA is unchanged). With no BYO cert it generates and persists a **self-signed** pair
+under `~/.cloakcode` (key `0600`, never logged) and prints its **SHA-256 fingerprint** — the pin.
+
+**Pair an extension** from the app: open the PWA (behind your tunnel + TOTP) → **Settings → Connect an
+extension**. It shows the reachable `wss://` URL, the fingerprint, and the certificate to copy into the
+extension's `cloakcode.gatewayUrl`, `cloakcode.gatewayCertFingerprint`, and (for the self-signed cert)
+`cloakcode.gatewayCaFile`. The extension keeps `rejectUnauthorized: true` and **fails closed** on a
+fingerprint mismatch — it never downgrades to an unverified socket. A gateway behind a **real/BYO CA**
+needs no CA file. The console printout is the fallback when no tunnel is up. The fingerprint and cert
+are **public** (an integrity pin, not a secret); the private key never leaves the gateway.
+
 ## Operator auth (TOTP)
 
 The **phone → gateway** boundary is gated by a time-based one-time code (RFC 6238 TOTP) whenever the
@@ -285,6 +310,9 @@ all the volumes (secret, tunnel token, action log).
 | `CLOAKCODE_MFA_SECRET_FILE` | `~/.cloakcode/operator-totp.secret` | where the base32 TOTP secret persists (`0600`); mount it as a volume in Docker |
 | `CLOAKCODE_MFA_ENROL`       | `browser`                   | `strict` never sends the pairing secret over the wire (console QR only)  |
 | `CLOAKCODE_MFA_RESET`       | _(off)_                     | `1` regenerates the secret (lockout recovery) and re-enters enrolment    |
+| `CLOAKCODE_TLS_PORT`        | _(off)_                     | enable a dedicated **`wss://`** provider listener on this port (loopback HTTP is unchanged); pair extensions via **Connect an extension** in the app |
+| `CLOAKCODE_TLS_CERT_FILE`   | _(auto self-signed)_        | BYO PEM cert for `wss` (with `_KEY_FILE`); unset ⇒ an auto self-signed pair persisted under `~/.cloakcode` |
+| `CLOAKCODE_TLS_KEY_FILE`    | _(auto self-signed)_        | BYO PEM private key for `wss` (with `_CERT_FILE`); a `0600` secret, never logged |
 | `CLOAKCODE_GATEWAY_LOG_FILE`| `./cloakcode-gateway.jsonl` | on-disk action log (JSONL); set empty to disable                        |
 | `CLOAKCODE_WEB_DIR`         | bundled `web/`              | PWA directory to serve (defaults to the bundled app)                    |
 | `CLOAKCODE_LOG_LEVEL`       | `info`                      | `trace`/`debug`/`info`/`warn`/`error` (`CLOAKCODE_VERBOSE=1` ⇒ `debug`) |
