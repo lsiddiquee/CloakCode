@@ -73,8 +73,10 @@ describe("exchangeCodeForToken (integration)", () => {
     const token = await exchangeCodeForToken(url, "287082", true);
     expect(typeof token).toBe("string");
     expect(token.length).toBeGreaterThan(0);
-    // The token verifies against the same secret the gateway holds.
-    expect(operatorAuth.verifyToken(token)).toBe(true);
+    // The token verifies against the same secret the gateway holds — and it is a
+    // PROVIDER-scoped token (S3), rejected at the operator boundary.
+    expect(operatorAuth.verifyToken(token, "provider")).toBe(true);
+    expect(operatorAuth.verifyToken(token, "operator")).toBe(false);
   });
 
   it("rejects a bad code", async () => {

@@ -66,7 +66,15 @@ export function exchangeCodeForToken(
     }, 5000);
 
     ws.on("open", () => {
-      ws.send(JSON.stringify({ id, op: "auth", params: { code, remember } }));
+      // Ask for a PROVIDER-scoped token (drift audit S3) — it registers this
+      // extension as a provider and is rejected at the operator boundary.
+      ws.send(
+        JSON.stringify({
+          id,
+          op: "auth",
+          params: { code, remember, audience: "provider" },
+        }),
+      );
     });
     ws.on("message", (raw) => {
       let parsed: unknown;

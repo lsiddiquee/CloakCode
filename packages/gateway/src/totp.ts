@@ -67,26 +67,47 @@ function hmac(secretBase32: string, payload: string): Buffer {
  * invalidates every token. NB: a bearer token — carry it only over the TLS
  * tunnel (plain-`ws` LAN needs `wss`, docs/04).
  */
+/**
+ * The boundary a session token is scoped to (drift audit S3). A token minted for
+ * one audience is rejected at the other, so an operator token can't register as a
+ * provider and vice-versa.
+ */
+export type AuthAudience = "operator" | "provider";
+
+/**
+ * Issue a short-lived bearer session token `<audience>.<exp>.<hmac>` (HMAC-SHA256
+ * over `<audience>.<exp>`, keyed by the TOTP secret). Bound to the secret (rotating
+ * it invalidates every token) AND to the `audience` (its trust boundary). NB: a
+ * bearer token — carry it only over the TLS tunnel / `wss` (docs/04).
+ */
 export function issueSessionToken(
   secretBase32: string,
   ttlMs: number,
+  audience: AuthAudience,
   now: () => number = () => Date.now(),
 ): string {
-  const exp = now() + ttlMs;
-  return `${exp}.${hmac(secretBase32, String(exp)).toString("base64url")}`;
+  const payload = `${audience}.${now() + ttlMs}`;
+  return `${payload}.${hmac(secretBase32, payload).toString("base64url")}`;
 }
 
-/** Verify a session token: well-formed, unexpired, and a valid signature. */
+/**
+ * Verify a session token for a SPECIFIC `audience`: exactly `<audience>.<exp>.<sig>`,
+ * unexpired, a valid signature, and the embedded role equal to `audience` — so a
+ * token issued for one boundary is rejected at the other (drift audit S3).
+ */
 export function verifySessionToken(
   secretBase32: string,
   token: string,
+  audience: AuthAudience,
   now: () => number = () => Date.now(),
 ): boolean {
-  const dot = token.indexOf(".");
-  if (dot === -1) return false;
-  const exp = Number(token.slice(0, dot));
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const [role, expStr, sig] = parts as [string, string, string];
+  if (role !== audience) return false; // cross-role replay
+  const exp = Number(expStr);
   if (!Number.isFinite(exp) || exp < now()) return false;
-  const got = Buffer.from(token.slice(dot + 1), "base64url");
-  const expected = hmac(secretBase32, String(exp));
+  const got = Buffer.from(sig, "base64url");
+  const expected = hmac(secretBase32, `${role}.${expStr}`);
   return got.length === expected.length && timingSafeEqual(got, expected);
 }

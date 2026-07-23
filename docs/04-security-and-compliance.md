@@ -190,7 +190,11 @@ only a derived token.
     6-digit code once; the extension exchanges it (via the gateway's operator `auth` handshake) for a
     long-lived (30d) **session token**, stores it in SecretStorage (per gateway), and presents it in
     the hello. The provider **never holds the TOTP secret** — only a token the operator secret
-    issued — so the secret's blast radius stays gateway+phone. On refusal the gateway sends
+    issued — so the secret's blast radius stays gateway+phone. The token is **audience-scoped**
+    (`<audience>.<exp>.<hmac>`, the audience bound into the signature): a provider token presents
+    `audience:"provider"` and is **rejected at the operator boundary**, and an operator token is
+    rejected as a provider (drift audit S3), so a token captured at one boundary can't be replayed at
+    the other. On refusal the gateway sends
     `provider.auth_required`; the extension surfaces a sign-in prompt (`GatewayAuthRequiredError`)
     and **stays in gateway mode without falling back to the embedded bridge** — an unreachable hub
     falls back, but a reachable-yet-auth-blocked one must not start a competing bridge (which would

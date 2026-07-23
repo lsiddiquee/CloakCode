@@ -379,6 +379,10 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
       code: z.string().max(16).optional(),
       token: z.string().max(512).optional(),
       remember: z.boolean().optional(),
+      // Trust boundary the issued token is scoped to (drift audit S3): "provider"
+      // for an extension's Sign in to Gateway, else "operator" (default). A token
+      // minted for one audience is rejected at the other.
+      audience: z.enum(["operator", "provider"]).optional(),
     }),
   }),
   z.object({

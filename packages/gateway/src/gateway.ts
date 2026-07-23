@@ -179,7 +179,9 @@ export async function startGateway(
       !verifyProviderCredential(hello.token, {
         staticToken: opts.token,
         verifyToken: opts.operatorAuth
-          ? (t) => opts.operatorAuth!.verifyToken(t)
+          ? // A provider must present a PROVIDER-scoped token (drift audit S3) —
+            // an operator token is rejected here.
+            (t) => opts.operatorAuth!.verifyToken(t, "provider")
           : undefined,
       })
     ) {

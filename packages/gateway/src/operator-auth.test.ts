@@ -52,8 +52,10 @@ describe("OperatorAuth", () => {
   it("verifies a token it issued and rejects garbage", () => {
     const a = auth();
     const { token } = a.submitCode("287082");
-    expect(a.verifyToken(token!)).toBe(true);
-    expect(a.verifyToken("nope")).toBe(false);
+    expect(a.verifyToken(token!, "operator")).toBe(true);
+    expect(a.verifyToken("nope", "operator")).toBe(false);
+    // The default mint is an operator token — it is NOT a provider token (S3).
+    expect(a.verifyToken(token!, "provider")).toBe(false);
   });
 });
 

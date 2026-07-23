@@ -3,6 +3,7 @@ import {
   otpauthUri,
   verifySessionToken,
   verifyTotp,
+  type AuthAudience,
 } from "./totp.js";
 
 /** Default session-token TTL after a code login (this device stays in 12h). */
@@ -101,17 +102,22 @@ export class OperatorAuth {
     }
   }
 
-  /** True if a stored session token still resumes a prior login. */
-  verifyToken(token: string): boolean {
-    return verifySessionToken(this.#secret, token, this.#now);
+  /** True if a stored session token still resumes a prior login for `audience`. */
+  verifyToken(token: string, audience: AuthAudience): boolean {
+    return verifySessionToken(this.#secret, token, audience, this.#now);
   }
 
   /**
    * Verify a TOTP `code`. On success issues a fresh bearer token (12h, or 30d
-   * when `remember`) and advances the replay guard so the same code can't be
-   * reused. Rejects an invalid or already-used code.
+   * when `remember`) scoped to `audience` (drift audit S3) and advances the
+   * replay guard so the same code can't be reused. Rejects an invalid or
+   * already-used code.
    */
-  submitCode(code: string, remember = false): CodeResult {
+  submitCode(
+    code: string,
+    remember = false,
+    audience: AuthAudience = "operator",
+  ): CodeResult {
     const res = verifyTotp(this.#secret, code, { now: this.#now });
     if (!res.ok || res.step === undefined) {
       return { ok: false, error: "invalid code" };
@@ -123,7 +129,7 @@ export class OperatorAuth {
     const ttl = remember ? this.#rememberTtl : this.#defaultTtl;
     return {
       ok: true,
-      token: issueSessionToken(this.#secret, ttl, this.#now),
+      token: issueSessionToken(this.#secret, ttl, audience, this.#now),
       expiresAt: this.#now() + ttl,
     };
   }
@@ -183,11 +189,18 @@ export class OperatorGate {
       return { kind: "proceed" };
     }
     const auth = this.auth!;
-    const { code, token, remember } = (req.params ?? {}) as {
+    const { code, token, remember, audience } = (req.params ?? {}) as {
       code?: string;
       token?: string;
       remember?: boolean;
+      audience?: string;
     };
+    // The requested token audience (drift audit S3); anything but "provider"
+    // mints an operator token. The gate is the OPERATOR boundary, so a token
+    // RESUME is only ever verified as "operator" (a provider token presented here
+    // is rejected); the provider hello verifies "provider" separately.
+    const mintAudience: AuthAudience =
+      audience === "provider" ? "provider" : "operator";
 
     // Enrolment mode: serve ONLY pairing until a code is verified.
     if (!auth.confirmed) {
@@ -204,7 +217,7 @@ export class OperatorGate {
         };
       }
       if (req.op === "auth" && code) {
-        const res = auth.submitCode(code, remember);
+        const res = auth.submitCode(code, remember, mintAudience);
         if (res.ok) {
           auth.markConfirmed();
           this.#authed = true;
@@ -241,12 +254,12 @@ export class OperatorGate {
         response: needsAuth(req.id, "authentication required"),
       };
     }
-    if (token && auth.verifyToken(token)) {
+    if (token && auth.verifyToken(token, "operator")) {
       this.#authed = true;
       return { kind: "reply", response: { id: req.id, ok: true, op: "auth" } };
     }
     if (code) {
-      const res = auth.submitCode(code, remember);
+      const res = auth.submitCode(code, remember, mintAudience);
       if (res.ok) {
         this.#authed = true;
         return {

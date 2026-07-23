@@ -193,11 +193,12 @@ describe("e2e: transcript → provider → gateway → operator", () => {
     const now = () => 59_000;
     // The provider's stored token (issued by a code exchange), verified by the
     // gateway's operator secret — the extension never holds the secret itself.
+    // Scoped to "provider" (drift audit S3) so it registers at the provider boundary.
     const providerToken = new OperatorAuth({
       secret,
       now,
       confirmed: true,
-    }).submitCode("287082").token;
+    }).submitCode("287082", true, "provider").token;
 
     gateway = await startGateway({
       host: "127.0.0.1",

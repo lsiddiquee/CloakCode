@@ -512,7 +512,8 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
       now: () => 59_000,
       confirmed: true,
     });
-    const { token } = operatorAuth.submitCode("287082", true);
+    // A PROVIDER-scoped token (S3) — the provider boundary rejects operator tokens.
+    const { token } = operatorAuth.submitCode("287082", true, "provider");
     gw = await startGateway({ port: 0, operatorAuth });
     const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
     ws.send(
@@ -545,6 +546,28 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     );
     expect(await nextMessage(ws)).toEqual({ type: "provider.auth_required" });
     await new Promise<void>((r) => ws.once("close", () => r()));
+    expect(gw!.registry.all().length).toBe(0);
+  });
+
+  it("rejects an OPERATOR-scoped token presented as a provider (S3)", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    // A default (operator-audience) token must NOT register as a provider.
+    const { token } = operatorAuth.submitCode("287082", true);
+    gw = await startGateway({ port: 0, operatorAuth });
+    const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "pX" },
+        token,
+      }),
+    );
+    expect(await nextMessage(ws)).toEqual({ type: "provider.auth_required" });
     expect(gw!.registry.all().length).toBe(0);
   });
 });

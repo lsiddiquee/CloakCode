@@ -70,17 +70,45 @@ describe("generateTotpSecret / otpauthUri", () => {
 describe("session token", () => {
   it("verifies before expiry and fails after", () => {
     let now = 1000;
-    const token = issueSessionToken(RFC_SECRET, 5000, () => now);
-    expect(verifySessionToken(RFC_SECRET, token, () => now)).toBe(true);
+    const token = issueSessionToken(RFC_SECRET, 5000, "operator", () => now);
+    expect(verifySessionToken(RFC_SECRET, token, "operator", () => now)).toBe(
+      true,
+    );
     now = 6001;
-    expect(verifySessionToken(RFC_SECRET, token, () => now)).toBe(false);
+    expect(verifySessionToken(RFC_SECRET, token, "operator", () => now)).toBe(
+      false,
+    );
   });
 
   it("rejects tampering, malformed input, and a different secret", () => {
-    const token = issueSessionToken(RFC_SECRET, 5000, () => 0);
-    expect(verifySessionToken(RFC_SECRET, token + "x", () => 0)).toBe(false);
-    expect(verifySessionToken(RFC_SECRET, "malformed", () => 0)).toBe(false);
-    expect(verifySessionToken(generateTotpSecret(), token, () => 0)).toBe(
+    const token = issueSessionToken(RFC_SECRET, 5000, "operator", () => 0);
+    expect(
+      verifySessionToken(RFC_SECRET, token + "x", "operator", () => 0),
+    ).toBe(false);
+    expect(
+      verifySessionToken(RFC_SECRET, "malformed", "operator", () => 0),
+    ).toBe(false);
+    expect(
+      verifySessionToken(generateTotpSecret(), token, "operator", () => 0),
+    ).toBe(false);
+  });
+
+  it("rejects a cross-role replay — an operator token isn't a provider token (S3)", () => {
+    const op = issueSessionToken(RFC_SECRET, 5000, "operator", () => 0);
+    const prov = issueSessionToken(RFC_SECRET, 5000, "provider", () => 0);
+    expect(verifySessionToken(RFC_SECRET, op, "operator", () => 0)).toBe(true);
+    expect(verifySessionToken(RFC_SECRET, op, "provider", () => 0)).toBe(false);
+    expect(verifySessionToken(RFC_SECRET, prov, "provider", () => 0)).toBe(
+      true,
+    );
+    expect(verifySessionToken(RFC_SECRET, prov, "operator", () => 0)).toBe(
+      false,
+    );
+  });
+
+  it("rejects a legacy 2-part token (forces one re-enrolment)", () => {
+    // Old format was `<exp>.<sig>` — no role segment.
+    expect(verifySessionToken(RFC_SECRET, "9999999999.abc", "operator")).toBe(
       false,
     );
   });
