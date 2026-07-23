@@ -5,6 +5,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   cloakcodeHelloSchema,
   connectionHelloSchema,
+  isAllowedUpgrade,
   MAX_WS_PAYLOAD_BYTES,
   OPERATOR_MSG_BURST,
   OPERATOR_MSG_RATE_PER_SEC,
@@ -139,6 +140,18 @@ export async function startGateway(
     maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
   });
   server.on("upgrade", (req, socket, head) => {
+    if (
+      !isAllowedUpgrade({
+        origin: req.headers.origin,
+        host: req.headers.host,
+        // The gateway's own tunnel URL (set once the tunnel is up) is trusted,
+        // so the tunnelled PWA is allowed even if the tunnel rewrites `Host`.
+        allowedOrigins: phoneUrl ? [phoneUrl] : [],
+      })
+    ) {
+      socket.destroy(); // cross-site WS attempt (S1) — refuse the handshake
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
     );

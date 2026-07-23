@@ -5,6 +5,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import {
   rpcRequestSchema,
   DEFAULT_PORT,
+  isAllowedUpgrade,
   MAX_WS_PAYLOAD_BYTES,
   OPERATOR_MSG_BURST,
   OPERATOR_MSG_RATE_PER_SEC,
@@ -153,6 +154,13 @@ export interface BridgeOptions {
    * extension enables it whenever the window is exposed (wide bind / live tunnel).
    */
   operatorAuth?: OperatorAuth;
+  /**
+   * Extra browser origins allowed to open the WS upgrade beyond same-origin
+   * (drift audit S1) — the window's own public/tunnel URL, so the tunnelled PWA
+   * is accepted even if the tunnel rewrites `Host`. Originless (Node provider)
+   * upgrades are always allowed; a foreign browser origin is rejected.
+   */
+  allowedOrigins?: readonly string[];
 }
 
 export interface Bridge {
@@ -226,6 +234,16 @@ export async function startBridge(
     maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
   });
   server.on("upgrade", (req, socket, head) => {
+    if (
+      !isAllowedUpgrade({
+        origin: req.headers.origin,
+        host: req.headers.host,
+        allowedOrigins: opts.allowedOrigins ?? [],
+      })
+    ) {
+      socket.destroy(); // cross-site WS attempt (S1) — refuse the handshake
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
     );

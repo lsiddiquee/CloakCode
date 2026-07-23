@@ -141,6 +141,13 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
     an operator-supplied id can never traverse out of the storage root when the observer joins it into
     `debug-logs/<id>/` or `transcripts/<id>.jsonl`. The observer (`findSessionLog` / `findTranscript`)
     re-checks the same contract at the file boundary as a belt (drift audit S2).
+  - **Upgrade origin policy.** The HTTP→WebSocket upgrade is gated by `isAllowedUpgrade` on both
+    ingresses (drift audit S1): an **originless** upgrade (a Node provider — `ws` sends no `Origin`)
+    is allowed, a browser upgrade only when it is **same-origin** (`Origin` host === `Host`) or its
+    origin is the server's own **public/tunnel URL** (the gateway allowlists its live `phoneUrl`; the
+    bridge, `CLOAKCODE_PUBLIC_URL`) — so a malicious web page can't open a cross-site WS to loopback.
+    _(The auto Dev Tunnel embedded PWA relies on same-origin, i.e. the tunnel preserving `Host`; set
+    `CLOAKCODE_PUBLIC_URL` if a tunnel rewrites it.)_
 
   This is **regression-tested** (`bridge.test.ts`: non-JSON, unknown op, and a valid op with invalid
   params are all rejected; a well-formed answer full of shell metacharacters + emoji is passed through

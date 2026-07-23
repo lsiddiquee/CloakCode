@@ -84,6 +84,28 @@ describe("startBridge", () => {
     }
   });
 
+  it("rejects a cross-origin WS upgrade but allows originless + allowlisted (S1)", async () => {
+    const bridge = await startBridge(deps(), {
+      port: 0,
+      allowedOrigins: ["https://hub.example"],
+    });
+    try {
+      // Foreign browser Origin → the handshake is refused (socket destroyed).
+      const foreign = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
+        headers: { origin: "http://evil.example" },
+      });
+      await new Promise<void>((resolve, reject) => {
+        foreign.on("open", () => reject(new Error("should not open")));
+        foreign.on("error", () => resolve()); // rejected upgrade → error
+      });
+      // Originless client (a Node provider — `ws` sends no Origin) → accepted.
+      const ok = await request(bridge.port, { id: "1", op: "sessions.list" });
+      expect(ok).toMatchObject({ ok: true });
+    } finally {
+      await bridge.close();
+    }
+  });
+
   it("rejects a malformed request with an error envelope", async () => {
     const bridge = await startBridge(deps(), { port: 0 });
     try {

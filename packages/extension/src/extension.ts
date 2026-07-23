@@ -887,12 +887,16 @@ async function startEmbeddedBridge(
   operatorAuth?: OperatorAuth,
 ): Promise<Bridge | undefined> {
   try {
+    const publicUrl = process.env["CLOAKCODE_PUBLIC_URL"]?.trim();
     const b = await startBridge(deps, {
       host: "127.0.0.1",
       port: portPlan.port,
       fallbackToEphemeral: portPlan.fallbackToEphemeral,
       ...(serveDir ? { serveDir } : {}),
       ...(operatorAuth ? { operatorAuth } : {}),
+      // Allow the BYO tunnel origin through the S1 same-origin upgrade check;
+      // the auto Dev Tunnel PWA relies on same-origin (the tunnel preserves Host).
+      ...(publicUrl ? { allowedOrigins: [publicUrl] } : {}),
     });
     log.info("bridge.listen", {
       port: b.port,

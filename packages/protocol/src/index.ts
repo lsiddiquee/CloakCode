@@ -54,6 +54,42 @@ export const sessionIdSchema = z
 export type SessionId = z.infer<typeof sessionIdSchema>;
 
 /**
+ * Decide whether an HTTP→WebSocket upgrade may proceed (drift audit S1 — stop a
+ * malicious web page from opening a **cross-site** WebSocket to the loopback
+ * bridge / gateway). Policy:
+ *
+ * - **No `Origin` header** ⇒ a non-browser client (a Node provider; the `ws`
+ *   library sends none) — allowed (no CSRF vector; the provider token still gates it).
+ * - **`Origin` present** (a browser) ⇒ allowed only when it is **same-origin**
+ *   (the Origin's `host` equals the request `Host`) or its origin is in
+ *   `allowedOrigins` (the server's own known public/tunnel URL, so the tunnelled
+ *   PWA is allowed even if the tunnel rewrites `Host`).
+ *
+ * Path is intentionally NOT restricted here — providers connect on `/`, the PWA
+ * on `/bridge`. Pure + environment-agnostic (no `URL`/DOM) so both ingresses
+ * share one tested rule.
+ */
+export function isAllowedUpgrade(opts: {
+  origin?: string | undefined;
+  host?: string | undefined;
+  allowedOrigins?: readonly string[];
+}): boolean {
+  if (!opts.origin) return true; // originless (Node provider) — no CSRF vector
+  const originHost = authorityOf(opts.origin);
+  if (!originHost) return false; // malformed Origin
+  if (opts.host && originHost === opts.host) return true; // same-origin
+  for (const allowed of opts.allowedOrigins ?? []) {
+    if (authorityOf(allowed) === originHost) return true;
+  }
+  return false;
+}
+
+/** The `host[:port]` authority of a `scheme://authority/…` origin, or undefined. */
+function authorityOf(origin: string): string | undefined {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/?#]+)/.exec(origin)?.[1];
+}
+
+/**
  * One row in the remote session picker. The `sessionId` (a globally-unique UUID)
  * is the session's **identity**: the list de-dupes on it, and the gateway
  * **routes** session-addressed RPCs by it to the owning provider. `instanceId`

@@ -21,6 +21,7 @@ import {
   connectionHelloSchema,
   gatewayInfoSchema,
   sessionIdSchema,
+  isAllowedUpgrade,
   type SessionSummary,
 } from "./index.js";
 
@@ -54,6 +55,40 @@ describe("sessionIdSchema (S2 — path-escape guard on incoming ids)", () => {
       params: { sessionId: "../../evil" },
     });
     expect(bad.success).toBe(false);
+  });
+});
+
+describe("isAllowedUpgrade (S1 — WS upgrade origin policy)", () => {
+  it("allows an originless upgrade (Node provider)", () => {
+    expect(isAllowedUpgrade({ host: "127.0.0.1:7801" })).toBe(true);
+  });
+  it("allows a same-origin browser upgrade", () => {
+    expect(
+      isAllowedUpgrade({
+        origin: "http://127.0.0.1:7801",
+        host: "127.0.0.1:7801",
+      }),
+    ).toBe(true);
+  });
+  it("rejects a cross-origin browser upgrade", () => {
+    expect(
+      isAllowedUpgrade({
+        origin: "http://evil.example",
+        host: "127.0.0.1:7801",
+      }),
+    ).toBe(false);
+  });
+  it("allows an allowlisted origin (the server's own public/tunnel URL)", () => {
+    expect(
+      isAllowedUpgrade({
+        origin: "https://hub-7900.euw.devtunnels.ms",
+        host: "127.0.0.1:7900",
+        allowedOrigins: ["https://hub-7900.euw.devtunnels.ms"],
+      }),
+    ).toBe(true);
+  });
+  it("rejects a malformed Origin", () => {
+    expect(isAllowedUpgrade({ origin: "not a url", host: "h" })).toBe(false);
   });
 });
 
