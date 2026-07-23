@@ -9,6 +9,7 @@ import {
   GatewayAuthRequiredError,
   type GatewayClient,
 } from "./gateway-client.js";
+import { type GatewayPinConfig } from "./gateway-tls.js";
 import {
   resolveConnectionPlan,
   resolveGatewayToken,
@@ -204,6 +205,34 @@ function resolveOwnedHashes(
   }
 
   return { hashes, source: sources.join("+") || "none", names };
+}
+
+/**
+ * Resolve the wss server-identity pin (drift audit S4b) from settings:
+ * `cloakcode.gatewayCaFile` (read into a CA PEM) + `cloakcode.gatewayCertFingerprint`.
+ * A missing/unreadable CA file is logged (not fatal) — without it a self-signed
+ * `wss://` gateway fails closed at CA validation, which is the safe outcome. Both
+ * are inert for `ws://` and for a real/BYO-CA gateway.
+ */
+async function resolveGatewayPin(
+  cfg: vscode.WorkspaceConfiguration,
+  log: Logger,
+): Promise<GatewayPinConfig> {
+  const fingerprint =
+    (cfg.get<string>("gatewayCertFingerprint") ?? "").trim() || undefined;
+  const caFile = (cfg.get<string>("gatewayCaFile") ?? "").trim();
+  let caPem: string | undefined;
+  if (caFile) {
+    try {
+      caPem = await fs.readFile(caFile, "utf8");
+    } catch {
+      log.warn("gateway.ca_file_unreadable", { file: caFile });
+    }
+  }
+  return {
+    ...(caPem ? { caPem } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
+  };
 }
 
 export async function activate(
@@ -431,6 +460,11 @@ export async function activate(
       envGatewayToken: process.env["CLOAKCODE_GATEWAY_TOKEN"],
     });
     const gatewayUrl = plan.kind === "gateway" ? plan.url : undefined;
+    // TLS server-identity pin for a wss:// gateway (drift audit S4b, docs/04):
+    // trust a self-signed gateway's cert (gatewayCaFile) so rejectUnauthorized
+    // stays true, and pin its fingerprint (gatewayCertFingerprint). Inert for
+    // ws:// and for a real/BYO-CA gateway.
+    const gatewayPin = await resolveGatewayPin(cfgNow, log);
     // Operator TOTP for the embedded bridge (gateway/client mode authenticates
     // the operator at the hub instead). Resolved from the current settings.
     const opAuth = gatewayUrl ? undefined : await resolveOperatorAuth(cfgNow);
@@ -454,6 +488,7 @@ export async function activate(
           undefined,
           credential,
           () => promptGatewaySignIn(gatewayUrl),
+          gatewayPin,
         );
       } catch (err) {
         if (err instanceof GatewayAuthRequiredError) {
@@ -805,7 +840,13 @@ export async function activate(
       });
       if (!code) return;
       try {
-        const token = await exchangeCodeForToken(plan.url, code.trim(), true);
+        const pin = await resolveGatewayPin(cfgNow, log);
+        const token = await exchangeCodeForToken(
+          plan.url,
+          code.trim(),
+          true,
+          pin,
+        );
         await storeProviderToken(context.secrets, plan.url, token);
         await reconnect("gateway-signin");
         void vscode.window.showInformationMessage(

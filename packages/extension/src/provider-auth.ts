@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { rpcErrorSchema, sessionAuthResponseSchema } from "@cloakcode/protocol";
+import { gatewayTlsOptions, type GatewayPinConfig } from "./gateway-tls.js";
 
 /**
  * Provider↔gateway auth for the extension (docs/04, F2a slice 2). A gateway with
@@ -56,9 +57,10 @@ export function exchangeCodeForToken(
   url: string,
   code: string,
   remember = true,
+  pin: GatewayPinConfig = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, gatewayTlsOptions(url, pin));
     const id = `auth-${randomUUID()}`;
     const timer = setTimeout(() => {
       ws.close();

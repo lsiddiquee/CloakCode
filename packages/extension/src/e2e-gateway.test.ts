@@ -5,6 +5,7 @@ import * as path from "node:path";
 import WebSocket from "ws";
 import {
   OperatorAuth,
+  resolveTlsMaterial,
   startGateway,
   silentLogger,
   type Gateway,
@@ -330,5 +331,92 @@ describe("e2e: transcript → provider → gateway → operator", () => {
       "toolCall",
       "updateStatus",
     ]);
+  });
+});
+
+describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
+  const deps: BridgeDeps = {
+    listSessions: async () => [summary],
+    findTranscript: async () => undefined,
+    findSessionLog: async () => undefined,
+  };
+
+  // A different, valid-shaped fingerprint that will never match a fresh cert.
+  const WRONG_PIN =
+    "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
+
+  async function startTlsGateway(): Promise<{
+    fingerprint: string;
+    caPem: string;
+  }> {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-e2e-tls-"));
+    const mat = await resolveTlsMaterial({ storeDir: dir });
+    gateway = await startGateway({
+      host: "127.0.0.1",
+      port: 0,
+      fallbackToEphemeral: true,
+      logger: silentLogger(),
+      tls: {
+        port: 0,
+        cert: mat.cert,
+        key: mat.key,
+        fingerprint: mat.fingerprint,
+      },
+    });
+    return { fingerprint: mat.fingerprint, caPem: mat.cert };
+  }
+
+  it("connects over wss when the CA + fingerprint pin match; an operator lists through it", async () => {
+    const { fingerprint, caPem } = await startTlsGateway();
+    client = await connectGateway(
+      `wss://127.0.0.1:${gateway!.tlsPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined,
+      undefined,
+      { caPem, fingerprint },
+    );
+    // The operator uses the untouched loopback listener; the provider is on wss.
+    const [list] = await operator(
+      gateway!.port,
+      { id: "1", op: "sessions.list" },
+      1,
+    );
+    expect(list).toMatchObject({ id: "1", ok: true, op: "sessions.list" });
+    expect((list.result as SessionSummary[])[0]?.sessionId).toBe("sessE2E");
+  });
+
+  it("fails closed on a fingerprint mismatch (no unverified fallback)", async () => {
+    const { caPem } = await startTlsGateway();
+    await expect(
+      connectGateway(
+        `wss://127.0.0.1:${gateway!.tlsPort}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        1200,
+        undefined,
+        undefined,
+        { caPem, fingerprint: WRONG_PIN },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("fails closed when a self-signed cert is not trusted (fingerprint alone, no CA)", async () => {
+    const { fingerprint } = await startTlsGateway();
+    await expect(
+      connectGateway(
+        `wss://127.0.0.1:${gateway!.tlsPort}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        1200,
+        undefined,
+        undefined,
+        { fingerprint }, // no caPem → untrusted self-signed → rejectUnauthorized fails
+      ),
+    ).rejects.toThrow();
   });
 });

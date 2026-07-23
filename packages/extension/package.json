@@ -173,6 +173,18 @@
           "scope": "machine",
           "markdownDescription": "**Optional** shared secret for the **provider↔gateway** link — the demoted escape hatch for headless/automation setups. The default interactive path is **CloakCode: Sign in to Gateway** (enter a TOTP code once; the extension stores the issued token). Set this only when your standalone gateway runs with `CLOAKCODE_GATEWAY_TOKEN` and you'd rather present a static secret than sign in. Machine-to-machine — it is **never** shown to or used by the phone. Empty (default) = no static token. The `CLOAKCODE_GATEWAY_TOKEN` env var overrides this setting. Inert in embedded (no gateway link)."
         },
+        "cloakcode.gatewayCaFile": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Path to the **gateway's TLS certificate** (PEM) to trust when connecting over `wss://` to a gateway that serves a **self-signed** certificate (drift audit S4b, docs/04). Supplying it lets the extension keep `rejectUnauthorized: true` — the self-signed cert validates as its own trust anchor, then the optional `#cloakcode.gatewayCertFingerprint#` pin is checked. **Not needed** for a gateway fronted by a real/BYO CA (an overlay/reverse proxy, or `CLOAKCODE_TLS_CERT_FILE` pointing at a CA-issued cert). The gateway's **Connect an extension** view (or its console) shows the cert to save. Empty (default) = use the system trust store only."
+        },
+        "cloakcode.gatewayCertFingerprint": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Expected **SHA-256 fingerprint** of the gateway's TLS certificate — the out-of-band **pin** that verifies *which* server you reached over `wss://` (drift audit S4b, docs/04). Copy it from the gateway's **Connect an extension** view (behind the tunnel + your TOTP) or its startup console. When set, the extension verifies it in `checkServerIdentity` and **fails closed** on a mismatch — no downgrade to an unverified socket. Accepts colon- or space-separated hex, any case. For a self-signed gateway also set `#cloakcode.gatewayCaFile#`. Empty (default) = no pin (rely on CA validation)."
+        },
         "cloakcode.mfa": {
           "type": "string",
           "enum": [

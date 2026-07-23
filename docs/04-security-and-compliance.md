@@ -103,20 +103,35 @@ timeout → embedded fallback). Riding the tunnel needs a `devtunnel connect`-sc
 **~24 h-lived** (daily re-tokening = high friction), so it stays an explicit documented path, not a
 default.
 
-**Closing the gap — safe server identity (design finalized 2026-07-20).** The blessed low-friction
-path is an **encrypted overlay or reverse proxy** (Tailscale/WireGuard/SSH or Caddy/nginx) with the
-gateway on loopback. For a direct LAN/container link with no proxy, **optional product-owned native
-TLS**: the gateway serves `wss://` on a **dedicated listener** (its loopback HTTP listener still backs
-the tunnelled PWA — coexistence model B), from an **auto-generated self-signed cert** (default) or an
-operator-supplied cert/key. The extension **keeps `rejectUnauthorized: true`** and pins the cert's
-**SHA-256 fingerprint** in `checkServerIdentity` (called only _after_ CA validation). The fingerprint
-is provisioned **out-of-band via the authenticated PWA** — a “Connect an extension” action behind the
-Dev Tunnel sign-in + operator TOTP hands the operator the `wss://` URL + fingerprint to paste in
-(console/QR fallback with no tunnel; a BYO-cert operator can point at a CA/cert file instead). The PWA
+**Closing the gap — safe server identity (design finalized 2026-07-20; shipped 2026-07-23,
+C1–C3).** The blessed low-friction path is an **encrypted overlay or reverse proxy**
+(Tailscale/WireGuard/SSH or Caddy/nginx) with the gateway on loopback. For a direct LAN/container link
+with no proxy, **optional product-owned native TLS**: the gateway serves `wss://` on a **dedicated
+listener** (`CLOAKCODE_TLS_PORT`; its loopback HTTP listener still backs the tunnelled PWA —
+coexistence model B), from an **auto-generated self-signed cert** persisted under `~/.cloakcode`
+(default) or an operator-supplied cert/key (`CLOAKCODE_TLS_CERT_FILE` / `_KEY_FILE`). The extension
+**keeps `rejectUnauthorized: true`** (never downgraded to `ws://` or an unverified socket) and pins the
+cert's **SHA-256 fingerprint** in `checkServerIdentity` (called only _after_ CA validation).
+
+**The delivered mechanism is a CA-pin** (`gateway-tls.ts` · drift audit S4b): because a self-signed
+cert fails default chain validation, the operator supplies it as a trusted anchor via
+`cloakcode.gatewayCaFile` — then `rejectUnauthorized: true` still holds, and the optional
+`cloakcode.gatewayCertFingerprint` is verified in `checkServerIdentity`, **replacing** the hostname
+check (a self-signed cert's identity is its pin, not its possibly-bare-IP SAN) and **failing closed**
+on mismatch. A gateway fronted by a **real/BYO CA** needs no CA file — the system trust store validates
+it (plus the fingerprint pin if provided). A **fingerprint alone is not a self-signed connect mode**:
+without the cert there is nothing to validate against, so the handshake fails closed (we never fall
+back to an unverified socket) — this is the deliberate refinement of the earlier "paste just a
+fingerprint" sketch. The `cloakcode.gatewayUrl`/`gatewayCaFile`/`gatewayCertFingerprint` settings are
+`machine`-scoped (S4a), so a workspace cannot redirect or unpin the link.
+
+The cert + fingerprint are provisioned **out-of-band via the authenticated PWA** — a “Connect an
+extension” action behind the Dev Tunnel sign-in + operator TOTP (the web view is the remaining slice,
+C4; today the gateway prints the `wss://` URL + fingerprint to its console as the fallback). The PWA
 only _delivers_ the pin — the extension still verifies it. Explicitly **rejected**:
 `rejectUnauthorized:false`, blind first-connection **TOFU**, and advertising the pin over the same
 unverified socket. The fingerprint is public (integrity matters, not secrecy); the cert private key is
-a mode-restricted, never-logged gateway secret. Full build-ready design in
+a mode-`0600`, never-logged gateway secret. Full build-ready design in
 [docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md).
 
 ## Bridge ingress validation (what a non-CloakCode client can send)

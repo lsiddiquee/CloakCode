@@ -13,6 +13,7 @@ import {
   type Connection,
 } from "./bridge.js";
 import { knockFrame, isGatewayKnock } from "./ws-knock.js";
+import { gatewayTlsOptions, type GatewayPinConfig } from "./gateway-tls.js";
 
 export interface GatewayClient {
   /** The gateway URL this client connected to (`cloakcode.gatewayUrl`). */
@@ -55,6 +56,7 @@ export function connectGateway(
   firstConnectTimeoutMs = 4000,
   token?: string,
   onAuthRequired?: () => void,
+  pin: GatewayPinConfig = {},
 ): Promise<GatewayClient> {
   return new Promise((resolve, reject) => {
     let closed = false;
@@ -84,7 +86,7 @@ export function connectGateway(
     }, firstConnectTimeoutMs);
 
     const connect = (): void => {
-      const s = new WebSocket(url);
+      const s = new WebSocket(url, gatewayTlsOptions(url, pin));
       const c: Connection = {
         alive: true,
         followers: new Map(),
