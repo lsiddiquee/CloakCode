@@ -14,6 +14,7 @@ import {
 } from "./bridge.js";
 import { knockFrame, isGatewayKnock } from "./ws-knock.js";
 import { gatewayTlsOptions, type GatewayPinConfig } from "./gateway-tls.js";
+import { errorCode } from "./errors.js";
 
 export interface GatewayClient {
   /** The gateway URL this client connected to (`cloakcode.gatewayUrl`). */
@@ -66,6 +67,9 @@ export function connectGateway(
     let socket: WebSocket | undefined;
     let conn: Connection | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    // Redaction-safe reason of the most recent socket error (e.g. ECONNREFUSED,
+    // DEPTH_ZERO_SELF_SIGNED_CERT) so a failure reports WHY, not just "unreachable".
+    let lastError: string | undefined;
 
     const client: GatewayClient = {
       url,
@@ -82,7 +86,9 @@ export function connectGateway(
       if (settled) return;
       settled = true;
       client.close();
-      reject(new Error(`gateway ${url} unreachable`));
+      reject(
+        new Error(`gateway ${url} unreachable${connectHint(lastError, url)}`),
+      );
     }, firstConnectTimeoutMs);
 
     const connect = (): void => {
@@ -168,8 +174,11 @@ export function connectGateway(
         }
         void handleMessage(s, text, deps, c);
       });
-      s.on("error", () => {
-        /* a 'close' event always follows; handle reconnect there */
+      s.on("error", (e: unknown) => {
+        // Capture the redaction-safe reason (never swallow it — that turned a
+        // cert-trust failure into a misleading "unreachable"). A 'close' always
+        // follows, where reconnect is handled.
+        lastError = errorCode(e);
       });
       s.on("close", () => {
         stopFollowers(c);
@@ -195,6 +204,24 @@ export function connectGateway(
 
     connect();
   });
+}
+
+/**
+ * A redaction-safe, actionable suffix for a failed connection, built from the
+ * captured error CODE (never the message). For a wss cert-trust failure it names
+ * the two ways to trust a self-signed gateway; otherwise it just names the code.
+ * Empty when no error was captured (a genuine timeout with no socket error).
+ */
+export function connectHint(code: string | undefined, url: string): string {
+  if (!code) return "";
+  const isTlsTrust = /CERT|SSL|SELF_SIGNED|UNABLE_TO_VERIFY/i.test(code);
+  if (isTlsTrust && url.startsWith("wss:")) {
+    return (
+      ` (${code} \u2014 the gateway's certificate is not trusted; set ` +
+      `cloakcode.gatewayCertFingerprint to its pin, or cloakcode.gatewayCaFile to its cert)`
+    );
+  }
+  return ` (${code})`;
 }
 
 /** Parse a frame as a gateway.info control message, or undefined if it isn't one. */

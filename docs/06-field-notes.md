@@ -201,6 +201,19 @@ Base: `~/.vscode-server/data/User/`
   reconnect-backoff **jitter** and the crypto-first, clearly-local-only `newTraceId` **fallback** are
   not sinks — don't cargo-cult them into UUIDs.
 
+- **Never swallow an error that changes user-visible behaviour — surface a redaction-safe reason
+  (2026-07-23).** The counter-rule to "never log secrets" (docs/04): a bare `catch {}` /
+  `.on("error", () => {})` is only legitimate for a **truly ignorable best-effort** op (a close after
+  we already failed, a fire-and-forget cleanup). Any failure that changes what the user sees MUST
+  report **why**, via the redaction-safe error CODE (`errorCode()` in
+  `packages/extension/src/errors.ts` → Node `errno`/`Error.name`, **never** `.message`, which can
+  carry a path/prompt). Cost real time: the operator's wss connect logged a generic
+  `gateway … unreachable` because `gateway-client.ts` did `s.on("error", () => {})`, hiding the actual
+  `DEPTH_ZERO_SELF_SIGNED_CERT` (cert-not-trusted) — so a fixable trust problem looked like the
+  gateway was down. Fix pattern: capture `errorCode(e)` and fold it into the surfaced message/reject
+  (`connectHint()`), mapping known codes to an action ("set gatewayCertFingerprint / gatewayCaFile").
+  "Never log secrets" bounds WHAT you log; it never licenses logging NOTHING.
+
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
   the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does

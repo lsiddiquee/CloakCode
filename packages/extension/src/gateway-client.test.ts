@@ -3,6 +3,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import type { SessionSummary } from "@cloakcode/protocol";
 import {
   connectGateway,
+  connectHint,
   GatewayAuthRequiredError,
   type GatewayClient,
 } from "./gateway-client.js";
@@ -175,5 +176,29 @@ describe("connectGateway", () => {
     );
     await waitFor(() => seen !== undefined);
     expect(seen).not.toHaveProperty("token");
+  });
+});
+
+describe("connectHint", () => {
+  it("is empty when no error was captured (a genuine timeout)", () => {
+    expect(connectHint(undefined, "wss://host:7443")).toBe("");
+  });
+
+  it("names both trust options for a wss cert-trust failure", () => {
+    const hint = connectHint("DEPTH_ZERO_SELF_SIGNED_CERT", "wss://host:7443");
+    expect(hint).toContain("DEPTH_ZERO_SELF_SIGNED_CERT");
+    expect(hint).toContain("gatewayCertFingerprint");
+    expect(hint).toContain("gatewayCaFile");
+  });
+
+  it("does not give TLS advice for a plain ws failure", () => {
+    const hint = connectHint("ECONNREFUSED", "ws://host:7900");
+    expect(hint).toBe(" (ECONNREFUSED)");
+  });
+
+  it("does not give TLS advice for a non-cert wss failure", () => {
+    expect(connectHint("ECONNREFUSED", "wss://host:7443")).toBe(
+      " (ECONNREFUSED)",
+    );
   });
 });
