@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type JSX } from "react";
 import { beginEnrolment, submitAuthCode, type EnrolProvisioning } from "./auth";
 import { qrSvg } from "./qr";
 

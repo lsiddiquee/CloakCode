@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type JSX,
+} from "react";
 import type {
   Decision,
   PendingBlocker,
