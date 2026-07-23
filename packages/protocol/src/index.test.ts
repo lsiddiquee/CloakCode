@@ -20,8 +20,42 @@ import {
   cloakcodeHelloSchema,
   connectionHelloSchema,
   gatewayInfoSchema,
+  sessionIdSchema,
   type SessionSummary,
 } from "./index.js";
+
+describe("sessionIdSchema (S2 — path-escape guard on incoming ids)", () => {
+  it("accepts real UUID / derived ids", () => {
+    for (const ok of [
+      "56514ca7-1a2b-4c3d-8e4f-000000000000",
+      "tx-abc_123",
+      "a.b-c",
+    ]) {
+      expect(sessionIdSchema.safeParse(ok).success).toBe(true);
+    }
+  });
+  it("rejects traversal / separators / empty / over-long", () => {
+    for (const bad of [
+      "../../../../etc/passwd",
+      "..",
+      "a/b",
+      "a\\b",
+      "",
+      "x".repeat(201),
+      "with space",
+    ]) {
+      expect(sessionIdSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+  it("is enforced on session.subscribe params", () => {
+    const bad = rpcRequestSchema.safeParse({
+      id: "1",
+      op: "session.subscribe",
+      params: { sessionId: "../../evil" },
+    });
+    expect(bad.success).toBe(false);
+  });
+});
 
 const validSummary: SessionSummary = {
   instanceId: "inst-abc",

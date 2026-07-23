@@ -833,6 +833,15 @@ describe("findTranscript", () => {
     );
     expect(await findTranscript(root, "nope")).toBeUndefined();
   });
+
+  it("rejects a path-escape sessionId without touching the filesystem (S2)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cc-find-"));
+    dirs.push(root);
+    for (const bad of ["../../../../etc/passwd", "..", "a/b", "a\\b"]) {
+      expect(await findTranscript(root, bad)).toBeUndefined();
+      expect(await findSessionLog(root, bad)).toBeUndefined();
+    }
+  });
 });
 
 describe("parseDebugLogEvents", () => {

@@ -37,6 +37,23 @@ export const sessionStatusSchema = z.enum(["active", "blocked", "idle"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
 /**
+ * A session id as it is used to locate on-disk logs (`transcripts/<id>.jsonl`,
+ * `debug-logs/<id>/`). Constrained to a **safe single path segment** — allowlist
+ * charset, no `/`, `\`, or `..`, bounded length — so an operator-supplied id can
+ * never traverse out of the storage root when joined into a path (drift audit
+ * S2). Real ids are UUIDs; the allowlist also covers hyphen/underscore/dot-bearing
+ * derived ids. Applied to incoming session RPC params (not the outgoing summary,
+ * which echoes whatever the observer found on disk).
+ */
+export const sessionIdSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9._-]+$/, "invalid sessionId")
+  .refine((s) => !s.includes(".."), { message: "invalid sessionId" });
+export type SessionId = z.infer<typeof sessionIdSchema>;
+
+/**
  * One row in the remote session picker. The `sessionId` (a globally-unique UUID)
  * is the session's **identity**: the list de-dupes on it, and the gateway
  * **routes** session-addressed RPCs by it to the owning provider. `instanceId`
@@ -249,7 +266,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     traceId: z.string().optional(),
     op: z.literal("session.subscribe"),
     params: z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       sinceSeq: z.number().int().nonnegative().default(0),
     }),
   }),
@@ -258,7 +275,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     traceId: z.string().optional(),
     op: z.literal("session.respond"),
     params: z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       // Present when answering a specific pending blocker; omitted for a
       // free-form chat message. Either way it's injected into the active chat.
       toolCallId: z.string().optional(),
@@ -270,7 +287,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     traceId: z.string().optional(),
     op: z.literal("session.decide"),
     params: z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       // The pending tool call being approved/denied (the base toolCallId).
       toolCallId: z.string(),
       decision: decisionSchema,
@@ -281,7 +298,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     traceId: z.string().optional(),
     op: z.literal("session.answer"),
     params: z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       // The carousel `resolveId` (the pending blocker's `resolveId` — the RAW
       // suffixed tool_use_id), NOT the base toolCallId.
       toolCallId: z.string(),
@@ -295,7 +312,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     traceId: z.string().optional(),
     op: z.literal("session.steer"),
     params: z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       // Injected INTO the in-flight turn to redirect it, NOT queued after it.
       // The extension prefills the composer (`chat.open {isPartialQuery}`) then
       // fires `steerWithMessage` (docs/02 §4.28 / research §7). Only meaningful
@@ -308,7 +325,7 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     traceId: z.string().optional(),
     op: z.literal("session.stop"),
     params: z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       // Optional follow-up: present = STOP-AND-SEND (cancel the in-flight turn
       // via `chat.cancel`, THEN send this as a fresh prompt); absent = a pure
       // stop (cancel only). A remote-operator action (docs/04).

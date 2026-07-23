@@ -510,6 +510,16 @@ export interface SessionLog {
 }
 
 /**
+ * True if `id` is a safe single path segment — allowlist charset, no separators
+ * or `..` — so it can't traverse out of the storage root when joined into a log
+ * path (drift audit S2). Belt to the protocol `sessionIdSchema`; the observer
+ * guards here too since it also runs on ids from internal call paths.
+ */
+function isSafeSessionId(id: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(id) && !id.includes("..");
+}
+
+/**
  * Locate the best log for a session under one environment's storage root,
  * PREFERRING the complete debug-log (`debug-logs/<id>/main.jsonl`) and falling
  * back to the transcript (`transcripts/<id>.jsonl`). The debug-log stays
@@ -521,6 +531,7 @@ export async function findSessionLog(
   sessionId: string,
   logger?: Logger,
 ): Promise<SessionLog | undefined> {
+  if (!isSafeSessionId(sessionId)) return undefined;
   let hashDirs: string[];
   try {
     hashDirs = await fs.readdir(root);
@@ -573,6 +584,7 @@ export async function findTranscript(
   root: string,
   sessionId: string,
 ): Promise<string | undefined> {
+  if (!isSafeSessionId(sessionId)) return undefined;
   let hashDirs: string[];
   try {
     hashDirs = await fs.readdir(root);

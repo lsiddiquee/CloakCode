@@ -134,6 +134,11 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
     re-verifies the target session is **owned** by this window (`BridgeDeps.isOwned`) — the UI hides
     controls for foreign sessions, but a direct RPC is rejected here too, so a `remote-operator`
     action can never land in a window that doesn't own the session.
+  - **Session-id path safety.** `sessionId` on every incoming session RPC is constrained by
+    `sessionIdSchema` to a **safe single path segment** (allowlist charset, no `/`, `\`, or `..`), so
+    an operator-supplied id can never traverse out of the storage root when the observer joins it into
+    `debug-logs/<id>/` or `transcripts/<id>.jsonl`. The observer (`findSessionLog` / `findTranscript`)
+    re-checks the same contract at the file boundary as a belt (drift audit S2).
 
   This is **regression-tested** (`bridge.test.ts`: non-JSON, unknown op, and a valid op with invalid
   params are all rejected; a well-formed answer full of shell metacharacters + emoji is passed through
