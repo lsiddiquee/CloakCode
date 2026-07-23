@@ -95,18 +95,24 @@ jobs:
           python -m pip install --upgrade pre-commit
           pre-commit run --all-files --show-diff-on-failure --color=always
 
+  # Runs every package's tests with v8 coverage and FAILS on any regression below
+  # the per-package thresholds (85% statements/lines/functions, 75% branches) —
+  # this in-CI gate is the real coverage protection.
+  #
+  # We deliberately do NOT upload to GitHub Code Quality (the coverage-on-PRs
+  # feature). Per the public-preview changelog (2026-05-26, "Availability and
+  # pricing"), GitHub Code Quality is only available on GitHub Enterprise
+  # Cloud/Team — so it CANNOT be enabled on this public/free open-source repo:
+  # there is no setting to turn it on and the upload endpoint 404s. Uploading
+  # anyway would either fail CI or need a silent `fail-on-error: false` mask, which
+  # we won't carry. Revisit (add the actions/upload-code-coverage steps +
+  # `code-quality: write` permission) only if this repo ever moves under an
+  # Enterprise Cloud/Team org. See docs/06 field notes.
   coverage:
-    name: Coverage → Code Quality
+    name: Coverage — 85% gate
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      code-quality: write # upload coverage to GitHub Code Quality (no third party)
     steps:
-      # Check out the PR head (not the merge commit) so coverage line numbers map
-      # to the diff for the github-code-quality[bot] PR comment.
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install pnpm
         uses: pnpm/action-setup@v6
       - name: Setup Node
@@ -119,45 +125,8 @@ jobs:
       # Downstream tests import built workspace packages (e.g. the extension
       # tests import @cloakcode/gateway's dist), so build everything first — like
       # the node job. Then run every package's tests with v8 coverage: the
-      # per-package thresholds (85% statements/lines/functions, 75% branches) FAIL
-      # this job on a regression, and each run emits a Cobertura report.
+      # per-package thresholds FAIL this job on a regression.
       - name: Test with coverage (enforces the 85% gate)
         run: |
           pnpm -r build
           pnpm -r test:coverage
-      # Upload each package's Cobertura report. No third party — the
-      # github-code-quality[bot] posts the coverage summary on the pull request.
-      # fail-on-error: false so CI stays green until Code Quality is enabled in the
-      # repo's Code security settings (the action 404s the upload until then).
-      - name: Upload protocol coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1.3.0
-        with:
-          file: packages/protocol/coverage/cobertura-coverage.xml
-          language: TypeScript
-          label: code-coverage/protocol
-          fail-on-error: false
-      - name: Upload gateway coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1.3.0
-        with:
-          file: packages/gateway/coverage/cobertura-coverage.xml
-          language: TypeScript
-          label: code-coverage/gateway
-          fail-on-error: false
-      - name: Upload web coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1.3.0
-        with:
-          file: packages/web/coverage/cobertura-coverage.xml
-          language: TypeScript
-          label: code-coverage/web
-          fail-on-error: false
-      - name: Upload extension coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@v1.3.0
-        with:
-          file: packages/extension/coverage/cobertura-coverage.xml
-          language: TypeScript
-          label: code-coverage/extension
-          fail-on-error: false

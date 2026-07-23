@@ -107,6 +107,24 @@ pass  in proto tcp from 192.168.65.0/24 to any port 3543   # Docker Desktop VM s
 On every OS the firewall is the *fallback* — prefer loopback + a private tunnel, or a
 virtual-interface bind, and keep the phone on the tunnel rather than a LAN IP.
 
+## Build, package & run — `task`
+
+Every build/package/run flow is wrapped in the repo's [`Taskfile.yml`](../Taskfile.yml) — the dev
+container installs [`task`](https://taskfile.dev) (run `task --list`) so the container, your WSL
+host, and CI never drift:
+
+| Task | What it does |
+| --- | --- |
+| `task package:extension` | build + package the extension → `dist/extension/` (`.vsix` + `install.sh` / `uninstall.sh`) |
+| `task extension:install` / `extension:uninstall` | install / remove the packaged extension (uninstall also drops the per-env Copilot hook) |
+| `task package:gateway` | assemble the copy-ready gateway → `dist/gateway/` (`main.mjs` + `web/` + `run.sh`) |
+| `task gateway:run -- --tunnel` | run the assembled gateway via its `run.sh` (opens a private tunnel) |
+| `task gateway:dev` | run the gateway from the workspace build (verbose) for local iteration |
+| `task docker:gateway` | build (+ smoke-test) the gateway image — **run from your WSL/host**; Docker isn't in the dev container |
+
+`task docker:gateway` and `task gateway:run -- --tunnel` are the two you reach for when exposing a
+hub; the sections below cover how to bind/forward it safely.
+
 ## Docker
 
 The gateway ships as a container image that **bundles the `devtunnel` CLI**, so it can host the
