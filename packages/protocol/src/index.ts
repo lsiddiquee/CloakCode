@@ -10,6 +10,15 @@ import { z } from "zod";
 export const DEFAULT_PORT = 3543;
 
 /**
+ * Preferred port for the gateway's dedicated **provider** listener — the separate
+ * endpoint extensions connect to (docs/04 role split). Distinct from
+ * {@link DEFAULT_PORT} (the operator/PWA listener) so the two listeners never
+ * collide on their defaults. `CLOAKCODE_TLS_PORT` unset → try this first, else an
+ * ephemeral port; `0` → ephemeral; `N` → lock `N`.
+ */
+export const DEFAULT_PROVIDER_PORT = 3544;
+
+/**
  * Upper bound (chars) for operator-supplied free text — answers, chat prompts,
  * steer/stop text. Defense-in-depth against unbounded input at the operator
  * ingress (docs/04); generous for pasted content but not unbounded.

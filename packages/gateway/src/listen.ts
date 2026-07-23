@@ -23,21 +23,23 @@ function parseEnvPort(env: string | undefined): number | undefined {
 /**
  * Resolve how to bind from the raw inputs — env taking precedence over the
  * setting. ONE rule for both the embedded bridge and the standalone gateway:
- *   - **nothing set** → prefer {@link DEFAULT_PORT}, fall back to an ephemeral
- *     port only if it is already taken;
+ *   - **nothing set** → prefer `defaultPort` ({@link DEFAULT_PORT} unless given —
+ *     the provider listener passes {@link DEFAULT_PROVIDER_PORT}), fall back to an
+ *     ephemeral port only if it is already taken;
  *   - explicit **`0`** → an ephemeral port (never a fixed one);
  *   - explicit **`N` (>0)** → lock port `N` (no fallback; fail loudly if taken).
  *
  * Unset is genuinely distinct from `0`: it is NOT modelled as a "preferred port"
- * flag — `0` still means ephemeral, absence means the 3543-then-ephemeral default.
+ * flag — `0` still means ephemeral, absence means the default-then-ephemeral rule.
  */
 export function resolvePortPlan(
   env: string | undefined,
   setting?: number | null,
+  defaultPort: number = DEFAULT_PORT,
 ): PortPlan {
   const raw = parseEnvPort(env) ?? coerceInt(setting);
   if (raw === undefined)
-    return { port: DEFAULT_PORT, fallbackToEphemeral: true };
+    return { port: defaultPort, fallbackToEphemeral: true };
   if (raw === 0) return { port: 0, fallbackToEphemeral: false };
   return { port: raw, fallbackToEphemeral: false };
 }

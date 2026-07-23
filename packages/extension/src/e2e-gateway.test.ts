@@ -142,7 +142,7 @@ describe("e2e: transcript → provider → gateway → operator", () => {
       logger: silentLogger(),
     });
     client = await connectGateway(
-      `ws://127.0.0.1:${gateway.port}`,
+      `ws://127.0.0.1:${gateway.providerPort}`,
       { instanceId: "i1" },
       deps,
       () => {},
@@ -209,7 +209,7 @@ describe("e2e: transcript → provider → gateway → operator", () => {
       operatorAuth: new OperatorAuth({ secret, now, confirmed: true }),
     });
     client = await connectGateway(
-      `ws://127.0.0.1:${gateway.port}`,
+      `ws://127.0.0.1:${gateway.providerPort}`,
       { instanceId: "i1" },
       deps,
       () => {},
@@ -298,7 +298,7 @@ describe("e2e: transcript → provider → gateway → operator", () => {
       logger: silentLogger(),
     });
     client = await connectGateway(
-      `ws://127.0.0.1:${gateway.port}`,
+      `ws://127.0.0.1:${gateway.providerPort}`,
       { instanceId: "i1" },
       deps,
       () => {},
@@ -356,11 +356,13 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
       port: 0,
       fallbackToEphemeral: true,
       logger: silentLogger(),
-      tls: {
-        port: 0,
-        cert: mat.cert,
-        key: mat.key,
-        fingerprint: mat.fingerprint,
+      provider: {
+        host: "127.0.0.1",
+        tls: {
+          cert: mat.cert,
+          key: mat.key,
+          fingerprint: mat.fingerprint,
+        },
       },
     });
     return { fingerprint: mat.fingerprint, caPem: mat.cert };
@@ -369,7 +371,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
   it("connects over wss when the CA + fingerprint pin match; an operator lists through it", async () => {
     const { fingerprint, caPem } = await startTlsGateway();
     client = await connectGateway(
-      `wss://127.0.0.1:${gateway!.tlsPort}`,
+      `wss://127.0.0.1:${gateway!.providerPort}`,
       { instanceId: "i1" },
       deps,
       () => {},
@@ -392,7 +394,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
     const { caPem } = await startTlsGateway();
     await expect(
       connectGateway(
-        `wss://127.0.0.1:${gateway!.tlsPort}`,
+        `wss://127.0.0.1:${gateway!.providerPort}`,
         { instanceId: "i1" },
         deps,
         () => {},
@@ -407,7 +409,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
   it("connects over wss with fingerprint-only pinning (no CA) — the easy path", async () => {
     const { fingerprint } = await startTlsGateway();
     client = await connectGateway(
-      `wss://127.0.0.1:${gateway!.tlsPort}`,
+      `wss://127.0.0.1:${gateway!.providerPort}`,
       { instanceId: "i1" },
       deps,
       () => {},
@@ -429,7 +431,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
     await startTlsGateway();
     await expect(
       connectGateway(
-        `wss://127.0.0.1:${gateway!.tlsPort}`,
+        `wss://127.0.0.1:${gateway!.providerPort}`,
         { instanceId: "i1" },
         deps,
         () => {},

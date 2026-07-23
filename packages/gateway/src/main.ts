@@ -6,8 +6,8 @@
  * Extensions connect in as providers (docs/03 "Explicit gateway").
  *
  * Env:
- *   CLOAKCODE_GATEWAY_HOST   bind address (default 127.0.0.1; use 0.0.0.0 in Docker)
- *   CLOAKCODE_GATEWAY_PORT   port: unset → 3543 (ephemeral if taken); 0 → ephemeral; N → lock N
+ *   CLOAKCODE_GATEWAY_HOST   operator-listener bind: PWA + phone (default 127.0.0.1; pair with a private tunnel for remote)
+ *   CLOAKCODE_GATEWAY_PORT   operator port: unset → 3543 (ephemeral if taken); 0 → ephemeral; N → lock N
  *   CLOAKCODE_WEB_DIR        directory of the built PWA to serve (optional)
  *   CLOAKCODE_TUNNEL         `devtunnel` to auto-host a private tunnel (optional)
  *   CLOAKCODE_INSTANCE_ID    identity: tunnel-name seed + authenticator label + phone name (default: machine hostname; e.g. office/home)
@@ -18,9 +18,11 @@
  *   CLOAKCODE_MFA_SECRET_FILE  where the base32 TOTP secret persists; default ~/.cloakcode/operator-totp.secret
  *   CLOAKCODE_MFA_ENROL      browser (default) | strict — strict never reveals the secret over the wire; the QR shows only on a TTY (never docker logs), else the 0600 secret file
  *   CLOAKCODE_MFA_RESET      1 → regenerate the secret (lockout recovery) and re-enter enrolment
- *   CLOAKCODE_TLS_PORT       enable a dedicated wss:// provider listener on this port (unset → off; loopback HTTP is unchanged)
- *   CLOAKCODE_TLS_CERT_FILE  BYO PEM cert for wss (with _KEY_FILE); unset → auto self-signed pair persisted under ~/.cloakcode
- *   CLOAKCODE_TLS_KEY_FILE   BYO PEM private key for wss (with _CERT_FILE); a 0600 secret, never logged
+ *   CLOAKCODE_TLS_HOST       provider-listener bind (default 0.0.0.0 so other hosts/containers reach it; extensions connect here)
+ *   CLOAKCODE_TLS_PORT       provider-listener port: unset → 3544 (ephemeral if taken); 0 → ephemeral; N → lock N
+ *   CLOAKCODE_TLS_CERT_FILE  BYO PEM cert for the wss provider listener (with _KEY_FILE); unset → auto self-signed pair persisted under ~/.cloakcode
+ *   CLOAKCODE_TLS_KEY_FILE   BYO PEM private key (with _CERT_FILE); a 0600 secret, never logged
+ *   CLOAKCODE_PROVIDER_INSECURE  1 → serve the provider listener as INSECURE plain ws:// (no cert); warned in console + UI
  *
  * Security: the provider↔gateway token authenticates extensions; operator
  * (phone) access is gated by **TOTP** when exposed (F2a). Still keep an
@@ -35,7 +37,6 @@ import { browserUrls, connectionUrls } from "./connect-urls.js";
 import { createConsoleLogger, parseLogLevel } from "./console-logger.js";
 import { startGateway } from "./gateway.js";
 import { resolvePortPlan } from "./listen.js";
-import { resolveInstanceId } from "./instance-id.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
 import { OperatorAuth } from "./operator-auth.js";
 import { strictEnrolmentLines } from "./enrol-console.js";
@@ -48,6 +49,8 @@ import {
 } from "./operator-secret.js";
 import { resolveTlsMaterial } from "./tls.js";
 import { qrTerminal } from "./qr-terminal.js";
+import { DEFAULT_PROVIDER_PORT } from "@cloakcode/protocol";
+import { resolveInstanceId } from "./instance-id.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
 // Per-instance identifier: the Dev-Tunnel name seed, the authenticator label AND
@@ -114,22 +117,31 @@ const logger = createConsoleLogger({
   ...(logFile ? { logFile } : {}),
 });
 
-// Optional product-owned native TLS for the direct provider link (docs/04/05).
-// CLOAKCODE_TLS_PORT is the switch; the cert is BYO (CERT_FILE+KEY_FILE) or an
-// auto self-signed pair persisted beside the operator secret (~/.cloakcode). The
-// private key is a 0600 secret; only the public fingerprint (the pin) is shown.
-const tlsPort = parseTlsPort(process.env["CLOAKCODE_TLS_PORT"]);
-let tls:
-  { port: number; cert: string; key: string; fingerprint: string } | undefined;
-if (tlsPort !== undefined) {
+// The dedicated PROVIDER listener (docs/04 role split): extensions connect here,
+// separate from the operator/PWA listener. Binds CLOAKCODE_TLS_HOST (default
+// 0.0.0.0 so an extension on another host/container can reach it). wss by default
+// — a BYO cert (CERT_FILE+KEY_FILE) or an auto self-signed pair persisted beside
+// the operator secret (~/.cloakcode); the private key is a 0600 secret, only the
+// public fingerprint (the pin) is shown. CLOAKCODE_PROVIDER_INSECURE=1 makes it an
+// insecure plain ws:// listener (no cert), warned in the console + UI.
+const providerHost = process.env["CLOAKCODE_TLS_HOST"] ?? "0.0.0.0";
+const providerPortPlan = resolvePortPlan(
+  process.env["CLOAKCODE_TLS_PORT"],
+  null,
+  DEFAULT_PROVIDER_PORT,
+);
+const insecureProvider =
+  process.env["CLOAKCODE_PROVIDER_INSECURE"] === "1" ||
+  process.env["CLOAKCODE_PROVIDER_INSECURE"] === "true";
+let providerTls: { cert: string; key: string; fingerprint: string } | undefined;
+if (!insecureProvider) {
   const material = await resolveTlsMaterial({
     certFile: process.env["CLOAKCODE_TLS_CERT_FILE"],
     keyFile: process.env["CLOAKCODE_TLS_KEY_FILE"],
     storeDir: dirname(resolveSecretFile(process.env)),
-    host,
+    host: providerHost,
   });
-  tls = {
-    port: tlsPort,
+  providerTls = {
     cert: material.cert,
     key: material.key,
     fingerprint: material.fingerprint,
@@ -145,17 +157,27 @@ const gateway = await startGateway({
   ...(serveDir ? { serveDir } : {}),
   ...(token ? { token } : {}),
   ...(operatorAuth ? { operatorAuth } : {}),
-  ...(tls ? { tls } : {}),
+  provider: {
+    host: providerHost,
+    port: providerPortPlan.port,
+    fallbackToEphemeral: providerPortPlan.fallbackToEphemeral,
+    ...(providerTls ? { tls: providerTls } : {}),
+  },
 });
 logger.info("gateway.start", { instanceId: seed });
 console.log(
   `[cloakcode-gateway] instance: ${seed} (authenticator label + tunnel seed + phone name)`,
 );
 console.log(
-  `[cloakcode-gateway] listening on ${host}:${gateway.port}` +
+  `[cloakcode-gateway] operator listener on ${host}:${gateway.port}` +
     (serveDir
-      ? ` (HTTP PWA + WebSocket; assets from ${serveDir})`
-      : " (WebSocket only)"),
+      ? ` (HTTP PWA + phone WebSocket; assets from ${serveDir})`
+      : " (phone WebSocket only)"),
+);
+console.log(
+  `[cloakcode-gateway] provider listener on ${providerHost}:${gateway.providerPort} (${
+    gateway.providerInsecure ? "INSECURE plain ws" : "wss"
+  }; extensions connect here)`,
 );
 if (logFile) {
   console.log(`[cloakcode-gateway] action log → ${logFile}`);
@@ -219,32 +241,53 @@ if (serveDir) {
   }
 }
 
-// The WS URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where
-// it runs relative to this host (probed from the same network interfaces).
+// The URLs an extension puts in `cloakcode.gatewayUrl` — the dedicated PROVIDER
+// listener (not the operator port), ranked by where the extension runs relative
+// to this host. wss when the listener has a cert (also print the fingerprint pin);
+// an insecure plain ws otherwise. The cert FINGERPRINT is public (the pin —
+// integrity, not secrecy), safe to print as the console fallback for pairing; the
+// PWA "Connect an extension" view is the primary out-of-band channel (docs/04/05).
+const providerScheme = gateway.providerInsecure ? "ws" : "wss";
 console.log(
-  "[cloakcode-gateway] connect extensions with cloakcode.gatewayUrl:",
+  `[cloakcode-gateway] connect extensions with cloakcode.gatewayUrl (${providerScheme}://, provider listener):`,
 );
-for (const { url, label } of connectionUrls(host, gateway.port, interfaces)) {
-  console.log(`[cloakcode-gateway]   ${url.padEnd(34)} ${label}`);
-}
-
-// Native TLS (wss) status. The cert FINGERPRINT is public (the pin — integrity,
-// not secrecy), so it's safe to print as the console fallback for pairing an
-// extension; the private key is never printed. The PWA "Connect an extension"
-// view is the primary, out-of-band delivery channel (docs/04/05).
-if (gateway.tlsPort !== undefined && gateway.fingerprint) {
+for (const { url, label } of connectionUrls(
+  providerHost,
+  gateway.providerPort,
+  interfaces,
+)) {
   console.log(
-    `[cloakcode-gateway] native TLS (wss): ON — dedicated provider listener on ${host}:${gateway.tlsPort}`,
+    `[cloakcode-gateway]   ${url.replace(/^ws:/, `${providerScheme}:`).padEnd(34)} ${label}`,
   );
-  for (const { url } of connectionUrls(host, gateway.tlsPort, interfaces)) {
-    console.log(
-      `[cloakcode-gateway]   ${url.replace(/^ws:/, "wss:").padEnd(34)} (pin the fingerprint below)`,
-    );
-  }
+}
+if (!gateway.providerInsecure && gateway.fingerprint) {
   console.log(`[cloakcode-gateway]   cert fingerprint (SHA-256 pin):`);
   console.log(`[cloakcode-gateway]     ${gateway.fingerprint}`);
   console.log(
-    `[cloakcode-gateway]   set cloakcode.gatewayCertFingerprint to that pin (or point cloakcode.gatewayCaFile at the cert).`,
+    `[cloakcode-gateway]   set cloakcode.gatewayCertFingerprint to that pin (a self-signed gateway needs nothing else).`,
+  );
+}
+
+// Consolidated INSECURE-MODE banner (docs/04): warn — in the console AND, via
+// gateway.info/connectInfo, the UI — when traffic is NOT encrypted. Authentication
+// (TOTP/token) still applies; only confidentiality is lost.
+const operatorExposed = isExposed(host, process.env);
+if (operatorExposed || gateway.providerInsecure) {
+  console.warn(
+    "[cloakcode-gateway] \u26a0 INSECURE MODE — traffic is NOT encrypted and can be read on the network:",
+  );
+  if (operatorExposed) {
+    console.warn(
+      `[cloakcode-gateway]     • operator (PWA + phone) is exposed on ${host} as cleartext HTTP/ws — prefer 127.0.0.1 + a private tunnel (devtunnel), which encrypts it`,
+    );
+  }
+  if (gateway.providerInsecure) {
+    console.warn(
+      "[cloakcode-gateway]     • provider (extension) listener is plain ws — prefer wss (unset CLOAKCODE_PROVIDER_INSECURE to auto-generate a cert)",
+    );
+  }
+  console.warn(
+    "[cloakcode-gateway]   Authentication (TOTP/token) still applies; only confidentiality is lost. Use only on a trusted network.",
   );
 }
 
@@ -274,20 +317,3 @@ const shutdown = (): void => {
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
-
-/**
- * Parse `CLOAKCODE_TLS_PORT`: unset/blank → `undefined` (native TLS off); a valid
- * `0-65535` → that port (the wss listener; `0` picks ephemeral). A non-numeric or
- * out-of-range value fails loud rather than silently disabling TLS. Hoisted.
- */
-function parseTlsPort(raw: string | undefined): number | undefined {
-  const v = (raw ?? "").trim();
-  if (!v) return undefined;
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < 0 || n > 65535) {
-    throw new Error(
-      `CLOAKCODE_TLS_PORT must be a port 0-65535, got ${JSON.stringify(raw)}`,
-    );
-  }
-  return n;
-}

@@ -16,6 +16,7 @@ import {
   sessionStopResponseSchema,
   gatewayConnectInfoResponseSchema,
   DEFAULT_PORT,
+  DEFAULT_PROVIDER_PORT,
   MAX_RPC_TEXT_LEN,
   providerInfoSchema,
   cloakcodeHelloSchema,
@@ -109,6 +110,13 @@ const validSummary: SessionSummary = {
 describe("DEFAULT_PORT", () => {
   it("is the shared preferred loopback port (3543)", () => {
     expect(DEFAULT_PORT).toBe(3543);
+  });
+});
+
+describe("DEFAULT_PROVIDER_PORT", () => {
+  it("is the provider listener's preferred port (3544), distinct from DEFAULT_PORT", () => {
+    expect(DEFAULT_PROVIDER_PORT).toBe(3544);
+    expect(DEFAULT_PROVIDER_PORT).not.toBe(DEFAULT_PORT);
   });
 });
 

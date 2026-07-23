@@ -30,9 +30,14 @@ import { verifyProviderCredential } from "./auth.js";
 import { OperatorGate, type OperatorAuth } from "./operator-auth.js";
 
 export interface GatewayOptions {
-  /** Bind address. Defaults to `127.0.0.1` (front it with a tunnel for remote). */
+  /**
+   * Bind address of the **operator listener** (the PWA over HTTP + the operator/
+   * phone WebSocket). Defaults to `127.0.0.1` — front it with the tunnel for
+   * remote reach. Operators ONLY: a provider that knocks here is refused (it must
+   * use the dedicated provider listener below).
+   */
   host?: string;
-  /** Port; `0` (default) picks a free ephemeral port. */
+  /** Operator-listener port; `0` (default) picks a free ephemeral port. */
   port?: number;
   /**
    * When `port` is a specific busy port, fall back to an ephemeral one instead
@@ -72,31 +77,41 @@ export interface GatewayOptions {
    */
   instanceId?: string;
   /**
-   * Optional product-owned native TLS (docs/04 "Closing the gap", docs/05). When
-   * set, the gateway serves a **second, dedicated `wss://` listener** for direct
-   * providers (its loopback HTTP listener is unchanged — coexistence model B).
-   * The `fingerprint` is the SHA-256 pin the extension verifies; the `key` is a
-   * secret (never logged). Material comes from {@link resolveTlsMaterial}.
+   * The dedicated **provider listener** — the endpoint extensions connect to
+   * (docs/04 role split). ALWAYS bound (providers never share the operator
+   * listener). Serves `wss://` when `tls` is supplied (the default the runner
+   * always provides — a BYO or auto-generated cert), else an **insecure** plain
+   * `ws://` (an explicit opt-in, warned in the console + UI). Providers ONLY: an
+   * operator/PWA connection here is refused. Material comes from
+   * {@link resolveTlsMaterial}.
    */
-  tls?: {
-    /** Port for the `wss://` listener (its own port, e.g. `CLOAKCODE_TLS_PORT`). */
-    port: number;
-    /** PEM certificate served to providers. */
-    cert: string;
-    /** PEM private key — a secret; never logged. */
-    key: string;
-    /** SHA-256 fingerprint of the cert (the pin), surfaced to the operator. */
-    fingerprint: string;
+  provider?: {
+    /** Provider-listener bind; default `127.0.0.1` (the runner sets `0.0.0.0`). */
+    host?: string;
+    /** Provider-listener port; `0` (default) picks a free ephemeral port. */
+    port?: number;
     /** Fall back to an ephemeral port if `port` is busy. */
     fallbackToEphemeral?: boolean;
+    /** wss material; omit for an INSECURE plain-`ws://` provider listener. */
+    tls?: {
+      /** PEM certificate served to providers. */
+      cert: string;
+      /** PEM private key — a secret; never logged. */
+      key: string;
+      /** SHA-256 fingerprint of the cert (the pin), surfaced to the operator. */
+      fingerprint: string;
+    };
   };
 }
 
 export interface Gateway {
+  /** Bound port of the operator listener (PWA + operator WebSocket). */
   readonly port: number;
-  /** Port of the `wss://` listener when native TLS is enabled (else `undefined`). */
-  readonly tlsPort?: number;
-  /** SHA-256 cert fingerprint (the pin) when native TLS is enabled. */
+  /** Bound port of the dedicated provider listener (always present). */
+  readonly providerPort: number;
+  /** True when the provider listener is an INSECURE plain `ws://` (no TLS). */
+  readonly providerInsecure: boolean;
+  /** SHA-256 cert fingerprint (the pin) when the provider listener is `wss://`. */
   readonly fingerprint?: string;
   readonly registry: ProviderRegistry;
   /**
@@ -108,12 +123,17 @@ export interface Gateway {
   close(): Promise<void>;
 }
 
+/** Which role-scoped listener a WebSocket upgrade arrived on. */
+type ConnectionRole = "operator" | "provider";
+
 /**
  * The standalone **gateway hub** (docs/03 "Explicit gateway"): serves the PWA
- * and multiplexes phone (**operator**) and extension (**provider**) WebSocket
- * connections on one `/bridge` endpoint, distinguished by a first `provider.hello`
- * frame. Holds **no `vscode`** — providers supply the observer/actuator. Binds
- * loopback; remote reach is via the tunnel the runner owns.
+ * and hosts TWO role-scoped WebSocket listeners (docs/04 role split) — an
+ * **operator** listener (loopback HTTP + the phone WebSocket) and a dedicated,
+ * always-on **provider** listener (extensions, `wss://` by default). Each refuses
+ * the other role, so a provider never rides the operator bind and vice-versa.
+ * Holds **no `vscode`** — providers supply the observer/actuator. The operator
+ * bind is loopback; remote reach is via the tunnel the runner owns.
  *
  * M-slice: aggregates `sessions.list` across providers (de-duped). The streaming
  * `session.subscribe` + actuator relay land in the next slice.
@@ -121,18 +141,19 @@ export interface Gateway {
 export async function startGateway(
   opts: GatewayOptions = {},
 ): Promise<Gateway> {
-  const host = opts.host ?? "127.0.0.1";
-  const port = opts.port ?? 0;
+  const operatorHost = opts.host ?? "127.0.0.1";
+  const operatorPort = opts.port ?? 0;
+  const providerHost = opts.provider?.host ?? "127.0.0.1";
+  const providerTls = opts.provider?.tls;
   const serveDir = opts.serveDir;
   const logger = opts.logger ?? silentLogger();
   const registry = new ProviderRegistry();
   // The hub's phone-reachable URL (its tunnel), pushed to providers as gateway.info.
   // Set by the runner once the tunnel is up (setPhoneUrl); absent until then.
   let phoneUrl: string | undefined;
-  // Connect-info the authenticated operator fetches to pair an extension over
-  // wss (C4). Populated after the TLS listener binds; `available:false` until/
-  // unless native TLS is on. Captured by the operator handler (a `let` so the
-  // post-bind value is visible).
+  // Connect-info the authenticated operator fetches to pair an extension with the
+  // provider listener (C4). Populated after that listener binds (a `let` so the
+  // post-bind value is visible to the operator handler).
   let connectInfo: GatewayConnectInfo = { available: false, urls: [] };
 
   const requestListener = (
@@ -170,47 +191,60 @@ export async function startGateway(
     );
   };
 
-  const server = http.createServer(requestListener);
+  const wsOnlyListener = (
+    _req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): void => {
+    res.writeHead(426, { "content-type": "text/plain; charset=utf-8" });
+    res.end("CloakCode gateway: provider WebSocket only");
+  };
+
+  // The OPERATOR listener: PWA over HTTP + the operator (phone) WebSocket. The
+  // PROVIDER listener is WebSocket-only (extensions never fetch the PWA) and is
+  // `wss://` when provider TLS material is supplied, else an insecure plain `ws://`.
+  const operatorServer = http.createServer(requestListener);
+  const providerServer = providerTls
+    ? https.createServer(
+        { cert: providerTls.cert, key: providerTls.key },
+        wsOnlyListener,
+      )
+    : http.createServer(wsOnlyListener);
 
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
   });
-  // Shared upgrade gate for BOTH listeners (loopback HTTP + the optional wss).
-  const handleUpgrade = (
-    req: http.IncomingMessage,
-    socket: import("node:stream").Duplex,
-    head: Buffer,
-  ): void => {
-    if (
-      !isAllowedUpgrade({
-        origin: req.headers.origin,
-        host: req.headers.host,
-        // The gateway's own tunnel URL (set once the tunnel is up) is trusted,
-        // so the tunnelled PWA is allowed even if the tunnel rewrites `Host`.
-        allowedOrigins: phoneUrl ? [phoneUrl] : [],
-      })
-    ) {
-      socket.destroy(); // cross-site WS attempt (S1) — refuse the handshake
-      return;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) =>
-      wss.emit("connection", ws, req),
-    );
-  };
-  server.on("upgrade", handleUpgrade);
-
-  // Optional dedicated `wss://` listener for direct providers (coexistence model
-  // B — the loopback HTTP listener above is untouched). Same WebSocketServer, so
-  // the knock/hello/relay path is identical; only the transport is encrypted.
-  let tlsServer: https.Server | undefined;
-  if (opts.tls) {
-    tlsServer = https.createServer(
-      { cert: opts.tls.cert, key: opts.tls.key },
-      requestListener,
-    );
-    tlsServer.on("upgrade", handleUpgrade);
-  }
+  // Per-listener upgrade gate. The origin/host check (S1) is shared; the ROLE is
+  // fixed by WHICH listener the upgrade arrived on — so a provider can never be
+  // served on the operator bind, nor an operator on the provider bind.
+  const upgradeHandler =
+    (role: ConnectionRole) =>
+    (
+      req: http.IncomingMessage,
+      socket: import("node:stream").Duplex,
+      head: Buffer,
+    ): void => {
+      if (
+        !isAllowedUpgrade({
+          origin: req.headers.origin,
+          host: req.headers.host,
+          // The gateway's own tunnel URL (set once the tunnel is up) is trusted,
+          // so the tunnelled PWA is allowed even if the tunnel rewrites `Host`.
+          allowedOrigins: phoneUrl ? [phoneUrl] : [],
+        })
+      ) {
+        socket.destroy(); // cross-site WS attempt (S1) — refuse the handshake
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        // Role is fixed by the listener — dispatch directly (no shared
+        // "connection" multiplexing), so neither role can leak onto the other bind.
+        if (role === "provider") handleProviderConnection(ws);
+        else handleOperatorConnection(ws);
+      });
+    };
+  operatorServer.on("upgrade", upgradeHandler("operator"));
+  providerServer.on("upgrade", upgradeHandler("provider"));
 
   const relay = new Relay();
 
@@ -273,21 +307,38 @@ export async function startGateway(
     });
   };
 
-  wss.on("connection", (socket: WebSocket) => {
-    // Stay SILENT until we hear a valid knock (`cloakcode.hello`): a scanner that
-    // connects and says nothing — or sends garbage — learns nothing. A `provider`
-    // MUST knock (then we await its full hello); an `operator` (phone/PWA) may
-    // knock, else its first frame is a normal RPC (the embedded bridge never
-    // knocks). The phone URL is never revealed before a provider has identified.
+  // A connection on the PROVIDER listener: the first frame MUST be a provider
+  // knock; anything else (an operator RPC, a browser, garbage) is refused — this
+  // listener serves providers ONLY.
+  function handleProviderConnection(socket: WebSocket): void {
+    socket.once("message", (raw) => {
+      const knock = parseKnock(raw.toString());
+      if (knock?.role !== "provider") {
+        logger.debug("provider.reject_non_provider");
+        socket.close(); // provider listener: only providers may connect
+        return;
+      }
+      send(socket, cloakcodeHello("gateway")); // answer the knock, no payload
+      socket.once("message", (m) => addProvider(m.toString(), socket));
+    });
+  }
+
+  // A connection on the OPERATOR listener: an operator (phone/PWA) may knock,
+  // else its first frame is a normal RPC (the embedded bridge never knocks). A
+  // provider knock here is refused — providers must use the provider listener
+  // (docs/04 role split; removes the old provider-on-operator-bind duplication).
+  function handleOperatorConnection(socket: WebSocket): void {
+    // Stay SILENT until we hear a valid first frame: a scanner that connects and
+    // says nothing — or sends garbage — learns nothing. The phone URL is never
+    // revealed to an unidentified peer.
     socket.once("message", (raw) => {
       const first = raw.toString();
       const knock = parseKnock(first);
       if (knock?.role === "provider") {
-        send(socket, cloakcodeHello("gateway")); // answer the knock, no payload
-        socket.once("message", (m) => addProvider(m.toString(), socket));
+        logger.debug("operator.reject_provider");
+        socket.close(); // operator listener: no providers here
         return;
       }
-      // Operator path: ack an operator knock, else treat the first frame as RPC.
       logger.info("operator.connect");
       // Per-connection rate limit: bound a flood of operator frames (F2b).
       const opLimit = new RateLimiter(
@@ -323,46 +374,46 @@ export async function startGateway(
         onOperatorFrame(first);
       }
     });
-  });
+  }
 
-  const boundPort = await listenWithFallback(
-    server,
-    host,
-    port,
+  const operatorBoundPort = await listenWithFallback(
+    operatorServer,
+    operatorHost,
+    operatorPort,
     opts.fallbackToEphemeral ?? false,
   );
 
-  // Bind the optional wss listener after the HTTP one so a TLS failure never
-  // takes down the (proven) tunnelled-PWA path.
-  let tlsPort: number | undefined;
-  if (opts.tls && tlsServer) {
-    tlsPort = await listenWithFallback(
-      tlsServer,
-      host,
-      opts.tls.port,
-      opts.tls.fallbackToEphemeral ?? false,
-    );
-  }
+  // Bind the provider listener after the operator one so a provider-side failure
+  // never takes down the (proven) tunnelled-PWA path.
+  const providerBoundPort = await listenWithFallback(
+    providerServer,
+    providerHost,
+    opts.provider?.port ?? 0,
+    opts.provider?.fallbackToEphemeral ?? false,
+  );
 
   // Connect-info the authenticated operator (PWA) fetches to pair an extension
-  // over wss (C4). All public — the fingerprint is a pin, the cert is public;
-  // the key is never included. `available:false` when native TLS is off.
-  connectInfo =
-    opts.tls && tlsPort !== undefined
-      ? {
-          available: true,
-          urls: connectionUrls(host, tlsPort, networkInterfaces()).map(
-            ({ url }) => url.replace(/^ws:/i, "wss:"),
-          ),
-          fingerprint: opts.tls.fingerprint,
-          certPem: opts.tls.cert,
-        }
-      : { available: false, urls: [] };
+  // with the provider listener (C4). All public — the fingerprint is a pin, the
+  // cert is public; the key is never included. When the provider listener is an
+  // insecure plain `ws://` there is no cert/fingerprint (the operator is warned
+  // separately) and the URLs keep the `ws://` scheme.
+  connectInfo = {
+    available: true,
+    urls: connectionUrls(
+      providerHost,
+      providerBoundPort,
+      networkInterfaces(),
+    ).map(({ url }) => (providerTls ? url.replace(/^ws:/i, "wss:") : url)),
+    ...(providerTls
+      ? { fingerprint: providerTls.fingerprint, certPem: providerTls.cert }
+      : {}),
+  };
 
   return {
-    port: boundPort,
-    ...(tlsPort !== undefined ? { tlsPort } : {}),
-    ...(opts.tls ? { fingerprint: opts.tls.fingerprint } : {}),
+    port: operatorBoundPort,
+    providerPort: providerBoundPort,
+    providerInsecure: !providerTls,
+    ...(providerTls ? { fingerprint: providerTls.fingerprint } : {}),
     registry,
     setPhoneUrl(url) {
       phoneUrl = url;
@@ -375,9 +426,8 @@ export async function startGateway(
       new Promise<void>((resolve) => {
         for (const client of wss.clients) client.terminate();
         wss.close(() => {
-          server.close(() => {
-            if (tlsServer) tlsServer.close(() => resolve());
-            else resolve();
+          operatorServer.close(() => {
+            providerServer.close(() => resolve());
           });
         });
       }),

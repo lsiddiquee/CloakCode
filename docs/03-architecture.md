@@ -555,23 +555,26 @@ The relay above assumes **auto** leader election + auto discovery. For the MVP w
 connections, and it holds **no `vscode`** (it extends the existing `dev-server` seam — the bridge
 is already `vscode`-free, with the actuator injected as callbacks).
 
-Two connection **roles** share the one `/bridge` endpoint, distinguished by a first frame:
+Two connection **roles** are served on **separate, role-scoped listeners** (docs/04) — a provider is
+never accepted on the operator bind, nor an operator on the provider bind:
 
-- **operator** (the phone / PWA) — speaks the existing client RPC (`sessions.list`,
+- **operator** (the phone / PWA) — connects to the **operator listener** (loopback HTTP + WebSocket,
+  fronted by the tunnel) and speaks the existing client RPC (`sessions.list`,
   `session.subscribe|respond|decide|answer`), unchanged.
-- **provider** (an extension in client mode) — dials **out** to the gateway and registers with a
-  `provider.hello { instanceId, … }`, then serves the gateway's forwarded RPCs for its own
-  sessions (observer + actuator — which is why the provider stays in the extension host).
+- **provider** (an extension in client mode) — dials **out** to the dedicated **provider listener**
+  (`wss://` by default) and registers with a `provider.hello { instanceId, … }`, then serves the
+  gateway's forwarded RPCs for its own sessions (observer + actuator — which is why the provider stays
+  in the extension host).
 
-**Two-phase handshake (the "knock").** The gateway stays **silent until it hears a known knock**:
-every connection's first frame is a minimal `cloakcode.hello { role }` — no `instanceId`,
-workspace, or phone URL. Only after a valid knock does the gateway answer with its own
-`cloakcode.hello { role: "gateway" }`; **then** the peer sends its real payload (a `provider` its
-full `provider.hello`, an operator its RPCs) and the gateway its `gateway.info`. So a stray port
-scanner that opens the socket and stays silent — or sends garbage — learns nothing and is dropped,
-and a `provider` never leaks its instance/workspace to a non-gateway it probed. The `provider`
-knock is **required**; an operator knock is currently **optional** (the phone/embedded path is
-unchanged) — hardening operators to knock too is a tracked follow-up (docs/05).
+**Two-phase handshake (the "knock").** Each listener stays **silent until it hears a known knock**:
+every connection's first frame is a minimal `cloakcode.hello { role }` — no `instanceId`, workspace,
+or phone URL. On the provider listener the first frame **must** be a `provider` knock (anything else is
+refused); on the operator listener a `provider` knock is refused and an operator knock is optional (the
+phone/embedded path is unchanged). Only after a valid knock does the gateway answer with its own
+`cloakcode.hello { role: "gateway" }`; **then** the peer sends its real payload (a `provider` its full
+`provider.hello`, an operator its RPCs) and the gateway its `gateway.info`. So a stray port scanner
+that opens the socket and stays silent — or sends garbage — learns nothing and is dropped, and a
+`provider` never leaks its instance/workspace to a non-gateway it probed.
 
 **Unset (the default) → embedded:** the extension serves its own PWA + `/bridge` and needs no hub.
 When `cloakcode.gatewayUrl` is set (scope **machine / user / workspace** — a reachable hub is

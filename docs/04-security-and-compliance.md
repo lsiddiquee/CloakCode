@@ -100,10 +100,13 @@ is leg-by-leg:
 - **Phone → gateway:** already TLS on the private **Dev Tunnel** — its ingress terminates HTTPS/WSS
   (Microsoft cert, HSTS, TLS 1.2+) and forwards over loopback; the PWA derives `wss:` from the page
   origin (`packages/web/src/bridge.ts`). Nothing crosses the wire in clear.
-- **Extension → gateway over a wide bind:** still plain `ws://`. A passive sniffer on that segment
+- **Extension → gateway (the dedicated provider listener):** `wss://` **by default** (an
+  auto-generated or BYO cert), so nothing crosses the wire in clear. The **insecure opt-in**
+  (`CLOAKCODE_PROVIDER_INSECURE`) serves it as plain `ws://` — then a passive sniffer on that segment
   recovers the **provider token** (sent in the hello + every reconnect → replayable) and the whole
-  **mirrored transcript**; an active MITM can modify it. TOTP does not help here — it authenticates,
-  it doesn't conceal. So a `0.0.0.0` bind is **trusted-network-only** until encrypted.
+  **mirrored transcript**, and an active MITM can modify it. TOTP does not help there — it
+  authenticates, it doesn't conceal — so the insecure listener is **trusted-network-only** and is
+  warned in the console + UI (below).
 
 **Empirical (2026-07-18):** an extension cannot reach the gateway's _private_ Dev Tunnel by only
 setting `cloakcode.gatewayUrl` — the Node `ws` upgrade to `/bridge` gets an `unexpected-response`
@@ -112,14 +115,23 @@ timeout → embedded fallback). Riding the tunnel needs a `devtunnel connect`-sc
 **~24 h-lived** (daily re-tokening = high friction), so it stays an explicit documented path, not a
 default.
 
-**Closing the gap — safe server identity (design finalized 2026-07-20; shipped 2026-07-23,
-C1–C3).** The blessed low-friction path is an **encrypted overlay or reverse proxy**
-(Tailscale/WireGuard/SSH or Caddy/nginx) with the gateway on loopback. For a direct LAN/container link
-with no proxy, **optional product-owned native TLS**: the gateway serves `wss://` on a **dedicated
-listener** (`CLOAKCODE_TLS_PORT`; its loopback HTTP listener still backs the tunnelled PWA —
-coexistence model B), from an **auto-generated self-signed cert** persisted under `~/.cloakcode`
-(default) or an operator-supplied cert/key (`CLOAKCODE_TLS_CERT_FILE` / `_KEY_FILE`). The extension
-verifies **which** server it reached before it sends anything, by pinning the cert's **SHA-256
+**Closing the gap — role-split listeners + safe server identity (design finalized 2026-07-20;
+listener split 2026-07-23).** The gateway binds **two role-scoped listeners** so the two legs are
+independently securable (docs/03):
+
+- the **operator listener** — the PWA (HTTP) + the phone WebSocket — binds `CLOAKCODE_GATEWAY_HOST`
+  (default loopback `127.0.0.1`) and is fronted by the private **Dev Tunnel** (which supplies TLS); it
+  serves **operators only** (a provider that knocks here is refused);
+- the **provider listener** — the dedicated endpoint extensions connect to — binds `CLOAKCODE_TLS_HOST`
+  (default `0.0.0.0`, so another host/container can reach it) on its own port (`CLOAKCODE_TLS_PORT`,
+  default 3544) and serves **providers only**. It is `wss://` **by default** (an auto-generated
+  self-signed cert persisted under `~/.cloakcode`, or a BYO cert/key `CLOAKCODE_TLS_CERT_FILE` /
+  `_KEY_FILE`); `CLOAKCODE_PROVIDER_INSECURE` downgrades it to an insecure plain `ws://` (warned).
+
+A provider is therefore **never served on the operator bind** (removing an earlier duplication), and
+the blessed low-friction alternative to native TLS is still an **encrypted overlay or reverse proxy**
+(Tailscale/WireGuard/SSH or Caddy/nginx) with both listeners on loopback. The extension verifies
+**which** provider listener it reached before it sends anything, by pinning the cert's **SHA-256
 fingerprint** — two ways, below.
 
 **Two ways to trust the gateway** (`gateway-tls.ts` · drift audit S4b) — pick per what you configure:
@@ -153,6 +165,14 @@ with a mandatory exact-cert fingerprint check that fails closed before any app d
 trust-on-first-use. The fingerprint is public (integrity matters, not secrecy); the cert private key is
 a mode-`0600`, never-logged gateway secret. Full build-ready design in
 [docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md).
+
+**Insecure mode (opt-in, warned).** When the operator listener is bound off-loopback, or the provider
+listener is the plain-`ws://` opt-in, traffic is **authenticated but not encrypted** — a sniffer on
+that segment can read it. The gateway prints a consolidated **INSECURE MODE** banner to the console
+**and** surfaces it to the operator UI (via `gateway.connectInfo`), worded as a **confidentiality**
+loss (the transcript + token become readable), not an access-control loss (TOTP/token still gate who
+may connect). It exists for least-friction deployment on a **trusted network**; the encrypted paths
+above are the default and the recommendation.
 
 ## Bridge ingress validation (what a non-CloakCode client can send)
 

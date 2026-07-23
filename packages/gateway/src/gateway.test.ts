@@ -62,13 +62,18 @@ async function waitFor(pred: () => boolean, ms = 1000): Promise<void> {
   }
 }
 
-/** Open a socket and complete the provider knock + full hello handshake. */
+/** The provider listener's URL for `gw` (wss when it has a cert, else insecure ws). */
+function providerUrl(gw: Gateway): string {
+  return `${gw.providerInsecure ? "ws" : "wss"}://127.0.0.1:${gw.providerPort}`;
+}
+
+/** Open a socket to the provider listener and complete the knock + full hello. */
 async function openProvider(
-  url: string,
+  gw: Gateway,
   instanceId: string,
   opts?: ClientOptions,
 ): Promise<WebSocket> {
-  const ws = await open(url, opts);
+  const ws = await open(providerUrl(gw), opts);
   ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
   await nextMessage(ws); // the gateway's answering knock
   ws.send(
@@ -83,12 +88,12 @@ async function openProvider(
 
 /** A fake provider: completes the handshake, then answers sessions.list. */
 async function fakeProvider(
-  url: string,
+  gw: Gateway,
   instanceId: string,
   sessions: SessionSummary[],
   opts?: ClientOptions,
 ): Promise<WebSocket> {
-  const ws = await openProvider(url, instanceId, opts);
+  const ws = await openProvider(gw, instanceId, opts);
   ws.on("message", (raw) => {
     const req = JSON.parse(raw.toString());
     if (req.op === "sessions.list") {
@@ -110,11 +115,11 @@ describe("startGateway", () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
 
-    const a = await fakeProvider(url, "i1", [
+    const a = await fakeProvider(gw, "i1", [
       summary("i1", "s1", true),
       summary("i1", "s2"),
     ]);
-    const b = await fakeProvider(url, "i1", [summary("i1", "s1", false)]); // dup of s1, read-only
+    const b = await fakeProvider(gw, "i1", [summary("i1", "s1", false)]); // dup of s1, read-only
 
     await waitFor(() => gw!.registry.forInstance("i1").length === 2);
 
@@ -135,7 +140,7 @@ describe("startGateway", () => {
   it("returns the gateway instance id to the operator when set", async () => {
     gw = await startGateway({ port: 0, instanceId: "office" });
     const url = `ws://127.0.0.1:${gw.port}`;
-    const a = await fakeProvider(url, "i1", [summary("i1", "s1", true)]);
+    const a = await fakeProvider(gw, "i1", [summary("i1", "s1", true)]);
     await waitFor(() => gw!.registry.forInstance("i1").length === 1);
 
     const operator = await open(url);
@@ -151,7 +156,7 @@ describe("startGateway", () => {
   it("omits the gateway field when no instance id is configured", async () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
-    const a = await fakeProvider(url, "i1", [summary("i1", "s1", true)]);
+    const a = await fakeProvider(gw, "i1", [summary("i1", "s1", true)]);
     await waitFor(() => gw!.registry.forInstance("i1").length === 1);
 
     const operator = await open(url);
@@ -166,8 +171,7 @@ describe("startGateway", () => {
 
   it("drops a provider from the registry when it disconnects", async () => {
     gw = await startGateway({ port: 0 });
-    const url = `ws://127.0.0.1:${gw.port}`;
-    const a = await fakeProvider(url, "i9", []);
+    const a = await fakeProvider(gw, "i9", []);
     await waitFor(() => gw!.registry.forInstance("i9").length === 1);
     a.close();
     await waitFor(() => gw!.registry.forInstance("i9").length === 0);
@@ -177,7 +181,7 @@ describe("startGateway", () => {
   it("relays session.subscribe to the owning provider (routed by sessionId)", async () => {
     gw = await startGateway({ port: 0 });
     const url = `ws://127.0.0.1:${gw.port}`;
-    const p = await openProvider(url, "i1");
+    const p = await openProvider(gw, "i1");
     p.on("message", (raw) => {
       const req = JSON.parse(raw.toString());
       if (req.op === "sessions.list") {
@@ -256,14 +260,14 @@ describe("startGateway", () => {
 
   it("sends gateway.info to a provider on connect (no phone URL yet)", async () => {
     gw = await startGateway({ port: 0 });
-    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i1");
+    const p = await openProvider(gw, "i1");
     expect(await nextMessage(p)).toEqual({ type: "gateway.info" });
     p.close();
   });
 
   it("broadcasts the phone URL to connected providers on setPhoneUrl", async () => {
     gw = await startGateway({ port: 0 });
-    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i1");
+    const p = await openProvider(gw, "i1");
     const seen: Record<string, unknown>[] = [];
     p.on("message", (m) => seen.push(JSON.parse(m.toString())));
     await waitFor(() => gw!.registry.forInstance("i1").length === 1);
@@ -278,20 +282,45 @@ describe("startGateway", () => {
     gw = await startGateway({ port: 0 });
     const phoneUrl = "https://hub-7900.euw.devtunnels.ms";
     gw.setPhoneUrl(phoneUrl);
-    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i2");
+    const p = await openProvider(gw, "i2");
     expect(await nextMessage(p)).toEqual({ type: "gateway.info", phoneUrl });
     p.close();
   });
 
   it("answers a provider knock with a gateway knock before any payload", async () => {
     gw = await startGateway({ port: 0 });
-    const ws = await open(`ws://127.0.0.1:${gw.port}`);
+    const ws = await open(providerUrl(gw));
     ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
     expect(await nextMessage(ws)).toEqual({
       type: "cloakcode.hello",
       role: "gateway",
     });
     ws.close();
+  });
+
+  it("refuses a provider knock on the OPERATOR listener (role split)", async () => {
+    gw = await startGateway({ port: 0 });
+    const ws = await open(`ws://127.0.0.1:${gw.port}`);
+    const closed = new Promise<void>((r) => ws.once("close", () => r()));
+    ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
+    await closed; // the operator listener serves operators only
+    expect(gw.registry.all()).toHaveLength(0);
+  });
+
+  it("refuses a non-provider first frame on the PROVIDER listener (role split)", async () => {
+    gw = await startGateway({ port: 0 });
+    const ws = await open(providerUrl(gw));
+    const closed = new Promise<void>((r) => ws.once("close", () => r()));
+    // An operator-style RPC (no provider knock) is refused on the provider bind.
+    ws.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
+    await closed;
+  });
+
+  it("exposes a distinct provider listener port, insecure (plain ws) by default", async () => {
+    gw = await startGateway({ port: 0 });
+    expect(gw.providerPort).toBeGreaterThan(0);
+    expect(gw.providerPort).not.toBe(gw.port);
+    expect(gw.providerInsecure).toBe(true);
   });
 
   it("stays silent to a peer that never sends a valid knock", async () => {
@@ -313,7 +342,7 @@ describe("startGateway", () => {
       level: "trace",
     });
     gw = await startGateway({ port: 0, logger });
-    const p = await openProvider(`ws://127.0.0.1:${gw.port}`, "i7");
+    const p = await openProvider(gw, "i7");
     await waitFor(() =>
       records.some(
         (r) => r.event === "provider.connect" && r.fields.instanceId === "i7",
@@ -332,11 +361,11 @@ describe("startGateway", () => {
 describe("startGateway provider auth (token in the provider hello)", () => {
   /** Knock + full provider hello carrying `token`; returns the socket. */
   async function openProviderWithToken(
-    url: string,
+    gw: Gateway,
     instanceId: string,
     token: string | undefined,
   ): Promise<WebSocket> {
-    const ws = await open(url);
+    const ws = await open(providerUrl(gw));
     ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
     await nextMessage(ws); // the gateway's answering knock
     ws.send(
@@ -352,44 +381,28 @@ describe("startGateway provider auth (token in the provider hello)", () => {
 
   it("registers a provider that presents the matching token", async () => {
     gw = await startGateway({ port: 0, token: "s3cret" });
-    const ws = await openProviderWithToken(
-      `ws://127.0.0.1:${gw.port}`,
-      "ok",
-      "s3cret",
-    );
+    const ws = await openProviderWithToken(gw, "ok", "s3cret");
     await waitFor(() => gw!.registry.all().length === 1);
     ws.close();
   });
 
   it("rejects (closes, never registers) a provider with the WRONG token", async () => {
     gw = await startGateway({ port: 0, token: "s3cret" });
-    const ws = await openProviderWithToken(
-      `ws://127.0.0.1:${gw.port}`,
-      "bad",
-      "nope",
-    );
+    const ws = await openProviderWithToken(gw, "bad", "nope");
     await new Promise<void>((r) => ws.once("close", () => r()));
     expect(gw!.registry.all().length).toBe(0);
   });
 
   it("rejects a provider that presents NO token when one is required", async () => {
     gw = await startGateway({ port: 0, token: "s3cret" });
-    const ws = await openProviderWithToken(
-      `ws://127.0.0.1:${gw.port}`,
-      "none",
-      undefined,
-    );
+    const ws = await openProviderWithToken(gw, "none", undefined);
     await new Promise<void>((r) => ws.once("close", () => r()));
     expect(gw!.registry.all().length).toBe(0);
   });
 
   it("registers with no token when auth is disabled (loopback-dev default)", async () => {
     gw = await startGateway({ port: 0 });
-    const ws = await openProviderWithToken(
-      `ws://127.0.0.1:${gw.port}`,
-      "dev",
-      undefined,
-    );
+    const ws = await openProviderWithToken(gw, "dev", undefined);
     await waitFor(() => gw!.registry.all().length === 1);
     ws.close();
   });
@@ -516,8 +529,8 @@ describe("startGateway operator enrolment (F2a — unconfirmed)", () => {
 describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
   const secret = Secret.fromLatin1("12345678901234567890").base32;
 
-  async function knockProvider(url: string): Promise<WebSocket> {
-    const ws = await open(url);
+  async function knockProvider(gw: Gateway): Promise<WebSocket> {
+    const ws = await open(providerUrl(gw));
     ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
     await nextMessage(ws); // the gateway's answering knock
     return ws;
@@ -532,7 +545,7 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     // A PROVIDER-scoped token (S3) — the provider boundary rejects operator tokens.
     const { token } = operatorAuth.submitCode("287082", true, "provider");
     gw = await startGateway({ port: 0, operatorAuth });
-    const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
+    const ws = await knockProvider(gw);
     ws.send(
       JSON.stringify({
         type: "hello",
@@ -552,7 +565,7 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
       confirmed: true,
     });
     gw = await startGateway({ port: 0, operatorAuth });
-    const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
+    const ws = await knockProvider(gw);
     ws.send(
       JSON.stringify({
         type: "hello",
@@ -575,7 +588,7 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     // A default (operator-audience) token must NOT register as a provider.
     const { token } = operatorAuth.submitCode("287082", true);
     gw = await startGateway({ port: 0, operatorAuth });
-    const ws = await knockProvider(`ws://127.0.0.1:${gw.port}`);
+    const ws = await knockProvider(gw);
     ws.send(
       JSON.stringify({
         type: "hello",
@@ -601,46 +614,47 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
       rmSync(d, { recursive: true, force: true });
   });
 
-  it("serves a second wss listener and exposes the tlsPort + fingerprint pin", async () => {
+  it("serves a wss provider listener and exposes the providerPort + fingerprint pin", async () => {
     const mat = await tlsMaterial();
     gw = await startGateway({
       port: 0,
-      tls: {
-        port: 0,
-        cert: mat.cert,
-        key: mat.key,
-        fingerprint: mat.fingerprint,
+      provider: {
+        tls: {
+          cert: mat.cert,
+          key: mat.key,
+          fingerprint: mat.fingerprint,
+        },
       },
     });
 
-    expect(gw.tlsPort).toBeGreaterThan(0);
-    expect(gw.tlsPort).not.toBe(gw.port); // a distinct, dedicated listener
+    expect(gw.providerPort).toBeGreaterThan(0);
+    expect(gw.providerPort).not.toBe(gw.port); // a distinct, dedicated listener
+    expect(gw.providerInsecure).toBe(false); // wss, not insecure ws
     expect(gw.fingerprint).toBe(mat.fingerprint);
   });
 
-  it("shares one registry across both listeners: a wss provider is visible to a ws operator", async () => {
+  it("a wss provider (provider listener) is visible to a ws operator (operator listener)", async () => {
     const mat = await tlsMaterial();
     gw = await startGateway({
       port: 0,
-      tls: {
-        port: 0,
-        cert: mat.cert,
-        key: mat.key,
-        fingerprint: mat.fingerprint,
+      provider: {
+        tls: {
+          cert: mat.cert,
+          key: mat.key,
+          fingerprint: mat.fingerprint,
+        },
       },
     });
 
     // A provider connects over wss, trusting the self-signed cert as its CA
     // (rejectUnauthorized stays on; the hostname check is what the pin replaces).
-    const provider = await fakeProvider(
-      `wss://127.0.0.1:${gw.tlsPort}`,
-      "i1",
-      [summary("i1", "s1", true)],
-      { ca: mat.cert, checkServerIdentity: () => undefined },
-    );
+    const provider = await fakeProvider(gw, "i1", [summary("i1", "s1", true)], {
+      ca: mat.cert,
+      checkServerIdentity: () => undefined,
+    });
     await waitFor(() => gw!.registry.forInstance("i1").length === 1);
 
-    // An operator on the plain loopback listener sees the wss provider's session.
+    // An operator on the loopback operator listener sees the wss provider's session.
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
     operator.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
     const res = await nextMessage(operator);
@@ -655,27 +669,29 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     const mat = await tlsMaterial();
     gw = await startGateway({
       port: 0,
-      tls: {
-        port: 0,
-        cert: mat.cert,
-        key: mat.key,
-        fingerprint: mat.fingerprint,
+      provider: {
+        tls: {
+          cert: mat.cert,
+          key: mat.key,
+          fingerprint: mat.fingerprint,
+        },
       },
     });
     // No `ca` → the self-signed cert is untrusted → the TLS handshake errors
     // (we never fall back to an unverified socket).
-    await expect(open(`wss://127.0.0.1:${gw.tlsPort}`)).rejects.toThrow();
+    await expect(open(`wss://127.0.0.1:${gw.providerPort}`)).rejects.toThrow();
   });
 
   it("serves gateway.connectInfo (available: pin + cert + wss urls) to the operator", async () => {
     const mat = await tlsMaterial();
     gw = await startGateway({
       port: 0,
-      tls: {
-        port: 0,
-        cert: mat.cert,
-        key: mat.key,
-        fingerprint: mat.fingerprint,
+      provider: {
+        tls: {
+          cert: mat.cert,
+          key: mat.key,
+          fingerprint: mat.fingerprint,
+        },
       },
     });
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
@@ -691,13 +707,17 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     operator.close();
   });
 
-  it("reports connectInfo unavailable when native TLS is off", async () => {
-    gw = await startGateway({ port: 0 });
+  it("serves connectInfo for an INSECURE provider listener (ws urls, no cert/pin)", async () => {
+    gw = await startGateway({ port: 0 }); // no provider.tls → insecure plain ws
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
     operator.send(JSON.stringify({ id: "ci", op: "gateway.connectInfo" }));
     const res = await nextMessage(operator);
     expect(res["ok"]).toBe(true);
-    expect((res["result"] as GatewayConnectInfo).available).toBe(false);
+    const info = res["result"] as GatewayConnectInfo;
+    expect(info.available).toBe(true); // the provider listener always exists
+    expect(info.fingerprint).toBeUndefined();
+    expect(info.certPem).toBeUndefined();
+    expect(info.urls.every((u) => u.startsWith("ws://"))).toBe(true);
     operator.close();
   });
 });

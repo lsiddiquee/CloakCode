@@ -1,9 +1,10 @@
 # @cloakcode/gateway
 
 The **standalone CloakCode gateway** — a run-it-yourself hub that serves the CloakCode phone app
-(PWA) and multiplexes your **phone** (operator) and your **VS Code extensions** (providers) onto one
-endpoint. Run it when you want several VS Code windows or machines to share **one** phone endpoint,
-or to keep the hub outside the editor.
+(PWA) and connects your **phone** (operator) and your **VS Code extensions** (providers) over **two
+role-scoped listeners** — a loopback **operator** listener (PWA + phone) and a dedicated **provider**
+listener (extensions, `wss://` by default). Run it when you want several VS Code windows or machines
+to share **one** phone endpoint, or to keep the hub outside the editor.
 
 Pairs with the **[CloakCode VS Code extension](https://marketplace.visualstudio.com/items?itemName=rexwel.cloakcode)**:
 the extension observes and steers your Copilot sessions; the gateway is the shared hub your phone
@@ -232,22 +233,32 @@ docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/
 - Use any hard-to-guess value; e.g. `openssl rand -hex 32`. The `CLOAKCODE_GATEWAY_TOKEN` env var
   overrides the `cloakcode.gatewayToken` setting on the extension side.
 
-## Encrypted provider link (wss)
+## Two listeners: operator (loopback) + provider (wss)
 
-The provider (extension → gateway) hop is plain `ws://` by default — fine on loopback or behind an
-**encrypted overlay / reverse proxy** (Tailscale, WireGuard, `ssh -L`, Caddy/nginx), which is the
-lowest-friction path when you already have one. For a **direct** LAN/container link with no proxy,
-turn on CloakCode's own TLS:
+The gateway binds **two role-scoped listeners**:
+
+- the **operator** listener — the PWA + phone — on `CLOAKCODE_GATEWAY_HOST` (default `127.0.0.1`),
+  fronted by your private Dev Tunnel (which supplies TLS). Operators only.
+- the **provider** listener — the dedicated endpoint **extensions** connect to — on
+  `CLOAKCODE_TLS_HOST` (default `0.0.0.0`) `:CLOAKCODE_TLS_PORT` (default `3544`). Providers only; a
+  provider is **never** served on the operator bind.
+
+The provider listener is **`wss://` by default** — with no BYO cert the gateway generates and persists
+a **self-signed** pair under `~/.cloakcode` (key `0600`, never logged) and prints its **SHA-256
+fingerprint** — the pin. BYO a real CA / mkcert / corporate cert with `CLOAKCODE_TLS_CERT_FILE` +
+`CLOAKCODE_TLS_KEY_FILE`:
 
 ```bash
-CLOAKCODE_TLS_PORT=7443 npx @cloakcode/gateway
-# or BYO cert/key (real CA / mkcert / corporate PKI):
+# wss on the default provider port (3544), auto self-signed cert:
+npx @cloakcode/gateway
+# a fixed provider port + BYO cert/key:
 CLOAKCODE_TLS_PORT=7443 CLOAKCODE_TLS_CERT_FILE=./gw.crt CLOAKCODE_TLS_KEY_FILE=./gw.key npx @cloakcode/gateway
+# INSECURE plain ws (trusted network only — warned in console + UI):
+CLOAKCODE_PROVIDER_INSECURE=1 npx @cloakcode/gateway
 ```
 
-The gateway then serves a **dedicated `wss://` listener** on that port (the loopback HTTP listener for
-the tunnelled PWA is unchanged). With no BYO cert it generates and persists a **self-signed** pair
-under `~/.cloakcode` (key `0600`, never logged) and prints its **SHA-256 fingerprint** — the pin.
+An **encrypted overlay / reverse proxy** (Tailscale, WireGuard, `ssh -L`, Caddy/nginx) with both
+listeners on loopback is still the lowest-friction path when you already have one.
 
 **Pair an extension** from the app: open the PWA (behind your tunnel + TOTP) → **Settings → Connect an
 extension**. It shows the reachable `wss://` URL, the fingerprint, and the certificate to copy into the
@@ -302,8 +313,8 @@ all the volumes (secret, tunnel token, action log).
 
 | var                         | default                     | meaning                                                                 |
 | --------------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| `CLOAKCODE_GATEWAY_HOST`    | `127.0.0.1` (`0.0.0.0` image) | bind address; `0.0.0.0` to accept LAN / container / WSL clients          |
-| `CLOAKCODE_GATEWAY_PORT`    | `3543`                      | listen port — also the port segment of the Dev Tunnel URL; `0` = ephemeral |
+| `CLOAKCODE_GATEWAY_HOST`    | `127.0.0.1`                 | **operator** listener bind (PWA + phone); keep loopback and front it with a private tunnel |
+| `CLOAKCODE_GATEWAY_PORT`    | `3543`                      | **operator** port — also the port segment of the Dev Tunnel URL; `0` = ephemeral |
 | `CLOAKCODE_TUNNEL`          | _(off)_                     | `devtunnel` → auto-host a **private** tunnel and print the phone URL     |
 | `CLOAKCODE_TUNNEL_PROVIDER` | `github`                    | Docker only: `github` or `microsoft` for the container's device-code sign-in; defaults to GitHub |
 | `CLOAKCODE_INSTANCE_ID`     | `gateway`                   | tunnel-name seed **and** authenticator label (e.g. `office`/`home`, so multiple gateways are distinguishable in your app) |
@@ -312,9 +323,11 @@ all the volumes (secret, tunnel token, action log).
 | `CLOAKCODE_MFA_SECRET_FILE` | `~/.cloakcode/operator-totp.secret` | where the base32 TOTP secret persists (`0600`); mount it as a volume in Docker |
 | `CLOAKCODE_MFA_ENROL`       | `browser`                   | `strict` never sends the pairing secret over the wire (console QR only)  |
 | `CLOAKCODE_MFA_RESET`       | _(off)_                     | `1` regenerates the secret (lockout recovery) and re-enters enrolment    |
-| `CLOAKCODE_TLS_PORT`        | _(off)_                     | enable a dedicated **`wss://`** provider listener on this port (loopback HTTP is unchanged); pair extensions via **Connect an extension** in the app |
-| `CLOAKCODE_TLS_CERT_FILE`   | _(auto self-signed)_        | BYO PEM cert for `wss` (with `_KEY_FILE`); unset ⇒ an auto self-signed pair persisted under `~/.cloakcode` |
+| `CLOAKCODE_TLS_HOST`        | `0.0.0.0`                   | **provider** listener bind — the dedicated endpoint extensions connect to (separate from the operator listener) |
+| `CLOAKCODE_TLS_PORT`        | `3544`                      | **provider** listener port (always on); `0` = ephemeral. Pair extensions via **Connect an extension** in the app |
+| `CLOAKCODE_TLS_CERT_FILE`   | _(auto self-signed)_        | BYO PEM cert for the `wss` provider listener (with `_KEY_FILE`); unset ⇒ an auto self-signed pair persisted under `~/.cloakcode` |
 | `CLOAKCODE_TLS_KEY_FILE`    | _(auto self-signed)_        | BYO PEM private key for `wss` (with `_CERT_FILE`); a `0600` secret, never logged |
+| `CLOAKCODE_PROVIDER_INSECURE` | _(off)_                   | `1` ⇒ serve the provider listener as **insecure plain `ws://`** (no cert) — trusted-network only; warned in console + UI |
 | `CLOAKCODE_GATEWAY_LOG_FILE`| `./cloakcode-gateway.jsonl` | on-disk action log (JSONL); set empty to disable                        |
 | `CLOAKCODE_WEB_DIR`         | bundled `web/`              | PWA directory to serve (defaults to the bundled app)                    |
 | `CLOAKCODE_LOG_LEVEL`       | `info`                      | `trace`/`debug`/`info`/`warn`/`error` (`CLOAKCODE_VERBOSE=1` ⇒ `debug`) |

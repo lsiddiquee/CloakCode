@@ -160,16 +160,20 @@ So a wide bind is **authenticated**, not open.
    **Tailscale / WireGuard / an SSH forward**, or a **reverse proxy** (Caddy/nginx/Traefik) own the
    encryption. The proxy/overlay already solves certs, renewal and identity; CloakCode stays bound to
    `127.0.0.1`. Best fit when you already have one of these.
-2. **Optional native gateway TLS (product-owned):** the standalone gateway serves `wss://` on a
-   **dedicated listener** (its loopback HTTP listener still backs the tunnelled PWA — coexistence
-   model B), from an **auto-generated self-signed cert** (default) or an operator-supplied cert/key.
+2. **Native gateway TLS on the provider listener (product-owned, the default):** the gateway binds
+   **two role-scoped listeners** — the loopback **operator** listener (PWA + phone, behind the tunnel)
+   and a dedicated **provider** listener (`CLOAKCODE_TLS_HOST`, default `0.0.0.0`, port
+   `CLOAKCODE_TLS_PORT`, default 3544) that extensions connect to. The provider listener serves
+   `wss://` **by default**, from an **auto-generated self-signed cert** or an operator-supplied cert/key.
    The extension verifies **which** server it reached by pinning the cert's **SHA-256 fingerprint**,
    provisioned **out-of-band via the authenticated PWA** — a “Connect an extension” action behind the
    Dev Tunnel sign-in + operator TOTP hands you the URL + fingerprint to paste in (console/QR fallback
    with no tunnel). For a self-signed gateway the **fingerprint alone is enough** (the extension
    verifies the exact cert by hand and fails closed on a mismatch); adding the cert as a CA file is an
-   optional stricter path, and a BYO real-CA gateway needs neither. **Never** blind
-   trust-on-first-use. For a direct LAN/container link with no proxy.
+   optional stricter path, and a BYO real-CA gateway needs neither. **Never** blind trust-on-first-use.
+   `CLOAKCODE_PROVIDER_INSECURE=1` downgrades the provider listener to plain `ws://` for a trusted
+   network — least friction, but **authenticated-not-encrypted**, so it prints an **INSECURE MODE**
+   banner (console + UI). Providers are **never** served on the operator bind.
 3. **Dev Tunnel for a remote extension (documented, friction caveat):** an extension *can* ride the
    gateway's private Dev Tunnel, but not by only changing `cloakcode.gatewayUrl` — the Node client
    can't complete the tunnel's browser sign-in (an unauthenticated `/bridge` request returns HTTP

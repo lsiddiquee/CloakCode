@@ -303,12 +303,16 @@ the critical path.
      rejected: blind first-connection TOFU and learning the pin over the unverified socket.
      Fingerprint-only does set `rejectUnauthorized:false`, but only paired with the mandatory
      exact-cert check that fails closed before any app data — a pin, not TOFU.
-  5. **Coexistence = model B (two listeners).** The gateway keeps its **loopback HTTP** listener for
-     the tunnelled PWA (Dev Tunnel terminates TLS at ingress → loopback, proven) **and** adds a
-     **dedicated `wss://` listener** (its own port, e.g. `CLOAKCODE_TLS_PORT`) for direct providers.
-     This lets phone-via-tunnel and extension-via-direct-wss run at once without depending on the
-     **unverified** `devtunnel --protocol https` self-signed-backend behavior (can collapse to a
-     single HTTPS listener later if that is ever verified).
+  5. **Two role-scoped listeners (the listener split, 2026-07-23).** The gateway binds an **operator**
+     listener (loopback HTTP + phone WebSocket, `CLOAKCODE_GATEWAY_HOST` default `127.0.0.1`, fronted
+     by the tunnel — Dev Tunnel terminates TLS at ingress → loopback, proven) **and** a dedicated,
+     **always-on provider** listener (`CLOAKCODE_TLS_HOST` default `0.0.0.0`, `CLOAKCODE_TLS_PORT`
+     default 3544) that extensions connect to. Each serves **its role only** — a provider is refused on
+     the operator bind and vice-versa (removing the earlier duplication where providers rode both).
+     The provider listener is `wss://` **by default** (auto-gen/BYO cert); `CLOAKCODE_PROVIDER_INSECURE`
+     downgrades it to plain `ws://` (warned). This lets phone-via-tunnel and extension-via-direct-wss
+     run at once without depending on the **unverified** `devtunnel --protocol https`
+     self-signed-backend behavior.
   6. **Rotation/recovery.** Regenerating the cert changes the fingerprint; the PWA always shows the
      current one (re-pair = open PWA → copy → paste), and a reset command/env re-mints it. A pin
      mismatch fails closed and prompts a re-pair.
