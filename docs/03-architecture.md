@@ -122,9 +122,12 @@ earlier design (docs/02 §4.15/§4.16) is superseded.
 - **Resolve by command.** `session.decide {toolCallId, decision}` fires VS Code’s own
   `workbench.action.chat.acceptTool` (allow) / `skipTool` (deny), targeted by the session URI
   `vscode-chat-session://local/<base64url(sessionId)>` (`localChatSessionUri`). VS Code matches the
-  widget by **exact** URI equality, so a wrong/stale id is a safe no-op — it can never resolve a
-  different session (docs/02 §4.20). Questions resolve via `session.answer` →
-  `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16/§4.17).
+  widget by **exact** URI equality, so a wrong id can never resolve a **different session** (docs/02
+  §4.20). `acceptTool`/`skipTool` resolve that session’s _first waiting_ confirmation and are **not**
+  keyed on `toolCallId`, so within one session a **stale** tap (for a call that already completed)
+  would otherwise resolve whatever is now current — the actuator therefore **fails closed** unless the
+  requested `toolCallId` is still pending in the spool (drift audit S5). Questions resolve via
+  `session.answer` → `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16/§4.17).
 - **Debounce surfacing (anti-flicker).** Because the hook fires before VS Code decides, an
   auto-approved call would briefly show then vanish. The observer **debounces** surfacing by
   `cloakcode.surfaceDebounceMs` (default **3 s**): a call VS Code auto-approves/answers within the

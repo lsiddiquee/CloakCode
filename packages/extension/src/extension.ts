@@ -30,6 +30,7 @@ import {
   defaultSpoolDir,
   hookConfigPath,
   localChatSessionUri,
+  readSpoolDir,
   removeSpoolForSession,
   stableHookPath,
 } from "./hook-spool.js";
@@ -317,6 +318,12 @@ export async function activate(
       removeSpool: async (sessionId) => {
         await removeSpoolForSession(spoolDir, sessionId);
       },
+      // Base toolCallIds still pending in the spool for a session — `decide`
+      // fails closed on a stale id that would otherwise resolve a newer call (S5).
+      pendingToolCallIds: async (sessionId) =>
+        (await readSpoolDir(spoolDir))
+          .filter((r) => r.sessionId === sessionId)
+          .map((r) => r.toolCallId),
       log: actuatorLog,
     }),
   };

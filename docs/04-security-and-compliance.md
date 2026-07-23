@@ -65,8 +65,10 @@ Design implications for an actuator that can stage/inject prompts:
   a command (`workbench.action.chat.acceptTool`/`skipTool`, `_chat.notifyQuestionCarouselAnswer`) —
   never a network write, never GitHub. CloakCode **never blocks or auto-approves** on its own: VS
   Code’s native prompt still appears and whoever answers first wins, so the local user is always
-  the backstop. The command is targeted by **exact** session URI, so a stale/wrong id is a safe
-  no-op and can never approve a different session (docs/03 “Remote approval”, docs/02 §4.20).
+  the backstop. The command is targeted by **exact** session URI, so a wrong id can never approve a
+  **different session**; and within a session `decide` **fails closed** unless the requested
+  `toolCallId` is still the pending call, so a **stale** approval can't resolve a newer one (drift
+  audit S5; docs/03 “Remote approval”, docs/02 §4.20).
 - **Steer / stop / stop-and-send are `remote-operator`, command-only.** The mid-turn actions
   (`session.steer`, `session.stop`) and the queued send (`session.respond`) all reach VS Code only
   through public `workbench.action.chat.*` commands after focusing the session URI — never a network

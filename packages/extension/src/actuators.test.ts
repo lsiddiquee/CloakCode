@@ -16,7 +16,7 @@ const noopLogger: Logger = {
 };
 
 /** A harness that records the commands the actuators fire + spool removals. */
-function harness() {
+function harness(pending: string[] = ["t"]) {
   const calls: Array<[string, unknown[]]> = [];
   const removed: string[] = [];
   const actuators = buildActuators({
@@ -28,6 +28,7 @@ function harness() {
     removeSpool: async (sessionId) => {
       removed.push(sessionId);
     },
+    pendingToolCallIds: async () => pending,
     log: noopLogger,
   });
   return { actuators, calls, removed };
@@ -106,6 +107,36 @@ describe("buildActuators", () => {
       decision: "allow",
     });
     expect(calls).toEqual([]);
+  });
+
+  it("decide fails closed when the toolCall is no longer pending (S5)", async () => {
+    // Nothing pending for the session — a stale tap must NOT resolve a newer call.
+    const gone = harness([]);
+    await gone.actuators.decide({
+      sessionId: "s",
+      toolCallId: "t",
+      decision: "allow",
+    });
+    expect(gone.calls).toEqual([]);
+
+    // A DIFFERENT call is pending — the stale id for "t" is still refused.
+    const other = harness(["t2"]);
+    await other.actuators.decide({
+      sessionId: "s",
+      toolCallId: "t",
+      decision: "deny",
+    });
+    expect(other.calls).toEqual([]);
+  });
+
+  it("decide matches on the BASE toolCallId (suffixed request still resolves)", async () => {
+    const { actuators, calls } = harness(["tc"]);
+    await actuators.decide({
+      sessionId: "s",
+      toolCallId: "tc__vscode-9",
+      decision: "allow",
+    });
+    expect(calls[0]?.[0]).toBe("workbench.action.chat.acceptTool");
   });
 
   it("answer delivers to BOTH the raw and base id for a suffixed carousel", async () => {

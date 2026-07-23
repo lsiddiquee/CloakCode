@@ -14,6 +14,12 @@ export interface ActuatorPorts {
   sessionUri: (sessionId: string) => unknown;
   /** GC a session's spool files (force-stop cleanup). */
   removeSpool: (sessionId: string) => Promise<void>;
+  /**
+   * Base toolCallIds currently pending (in the spool) for a session. `decide`
+   * uses it to fail closed when a stale approval would otherwise resolve a
+   * DIFFERENT, now-current pending call (drift audit S5).
+   */
+  pendingToolCallIds: (sessionId: string) => Promise<string[]>;
   /** Structured actuator-action log. */
   log: Logger;
 }
@@ -27,13 +33,15 @@ export type Actuators = Required<
  * Build the actuator handlers (`respond` / `steer` / `stop` / `decide` /
  * `answer`) from the injected host ports. Each is a `remote-operator` action
  * (docs/04) that resolves to VS Code commands, targeted by the session URI
- * (EXACT-match, so a stale id is a safe no-op; docs/02 §4.16). Pure wiring — no
+ * (EXACT-match on the URI); `decide` additionally **fails closed** if its
+ * toolCallId is no longer the session's pending call (S5). Pure wiring — no
  * `vscode` import — so it's testable with a mock `execute`.
  */
 export function buildActuators({
   execute,
   sessionUri,
   removeSpool,
+  pendingToolCallIds,
   log,
 }: ActuatorPorts): Actuators {
   return {
@@ -77,11 +85,24 @@ export function buildActuators({
     },
     decide: async ({ sessionId, toolCallId, decision, traceId }) => {
       // Resolve VS Code's OWN native tool confirmation via command, targeted by
-      // the session URI (EXACT-match, so a wrong id is a safe no-op; docs/02
-      // §4.16). No per-tool id: accept/skip act on that session's first waiting
-      // confirmation; `toolCallId` is logged for traceability.
+      // Resolve VS Code's OWN native tool confirmation via command, targeted by
+      // the session URI. `acceptTool`/`skipTool` resolve that session's FIRST
+      // waiting confirmation and are NOT keyed on `toolCallId`, so a STALE tap
+      // (for a call that already completed) would otherwise resolve whatever is
+      // now current (drift audit S5). Guard: only fire if the requested
+      // toolCallId is still pending in the spool; else fail closed. docs/02 §4.16.
       if (!sessionId) {
         log.warn("actuator.decide_no_session");
+        return;
+      }
+      const base = baseToolCallId(toolCallId);
+      if (!(await pendingToolCallIds(sessionId)).includes(base)) {
+        log.warn("actuator.decide_stale", {
+          sessionId,
+          toolCallId,
+          decision,
+          traceId,
+        });
         return;
       }
       const uri = sessionUri(sessionId);
