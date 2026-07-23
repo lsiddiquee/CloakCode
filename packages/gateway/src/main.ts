@@ -16,7 +16,7 @@
  *   CLOAKCODE_GATEWAY_TOKEN  provider↔gateway shared secret (extensions present it in their hello); unset → off
  *   CLOAKCODE_MFA            operator TOTP: off | required; unset → secure by exposure (on when exposed)
  *   CLOAKCODE_MFA_SECRET_FILE  where the base32 TOTP secret persists; default ~/.cloakcode/operator-totp.secret
- *   CLOAKCODE_MFA_ENROL      browser (default) | strict — strict never reveals the secret over the wire (console QR only)
+ *   CLOAKCODE_MFA_ENROL      browser (default) | strict — strict never reveals the secret over the wire; the QR shows only on a TTY (never docker logs), else the 0600 secret file
  *   CLOAKCODE_MFA_RESET      1 → regenerate the secret (lockout recovery) and re-enter enrolment
  *
  * Security: the provider↔gateway token authenticates extensions; operator
@@ -35,7 +35,7 @@ import { resolvePortPlan } from "./listen.js";
 import { resolveInstanceId } from "./instance-id.js";
 import { devTunnelName, startDevTunnel } from "./tunnel.js";
 import { OperatorAuth } from "./operator-auth.js";
-import { otpauthUri } from "./totp.js";
+import { strictEnrolmentLines } from "./enrol-console.js";
 import {
   isExposed,
   loadOrCreateSecret,
@@ -139,11 +139,11 @@ console.log(
   }`,
 );
 
-// Operator (phone) TOTP status. On FIRST setup only, print the pairing QR + the
-// otpauth URI + the base32 secret so the operator can enrol an authenticator app
-// — intentional one-time stdout for the human at the console (not the action
-// log; the secret is never sent to the logger). On later runs we only say where
-// the secret lives, never reprinting it.
+// Operator (phone) TOTP status. On FIRST setup only, guide the human at the
+// console to enrol an authenticator — WITHOUT ever writing the seed (base32 /
+// otpauth URI) to stdout, which on a container is a persistent `docker logs`
+// sink (drift audit S7). The secret persists to the 0600 file; the action log
+// never sees it. On later runs we only say where the secret lives.
 if (mfaOn && mfaSetup) {
   console.log(
     `[cloakcode-gateway] operator auth (TOTP): ON — secret at ${mfaSetup.file}`,
@@ -154,15 +154,17 @@ if (mfaOn && mfaSetup) {
       "[cloakcode-gateway] enrolment required — the hub serves ONLY pairing until you verify a code.",
     );
     if (mfaSetup.strict) {
-      // Strict (Option B): the secret is NEVER revealed over the wire — the
-      // console is the out-of-band pairing channel. Scan here, verify in the app.
-      const uri = otpauthUri(mfaSetup.secret, seed);
-      console.log(
-        "[cloakcode-gateway] strict enrolment — scan this QR, then enter a code in the app:",
-      );
-      console.log(qrTerminal(uri));
-      console.log(`[cloakcode-gateway]   otpauth URI: ${uri}`);
-      console.log(`[cloakcode-gateway]   secret (base32): ${mfaSetup.secret}`);
+      // Strict (Option B): the secret is never revealed over the wire — the
+      // console is the out-of-band channel, but ONLY a real TTY (never the
+      // persistent log stream) shows the QR; headless is pointed at the 0600 file.
+      for (const line of strictEnrolmentLines({
+        isTTY: Boolean(process.stdout.isTTY),
+        secret: mfaSetup.secret,
+        account: seed,
+        file: mfaSetup.file,
+      })) {
+        console.log(line);
+      }
     } else {
       // Browser (Option A): open the PWA (phone URL below) to scan the QR and
       // verify a code — pairing happens in the app, no console QR needed.

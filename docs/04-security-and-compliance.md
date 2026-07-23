@@ -226,8 +226,10 @@ only a derived token.
   trusted network, so the brief enrolment window is not a meaningful attack surface — the point is to
   be secured _before_ the link goes onto a public network.
   - **Strict enrolment (Option B, opt-in):** `CLOAKCODE_MFA_ENROL=strict` / `cloakcode.mfaEnrolment:
-    strict` never sends the secret over the wire — the QR is shown **out-of-band** (gateway console /
-    VS Code webview) and the browser only submits the verify code.
+    strict` never sends the secret over the wire — the QR is shown **out-of-band** on an interactive
+    console (the VS Code webview, or the gateway terminal **only when attached to a TTY** — never the
+    persistent `docker logs` stream; a headless run is pointed at the `0600` secret file), and the
+    browser only submits the verify code (drift audit S7).
 - **Secret provisioning is per-host.** The **embedded** bridge keeps the base32 secret in VS Code
   **SecretStorage** (OS keychain), the confirmed flag in `globalState`. The **hosted** gateway keeps
   `{secret, confirmed}` in `CLOAKCODE_MFA_SECRET_FILE` (`~/.cloakcode/`, `0600`; a mounted volume in

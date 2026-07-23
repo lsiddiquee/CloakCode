@@ -150,9 +150,10 @@ then **enter the current 6-digit code** to confirm. The secret is generated once
 > **Lock it down with strict enrolment.** By **default** (`CLOAKCODE_MFA_ENROL=browser`) the QR +
 > secret are served to whoever opens the gateway during enrolment — convenient, but it means **anyone
 > who reaches the gateway before you've paired could enrol their own authenticator and take over**.
-> Set `CLOAKCODE_MFA_ENROL=strict` so the secret is **never sent over the wire** — the QR + otpauth
-> URI are printed **only to the console** (`docker logs`), so only someone with console/log access can
-> pair. Scan from the console, then enter a code in the app.
+> Set `CLOAKCODE_MFA_ENROL=strict` so the secret is **never sent over the wire** — the QR is shown
+> **only on an interactive TTY** (never the persistent `docker logs` stream, drift audit S7). Scan it
+> from an attached terminal, then enter a code in the app; a headless run instead points at the
+> `0600` secret file (retrieve it once out-of-band, e.g. `docker exec … cat`) or use browser enrolment.
 
 Every later phone/browser logs in with the current 6-digit code and gets a **session token** (12 h,
 or 30 days with "remember this device"), so reconnects don't re-prompt. Replayed and repeatedly wrong
