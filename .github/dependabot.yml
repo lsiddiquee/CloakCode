@@ -49,6 +49,16 @@ updates:
         update-types:
           - minor
           - patch
+    # Stay on TypeScript 5.x. Our type-aware linter typescript-eslint@8 declares
+    # peer `typescript: >=4.8.4 <6.1.0`, and TypeScript 7 (now `latest`) is the
+    # Go-native ("tsgo") rewrite with a different compiler API. Bumping past 5.x
+    # would break type-aware lint AND trip a peer-dependency warning. Ignore only
+    # the MAJORS (5.x minor/patch still auto-update); drop this the same day we
+    # move to a typescript-eslint whose peer range covers the next TS major.
+    ignore:
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
 
   # Poetry-managed research/dev tooling (pyproject.toml + poetry.lock).
   - package-ecosystem: pip
