@@ -53,6 +53,7 @@ import { classifyRemote, parseDevcontainerName } from "./identity.js";
 import { tunnelFixAction } from "./tunnel-policy.js";
 import {
   embeddedExposed,
+  EXPOSURE_SETTING_KEYS,
   isOperatorConfirmed,
   loadOrCreateOperatorSecret,
   markOperatorConfirmed,
@@ -518,30 +519,41 @@ export async function activate(
   };
 
   // Tear down the live connection and re-establish from the latest settings.
-  // Serialized so overlapping triggers (a multi-key settings edit) can't race.
-  let reconnecting = false;
-  const reconnect = async (reason: string): Promise<void> => {
-    if (reconnecting) return;
-    reconnecting = true;
-    try {
-      log.info("reconnect", { reason });
-      gatewayClient?.close();
-      gatewayClient = undefined;
-      await bridge?.close();
-      bridge = undefined;
-      tunnel?.stop();
-      tunnel = undefined;
-      const summary = await establishConnection();
-      log.info("reconnected", { summary });
-    } finally {
-      reconnecting = false;
-    }
+  // Serialized so overlapping triggers (a multi-key settings edit) can't race;
+  // concurrent callers share — and can `await` — the SAME in-flight rebuild, so
+  // `setupTunnel` can wait for the gate to be rebuilt before exposing it (S6).
+  let reconnecting: Promise<void> | null = null;
+  const reconnect = (reason: string): Promise<void> => {
+    if (reconnecting) return reconnecting;
+    reconnecting = (async () => {
+      try {
+        log.info("reconnect", { reason });
+        gatewayClient?.close();
+        gatewayClient = undefined;
+        await bridge?.close();
+        bridge = undefined;
+        tunnel?.stop();
+        tunnel = undefined;
+        const summary = await establishConnection();
+        log.info("reconnected", { summary });
+      } finally {
+        reconnecting = null;
+      }
+    })();
+    return reconnecting;
   };
 
   // A change to any of these connection settings hot-applies via reconnect (no
-  // reload). The `cloakcode.tunnel` mode still needs a reload; the instanceId is
-  // changed via the `CloakCode: Set Instance ID` command (which reconnects).
-  const reconnectKeys = ["cloakcode.gatewayUrl", "cloakcode.port"];
+  // reload): the gateway endpoint/port, and — crucially (S6) — the tunnel/MFA
+  // settings, so enabling a tunnel or MFA REBUILDS the bridge with its operator
+  // gate BEFORE it can be exposed (never fronting an un-gated bridge). The
+  // instanceId is changed via the `CloakCode: Set Instance ID` command (which
+  // reconnects).
+  const reconnectKeys = [
+    "cloakcode.gatewayUrl",
+    "cloakcode.port",
+    ...EXPOSURE_SETTING_KEYS,
+  ];
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.reconnect", () =>
       reconnect("command"),
@@ -819,6 +831,25 @@ export async function activate(
       if (!bridge) {
         void vscode.window.showWarningMessage(
           "CloakCode bridge is not running yet.",
+        );
+        return;
+      }
+      // S6: a tunnel must never front an un-gated bridge. Persist the tunnel
+      // opt-in and REBUILD the bridge with its operator gate (exposed ⇒ MFA)
+      // BEFORE exposing it — otherwise a bridge whose gate was computed for the
+      // un-exposed state would go live open.
+      const cfg = vscode.workspace.getConfiguration("cloakcode");
+      if (cfg.get<string>("tunnel") !== "devtunnel") {
+        await cfg.update(
+          "tunnel",
+          "devtunnel",
+          vscode.ConfigurationTarget.Global,
+        );
+      }
+      await reconnect("tunnel setup — gate the bridge before exposing (S6)");
+      if (!bridge) {
+        void vscode.window.showWarningMessage(
+          "CloakCode bridge failed to start; cannot open a tunnel.",
         );
         return;
       }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   OPERATOR_CONFIRMED_KEY,
   OPERATOR_SECRET_KEY,
+  EXPOSURE_SETTING_KEYS,
   embeddedExposed,
   isOperatorConfirmed,
   loadOrCreateOperatorSecret,
@@ -60,6 +61,14 @@ describe("loadOrCreateOperatorSecret", () => {
     const res = await loadOrCreateOperatorSecret(secrets);
     expect(res.created).toBe(true);
     expect(res.secret.length).toBeGreaterThan(0);
+  });
+});
+
+describe("EXPOSURE_SETTING_KEYS (S6 — rebuild the gate on exposure change)", () => {
+  it("covers tunnel, mfa, and mfaEnrolment so a reconnect rebuilds the gate", () => {
+    expect(EXPOSURE_SETTING_KEYS).toContain("cloakcode.tunnel");
+    expect(EXPOSURE_SETTING_KEYS).toContain("cloakcode.mfa");
+    expect(EXPOSURE_SETTING_KEYS).toContain("cloakcode.mfaEnrolment");
   });
 });
 

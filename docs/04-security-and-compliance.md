@@ -226,6 +226,13 @@ only a derived token.
   on**. The client calls `enrol.begin` to get the otpauth provisioning, renders the QR to scan into
   an authenticator app, then verifies one code (`auth`), which **confirms** enrolment (persisted) and
   logs in. This closes the "unconfirmed window" hole — nothing sensitive is served while unconfirmed.
+- **Gate the bridge before it's exposed (drift audit S6).** The embedded bridge's operator gate is
+  computed from the current exposure (`cloakcode.tunnel` / `CLOAKCODE_PUBLIC_URL`) at bridge start.
+  A change to `cloakcode.tunnel` / `cloakcode.mfa` / `cloakcode.mfaEnrolment` now triggers a
+  **reconnect** (they're in the reconnect key set — `EXPOSURE_SETTING_KEYS`), rebuilding the bridge
+  with the freshly-resolved gate. And **CloakCode: Set Up Phone Tunnel** persists the opt-in and
+  **awaits that rebuild before starting the tunnel**, so a tunnel never fronts a bridge whose gate was
+  computed for the un-exposed (open) state.
   Rationale for revealing the secret over the bridge during enrolment: you deploy this yourself on a
   trusted network, so the brief enrolment window is not a meaningful attack surface — the point is to
   be secured _before_ the link goes onto a public network.

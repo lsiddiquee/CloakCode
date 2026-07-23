@@ -86,3 +86,17 @@ export function embeddedExposed(opts: {
     Boolean(opts.publicUrl && opts.publicUrl.trim())
   );
 }
+
+/**
+ * Settings whose change alters the embedded bridge's EXPOSURE or its operator
+ * auth gate, so the connection must be REBUILT (not merely re-hosted) — otherwise
+ * enabling a tunnel or MFA would leave a bridge whose gate was computed for the
+ * old, un-exposed state, and a tunnel could front an un-gated bridge (drift audit
+ * S6). Kept here (pure) and spread into the reconnect key set so the wiring can't
+ * silently drop one.
+ */
+export const EXPOSURE_SETTING_KEYS = [
+  "cloakcode.tunnel",
+  "cloakcode.mfa",
+  "cloakcode.mfaEnrolment",
+] as const;
