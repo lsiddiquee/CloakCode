@@ -62,6 +62,18 @@ pnpm -r test            # Vitest
 pnpm -r test:coverage   # coverage gate (85% statements/lines/functions, 75% branches)
 ```
 
+Common build/package/run flows are wrapped in a [`Taskfile.yml`](Taskfile.yml) — the dev container
+installs [`task`](https://taskfile.dev), so run `task` (or `task --list`) to see them all:
+
+| Task | What |
+| --- | --- |
+| `task build` · `task check` | build all · full gate (typecheck + lint + test) |
+| `task package` | package everything — extension `.vsix` + assembled gateway |
+| `task extension:install` / `extension:uninstall` | install / remove the packaged extension (+ its Copilot hook) |
+| `task gateway:dev` · `task gateway:run -- --tunnel` | run the gateway (dev) · run the assembled hub with a tunnel |
+| `task playground` · `task web:dev` | UI playground · PWA dev server |
+| `task docker:gateway` | build the gateway image — **run from your WSL/host** (Docker isn't in the container) |
+
 Try the research tools against your local Copilot sessions:
 
 ```bash

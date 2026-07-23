@@ -1,0 +1,143 @@
+# https://taskfile.dev — CloakCode task runner.
+#
+# One home for the build / package / run flows so the dev container, your WSL
+# host, and CI never drift. `task` (or `task --list`) shows everything; pass args
+# to a wrapped script after `--` (e.g. `task gateway:run -- --tunnel`).
+#
+# Docker is NOT in the dev container, so `task docker:gateway` is meant to run
+# from your WSL/host (it needs only the repo + Docker). Everything else runs in
+# the dev container.
+version: "3"
+
+vars:
+  # Gateway dev listen port (the dev-container F5 flow expects ws://<host>:7900).
+  GATEWAY_PORT: '{{.GATEWAY_PORT | default "7900"}}'
+  GATEWAY_DIST: "{{.TASKFILE_DIR}}/dist/gateway"
+  EXT_DIST: "{{.TASKFILE_DIR}}/dist/extension"
+
+tasks:
+  default:
+    desc: List every task.
+    cmds:
+      - task --list
+    silent: true
+
+  # ── deps & quality gates ────────────────────────────────────────────────
+  install:
+    desc: Install workspace deps (pnpm, frozen lockfile).
+    cmds:
+      - pnpm install --frozen-lockfile
+
+  build:
+    desc: "① Build all packages (topological)."
+    cmds:
+      - pnpm -r build
+
+  test:
+    desc: Run all tests (Vitest).
+    cmds:
+      - pnpm -r test
+
+  test:coverage:
+    desc: Run all tests with the coverage gate (85% stmts/lines/funcs, 75% branches).
+    cmds:
+      - pnpm -r test:coverage
+
+  lint:
+    desc: Lint all packages (ESLint).
+    cmds:
+      - pnpm -r lint
+
+  typecheck:
+    desc: Type-check all packages (tsc --noEmit).
+    cmds:
+      - pnpm -r typecheck
+
+  check:
+    desc: Full TS gate — typecheck + lint + test (the Definition of Done).
+    cmds:
+      - pnpm -r typecheck
+      - pnpm -r lint
+      - pnpm -r test
+
+  check:py:
+    desc: Python gate for research/ — ruff + mypy (needs Poetry).
+    cmds:
+      - poetry run ruff check .
+      - poetry run mypy research
+
+  # ── package ─────────────────────────────────────────────────────────────
+  package:
+    desc: "② Build AND package everything — extension .vsix + assembled gateway."
+    cmds:
+      - task: package:extension
+      - task: package:gateway
+
+  package:extension:
+    desc: "③ Build + package the extension → dist/extension/ (cloakcode-<v>.vsix + install.sh / uninstall.sh)."
+    cmds:
+      - pnpm --filter @cloakcode/extension package
+
+  package:gateway:
+    desc: "④ Build + package the gateway → dist/gateway/ (main.mjs + web/ + run.sh), copy-ready."
+    cmds:
+      - pnpm --filter @cloakcode/gateway assemble
+
+  docker:gateway:
+    desc: "⑤ Build (+ smoke-test) the gateway Docker image. Needs Docker — run from WSL/host, NOT the dev container. Args after -- (e.g. build, --no-cache)."
+    cmds:
+      - bash scripts/docker-gateway.sh {{.CLI_ARGS}}
+
+  # ── run ─────────────────────────────────────────────────────────────────
+  gateway:dev:
+    desc: "⑥ Run the gateway from the workspace build (verbose), serving the local PWA — for dev."
+    env:
+      CLOAKCODE_WEB_DIR: "{{.TASKFILE_DIR}}/packages/web/dist"
+      CLOAKCODE_GATEWAY_PORT: "{{.GATEWAY_PORT}}"
+      CLOAKCODE_VERBOSE: "1"
+    cmds:
+      - pnpm --filter @cloakcode/protocol build
+      - pnpm --filter @cloakcode/web build
+      - pnpm --filter @cloakcode/gateway bundle
+      - node "{{.TASKFILE_DIR}}/packages/gateway/dist/main.mjs"
+
+  gateway:run:
+    desc: "⑦ Run the assembled gateway (from ④) via its run.sh. Flags after -- (e.g. task gateway:run -- --tunnel)."
+    deps:
+      - package:gateway
+    cmds:
+      - bash "{{.GATEWAY_DIST}}/run.sh" {{.CLI_ARGS}}
+
+  extension:install:
+    desc: "⑧ Package (③) then install the .vsix into VS Code (runs dist/extension/install.sh). CODE_BIN overrides the editor CLI."
+    deps:
+      - package:extension
+    cmds:
+      - bash "{{.EXT_DIST}}/install.sh"
+
+  extension:uninstall:
+    desc: "⑨ Uninstall the extension + its Copilot hook (runs dist/extension/uninstall.sh from ③). Pass --keep-hook after --."
+    cmds:
+      - bash "{{.EXT_DIST}}/uninstall.sh" {{.CLI_ARGS}}
+
+  playground:
+    desc: "⑩ Run the UI playground (Vite) — the real PWA against an in-browser fake bridge."
+    cmds:
+      - pnpm --filter @cloakcode/web-playground dev
+
+  # ── extra dev flows ─────────────────────────────────────────────────────
+  web:dev:
+    desc: Run the PWA dev server (Vite).
+    cmds:
+      - pnpm --filter @cloakcode/web dev
+
+  extension:dev:
+    desc: Run the bridge dev harness (dev-server.ts — the bridge with no extension host).
+    cmds:
+      - pnpm --filter @cloakcode/extension dev
+
+  clean:
+    desc: Remove build artifacts (dist/, package dist/, stray .vsix + install scripts).
+    cmds:
+      - rm -rf dist packages/*/dist
+      - rm -f packages/extension/*.vsix packages/extension/install.sh packages/extension/uninstall.sh

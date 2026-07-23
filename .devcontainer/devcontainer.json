@@ -23,7 +23,10 @@
     // Python 3.12 for the research/observer tooling under research/ (Poetry-managed).
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.12"
-    }
+    },
+    // go-task: the Taskfile.yml runner (`task --list`) for the build/package/run
+    // flows — one source of truth shared with WSL/host and CI.
+    "ghcr.io/devcontainers-extra/features/go-task:1": {}
   },
   // Persisted cache volume: survives rebuilds. bash history + npm/pnpm stores +
   // corepack + Playwright browsers all live here (see remoteEnv below).
@@ -52,10 +55,13 @@
       }
     }
   },
-  // 7801 = local bridge WebSocket/HTTP; 5280 = Vite PWA dev server (see docs/03-architecture.md).
+  // 7801 = local bridge; 5280 = Vite PWA dev; 7900 = dev gateway (task gateway:dev);
+  // 5285 = UI playground (task playground). See docs/03-architecture.md / docs/07.
   "forwardPorts": [
     7801,
-    5280
+    5280,
+    7900,
+    5285
   ],
   "portsAttributes": {
     "7801": {
@@ -64,6 +70,14 @@
     },
     "5280": {
       "label": "CloakCode PWA (Vite)",
+      "onAutoForward": "notify"
+    },
+    "7900": {
+      "label": "CloakCode Gateway (dev)",
+      "onAutoForward": "silent"
+    },
+    "5285": {
+      "label": "CloakCode UI Playground (Vite)",
       "onAutoForward": "notify"
     }
   },
