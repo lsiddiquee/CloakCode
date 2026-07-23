@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type JSX } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
 import { bridgeUrl, fetchSessions } from "./bridge";
 import { onEnrolmentRequired, onNeedsAuth } from "./auth";
