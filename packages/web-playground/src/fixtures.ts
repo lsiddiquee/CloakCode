@@ -45,10 +45,10 @@ export const SESSIONS: SessionSummary[] = [
     workspaceHash: "wsCloak",
     title: "Windows desktop host: sessions not listing",
     turns: 15,
-    status: "idle",
-    idleSeconds: 3 * 3600,
+    status: "blocked",
+    idleSeconds: 18,
     owned: true,
-    inTurn: false,
+    inTurn: true,
   },
   {
     instanceId: "wsl:pet_matcher",
@@ -106,7 +106,80 @@ export const TRANSCRIPTS: Record<string, SessionEvent[]> = {
       part: {
         kind: "markdown",
         id: "a1",
-        text: "Sure. A few options:\n\n1. A **filter chip** row under the title.\n2. An **icon toggle** in the app bar.\n3. Keep it, but style it as a segmented control.\n\nWant me to prototype option 1 in the playground?",
+        text: "Sure — let me prototype option 1 (a **filter chip** row). I'll find where the checkbox lives, move it, and run the tests.",
+      },
+    },
+    {
+      type: "append",
+      seq: 2,
+      part: {
+        kind: "thinking",
+        id: "t1",
+        text: "Locating the read-only checkbox in the app bar…",
+      },
+    },
+    {
+      type: "append",
+      seq: 3,
+      part: {
+        kind: "toolCall",
+        id: "call-1",
+        name: "grep_search",
+        input: { query: "read-only" },
+        status: "done",
+      },
+    },
+    {
+      type: "append",
+      seq: 4,
+      part: {
+        kind: "toolCall",
+        id: "call-2",
+        name: "read_file",
+        input: { path: "packages/web/src/App.tsx", startLine: 1, endLine: 40 },
+        status: "done",
+      },
+    },
+    {
+      type: "append",
+      seq: 5,
+      part: {
+        kind: "toolCall",
+        id: "call-3",
+        name: "replace_string_in_file",
+        input: { filePath: "packages/web/src/App.tsx" },
+        status: "done",
+      },
+    },
+    {
+      type: "append",
+      seq: 6,
+      part: {
+        kind: "toolCall",
+        id: "call-4",
+        name: "run_in_terminal",
+        input: { command: "pnpm --filter @cloakcode/web test" },
+        status: "error",
+      },
+    },
+    {
+      type: "append",
+      seq: 7,
+      part: {
+        kind: "markdown",
+        id: "a2",
+        text: "The snapshot for the app bar failed (expected — the checkbox moved). Updating it and re-running.",
+      },
+    },
+    {
+      type: "append",
+      seq: 8,
+      part: {
+        kind: "toolCall",
+        id: "call-5",
+        name: "run_in_terminal",
+        input: { command: "pnpm --filter @cloakcode/web test -u" },
+        status: "running",
       },
     },
   ],
@@ -169,6 +242,39 @@ export const TRANSCRIPTS: Record<string, SessionEvent[]> = {
         name: "read_file",
         input: { path: "packages/extension/src/scanner.ts" },
         status: "done",
+      },
+    },
+    {
+      type: "append",
+      seq: 3,
+      part: {
+        kind: "toolCall",
+        id: "call-2",
+        name: "replace_string_in_file",
+        input: { filePath: "packages/extension/src/scanner.ts" },
+        status: "done",
+      },
+    },
+    {
+      type: "append",
+      seq: 4,
+      part: {
+        kind: "markdown",
+        id: "a2",
+        text: "Patched the storage-root derivation. I'd like to verify it against your real user-data dir — this reads outside the workspace, so it needs your approval.",
+      },
+    },
+    {
+      type: "append",
+      seq: 5,
+      part: {
+        kind: "toolCall",
+        id: "call-3",
+        name: "run_in_terminal",
+        input: {
+          command: "ls '%APPDATA%/Code/User/workspaceStorage'",
+        },
+        status: "running",
       },
     },
   ],
@@ -258,6 +364,19 @@ export const PENDING: Record<string, PendingBlocker[]> = {
           allowFreeform: true,
         },
       ],
+    },
+  ],
+  // A tool-call APPROVAL blocker (no `confirmations`; `awaitingDecision` set) —
+  // CloakCode is holding the running `run_in_terminal` call, so the client shows
+  // the Approve/Allow/Deny action block for the same command the transcript is
+  // running. `input` carries the raw command the approval summary renders.
+  "33333333-3333-4333-8333-333333333333": [
+    {
+      toolCallId: "call-3",
+      toolName: "run_in_terminal",
+      createdAt: new Date().toISOString(),
+      awaitingDecision: true,
+      input: { command: "ls '%APPDATA%/Code/User/workspaceStorage'" },
     },
   ],
 };
