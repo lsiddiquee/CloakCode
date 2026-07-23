@@ -1,4 +1,5 @@
 import * as http from "node:http";
+import * as https from "node:https";
 import * as path from "node:path";
 import { readFile } from "node:fs/promises";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -67,10 +68,33 @@ export interface GatewayOptions {
    * (e.g. office vs home). Omit for the embedded bridge.
    */
   instanceId?: string;
+  /**
+   * Optional product-owned native TLS (docs/04 "Closing the gap", docs/05). When
+   * set, the gateway serves a **second, dedicated `wss://` listener** for direct
+   * providers (its loopback HTTP listener is unchanged — coexistence model B).
+   * The `fingerprint` is the SHA-256 pin the extension verifies; the `key` is a
+   * secret (never logged). Material comes from {@link resolveTlsMaterial}.
+   */
+  tls?: {
+    /** Port for the `wss://` listener (its own port, e.g. `CLOAKCODE_TLS_PORT`). */
+    port: number;
+    /** PEM certificate served to providers. */
+    cert: string;
+    /** PEM private key — a secret; never logged. */
+    key: string;
+    /** SHA-256 fingerprint of the cert (the pin), surfaced to the operator. */
+    fingerprint: string;
+    /** Fall back to an ephemeral port if `port` is busy. */
+    fallbackToEphemeral?: boolean;
+  };
 }
 
 export interface Gateway {
   readonly port: number;
+  /** Port of the `wss://` listener when native TLS is enabled (else `undefined`). */
+  readonly tlsPort?: number;
+  /** SHA-256 cert fingerprint (the pin) when native TLS is enabled. */
+  readonly fingerprint?: string;
   readonly registry: ProviderRegistry;
   /**
    * Publish the gateway's phone-reachable URL (the tunnel it owns) to every
@@ -103,7 +127,10 @@ export async function startGateway(
   // Set by the runner once the tunnel is up (setPhoneUrl); absent until then.
   let phoneUrl: string | undefined;
 
-  const server = http.createServer((req, res) => {
+  const requestListener = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): void => {
     if (!serveDir) {
       res.writeHead(426, { "content-type": "text/plain; charset=utf-8" });
       res.end("CloakCode gateway: WebSocket only");
@@ -133,13 +160,20 @@ export async function startGateway(
         res.writeHead(err?.code === "ENOENT" ? 404 : 500).end();
       },
     );
-  });
+  };
+
+  const server = http.createServer(requestListener);
 
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
   });
-  server.on("upgrade", (req, socket, head) => {
+  // Shared upgrade gate for BOTH listeners (loopback HTTP + the optional wss).
+  const handleUpgrade = (
+    req: http.IncomingMessage,
+    socket: import("node:stream").Duplex,
+    head: Buffer,
+  ): void => {
     if (
       !isAllowedUpgrade({
         origin: req.headers.origin,
@@ -155,7 +189,20 @@ export async function startGateway(
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
     );
-  });
+  };
+  server.on("upgrade", handleUpgrade);
+
+  // Optional dedicated `wss://` listener for direct providers (coexistence model
+  // B — the loopback HTTP listener above is untouched). Same WebSocketServer, so
+  // the knock/hello/relay path is identical; only the transport is encrypted.
+  let tlsServer: https.Server | undefined;
+  if (opts.tls) {
+    tlsServer = https.createServer(
+      { cert: opts.tls.cert, key: opts.tls.key },
+      requestListener,
+    );
+    tlsServer.on("upgrade", handleUpgrade);
+  }
 
   const relay = new Relay();
 
@@ -276,8 +323,22 @@ export async function startGateway(
     opts.fallbackToEphemeral ?? false,
   );
 
+  // Bind the optional wss listener after the HTTP one so a TLS failure never
+  // takes down the (proven) tunnelled-PWA path.
+  let tlsPort: number | undefined;
+  if (opts.tls && tlsServer) {
+    tlsPort = await listenWithFallback(
+      tlsServer,
+      host,
+      opts.tls.port,
+      opts.tls.fallbackToEphemeral ?? false,
+    );
+  }
+
   return {
     port: boundPort,
+    ...(tlsPort !== undefined ? { tlsPort } : {}),
+    ...(opts.tls ? { fingerprint: opts.tls.fingerprint } : {}),
     registry,
     setPhoneUrl(url) {
       phoneUrl = url;
@@ -289,7 +350,12 @@ export async function startGateway(
     close: () =>
       new Promise<void>((resolve) => {
         for (const client of wss.clients) client.terminate();
-        wss.close(() => server.close(() => resolve()));
+        wss.close(() => {
+          server.close(() => {
+            if (tlsServer) tlsServer.close(() => resolve());
+            else resolve();
+          });
+        });
       }),
   };
 }

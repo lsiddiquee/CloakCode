@@ -18,6 +18,9 @@
  *   CLOAKCODE_MFA_SECRET_FILE  where the base32 TOTP secret persists; default ~/.cloakcode/operator-totp.secret
  *   CLOAKCODE_MFA_ENROL      browser (default) | strict — strict never reveals the secret over the wire; the QR shows only on a TTY (never docker logs), else the 0600 secret file
  *   CLOAKCODE_MFA_RESET      1 → regenerate the secret (lockout recovery) and re-enter enrolment
+ *   CLOAKCODE_TLS_PORT       enable a dedicated wss:// provider listener on this port (unset → off; loopback HTTP is unchanged)
+ *   CLOAKCODE_TLS_CERT_FILE  BYO PEM cert for wss (with _KEY_FILE); unset → auto self-signed pair persisted under ~/.cloakcode
+ *   CLOAKCODE_TLS_KEY_FILE   BYO PEM private key for wss (with _CERT_FILE); a 0600 secret, never logged
  *
  * Security: the provider↔gateway token authenticates extensions; operator
  * (phone) access is gated by **TOTP** when exposed (F2a). Still keep an
@@ -43,6 +46,7 @@ import {
   persistConfirmed,
   resolveSecretFile,
 } from "./operator-secret.js";
+import { resolveTlsMaterial } from "./tls.js";
 import { qrTerminal } from "./qr-terminal.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
@@ -110,6 +114,28 @@ const logger = createConsoleLogger({
   ...(logFile ? { logFile } : {}),
 });
 
+// Optional product-owned native TLS for the direct provider link (docs/04/05).
+// CLOAKCODE_TLS_PORT is the switch; the cert is BYO (CERT_FILE+KEY_FILE) or an
+// auto self-signed pair persisted beside the operator secret (~/.cloakcode). The
+// private key is a 0600 secret; only the public fingerprint (the pin) is shown.
+const tlsPort = parseTlsPort(process.env["CLOAKCODE_TLS_PORT"]);
+let tls:
+  { port: number; cert: string; key: string; fingerprint: string } | undefined;
+if (tlsPort !== undefined) {
+  const material = await resolveTlsMaterial({
+    certFile: process.env["CLOAKCODE_TLS_CERT_FILE"],
+    keyFile: process.env["CLOAKCODE_TLS_KEY_FILE"],
+    storeDir: dirname(resolveSecretFile(process.env)),
+    host,
+  });
+  tls = {
+    port: tlsPort,
+    cert: material.cert,
+    key: material.key,
+    fingerprint: material.fingerprint,
+  };
+}
+
 const gateway = await startGateway({
   host,
   port: portPlan.port,
@@ -119,6 +145,7 @@ const gateway = await startGateway({
   ...(serveDir ? { serveDir } : {}),
   ...(token ? { token } : {}),
   ...(operatorAuth ? { operatorAuth } : {}),
+  ...(tls ? { tls } : {}),
 });
 logger.info("gateway.start", { instanceId: seed });
 console.log(
@@ -201,6 +228,26 @@ for (const { url, label } of connectionUrls(host, gateway.port, interfaces)) {
   console.log(`[cloakcode-gateway]   ${url.padEnd(34)} ${label}`);
 }
 
+// Native TLS (wss) status. The cert FINGERPRINT is public (the pin — integrity,
+// not secrecy), so it's safe to print as the console fallback for pairing an
+// extension; the private key is never printed. The PWA "Connect an extension"
+// view is the primary, out-of-band delivery channel (docs/04/05).
+if (gateway.tlsPort !== undefined && gateway.fingerprint) {
+  console.log(
+    `[cloakcode-gateway] native TLS (wss): ON — dedicated provider listener on ${host}:${gateway.tlsPort}`,
+  );
+  for (const { url } of connectionUrls(host, gateway.tlsPort, interfaces)) {
+    console.log(
+      `[cloakcode-gateway]   ${url.replace(/^ws:/, "wss:").padEnd(34)} (pin the fingerprint below)`,
+    );
+  }
+  console.log(`[cloakcode-gateway]   cert fingerprint (SHA-256 pin):`);
+  console.log(`[cloakcode-gateway]     ${gateway.fingerprint}`);
+  console.log(
+    `[cloakcode-gateway]   set cloakcode.gatewayCertFingerprint to that pin (or point cloakcode.gatewayCaFile at the cert).`,
+  );
+}
+
 if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
   try {
     const tunnel = await startDevTunnel(
@@ -227,3 +274,20 @@ const shutdown = (): void => {
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+/**
+ * Parse `CLOAKCODE_TLS_PORT`: unset/blank → `undefined` (native TLS off); a valid
+ * `0-65535` → that port (the wss listener; `0` picks ephemeral). A non-numeric or
+ * out-of-range value fails loud rather than silently disabling TLS. Hoisted.
+ */
+function parseTlsPort(raw: string | undefined): number | undefined {
+  const v = (raw ?? "").trim();
+  if (!v) return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 65535) {
+    throw new Error(
+      `CLOAKCODE_TLS_PORT must be a port 0-65535, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return n;
+}

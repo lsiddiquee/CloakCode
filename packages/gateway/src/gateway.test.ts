@@ -1,8 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, type ClientOptions } from "ws";
 import { Secret } from "otpauth";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startGateway, type Gateway } from "./gateway.js";
 import { OperatorAuth } from "./operator-auth.js";
+import { resolveTlsMaterial } from "./tls.js";
 import {
   createLogger,
   type LogRecord,
@@ -35,8 +39,8 @@ function summary(
   };
 }
 
-function open(url: string): Promise<WebSocket> {
-  const ws = new WebSocket(url);
+function open(url: string, opts?: ClientOptions): Promise<WebSocket> {
+  const ws = new WebSocket(url, opts);
   return new Promise((resolve, reject) => {
     ws.once("open", () => resolve(ws));
     ws.once("error", reject);
@@ -61,8 +65,9 @@ async function waitFor(pred: () => boolean, ms = 1000): Promise<void> {
 async function openProvider(
   url: string,
   instanceId: string,
+  opts?: ClientOptions,
 ): Promise<WebSocket> {
-  const ws = await open(url);
+  const ws = await open(url, opts);
   ws.send(JSON.stringify({ type: "cloakcode.hello", role: "provider" }));
   await nextMessage(ws); // the gateway's answering knock
   ws.send(
@@ -80,8 +85,9 @@ async function fakeProvider(
   url: string,
   instanceId: string,
   sessions: SessionSummary[],
+  opts?: ClientOptions,
 ): Promise<WebSocket> {
-  const ws = await openProvider(url, instanceId);
+  const ws = await openProvider(url, instanceId, opts);
   ws.on("message", (raw) => {
     const req = JSON.parse(raw.toString());
     if (req.op === "sessions.list") {
@@ -569,5 +575,84 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     );
     expect(await nextMessage(ws)).toEqual({ type: "provider.auth_required" });
     expect(gw!.registry.all().length).toBe(0);
+  });
+});
+
+describe("startGateway native TLS (C2 — the wss provider listener)", () => {
+  const tmpDirs: string[] = [];
+  const tlsMaterial = async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cc-gw-tls-"));
+    tmpDirs.push(dir);
+    return resolveTlsMaterial({ storeDir: dir });
+  };
+  afterEach(() => {
+    for (const d of tmpDirs.splice(0))
+      rmSync(d, { recursive: true, force: true });
+  });
+
+  it("serves a second wss listener and exposes the tlsPort + fingerprint pin", async () => {
+    const mat = await tlsMaterial();
+    gw = await startGateway({
+      port: 0,
+      tls: {
+        port: 0,
+        cert: mat.cert,
+        key: mat.key,
+        fingerprint: mat.fingerprint,
+      },
+    });
+
+    expect(gw.tlsPort).toBeGreaterThan(0);
+    expect(gw.tlsPort).not.toBe(gw.port); // a distinct, dedicated listener
+    expect(gw.fingerprint).toBe(mat.fingerprint);
+  });
+
+  it("shares one registry across both listeners: a wss provider is visible to a ws operator", async () => {
+    const mat = await tlsMaterial();
+    gw = await startGateway({
+      port: 0,
+      tls: {
+        port: 0,
+        cert: mat.cert,
+        key: mat.key,
+        fingerprint: mat.fingerprint,
+      },
+    });
+
+    // A provider connects over wss, trusting the self-signed cert as its CA
+    // (rejectUnauthorized stays on; the hostname check is what the pin replaces).
+    const provider = await fakeProvider(
+      `wss://127.0.0.1:${gw.tlsPort}`,
+      "i1",
+      [summary("i1", "s1", true)],
+      { ca: mat.cert, checkServerIdentity: () => undefined },
+    );
+    await waitFor(() => gw!.registry.forInstance("i1").length === 1);
+
+    // An operator on the plain loopback listener sees the wss provider's session.
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    operator.send(JSON.stringify({ id: "1", op: "sessions.list", params: {} }));
+    const res = await nextMessage(operator);
+    expect(res["ok"]).toBe(true);
+    expect(res["result"] as SessionSummary[]).toHaveLength(1);
+
+    provider.close();
+    operator.close();
+  });
+
+  it("refuses a wss client that does not trust the cert (rejectUnauthorized on)", async () => {
+    const mat = await tlsMaterial();
+    gw = await startGateway({
+      port: 0,
+      tls: {
+        port: 0,
+        cert: mat.cert,
+        key: mat.key,
+        fingerprint: mat.fingerprint,
+      },
+    });
+    // No `ca` → the self-signed cert is untrusted → the TLS handshake errors
+    // (we never fall back to an unverified socket).
+    await expect(open(`wss://127.0.0.1:${gw.tlsPort}`)).rejects.toThrow();
   });
 });
