@@ -395,6 +395,16 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     // Refused once enrolment is confirmed (the secret is never re-revealed).
     params: z.object({}).optional(),
   }),
+  z.object({
+    id: z.string(),
+    traceId: z.string().optional(),
+    op: z.literal("gateway.connectInfo"),
+    // The authenticated operator (PWA) asks how to pair an EXTENSION with this
+    // gateway's native-TLS (wss) provider listener (docs/04 "Closing the gap",
+    // C4): the reachable wss:// URLs, the SHA-256 fingerprint pin, and the cert
+    // PEM (for `cloakcode.gatewayCaFile`). All public — no secret is returned.
+    params: z.object({}).optional(),
+  }),
 ]);
 export type RpcRequest = z.infer<typeof rpcRequestSchema>;
 
@@ -445,6 +455,36 @@ export const enrolBeginResponseSchema = z.object({
   secret: z.string().optional(),
 });
 export type EnrolBeginResponse = z.infer<typeof enrolBeginResponseSchema>;
+
+/**
+ * Result of `gateway.connectInfo` (C4): everything an operator needs to pair an
+ * **extension** with the gateway's native-TLS provider listener. All fields are
+ * **public** (the fingerprint is an integrity pin, the cert is public; the
+ * private key is never included). `available: false` when native TLS is off —
+ * the operator should use an overlay/reverse-proxy or a plain `ws://` link.
+ */
+export const gatewayConnectInfoSchema = z.object({
+  /** True when the gateway serves a `wss://` provider listener. */
+  available: z.boolean(),
+  /** Reachable `wss://host:port` URLs for `cloakcode.gatewayUrl`, best-first. */
+  urls: z.array(z.string()).default([]),
+  /** SHA-256 cert fingerprint (the pin) for `cloakcode.gatewayCertFingerprint`. */
+  fingerprint: z.string().optional(),
+  /** The gateway's TLS certificate PEM for `cloakcode.gatewayCaFile` (public). */
+  certPem: z.string().optional(),
+});
+export type GatewayConnectInfo = z.infer<typeof gatewayConnectInfoSchema>;
+
+/** Successful `gateway.connectInfo` response. */
+export const gatewayConnectInfoResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("gateway.connectInfo"),
+  result: gatewayConnectInfoSchema,
+});
+export type GatewayConnectInfoResponse = z.infer<
+  typeof gatewayConnectInfoResponseSchema
+>;
 
 /** Successful `sessions.list` response. */
 export const sessionsListResponseSchema = z.object({

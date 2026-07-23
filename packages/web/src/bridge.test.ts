@@ -5,6 +5,7 @@ import {
   bridgeUrl,
   type ConnState,
   decideSession,
+  fetchConnectInfo,
   fetchSessions,
   respondSession,
   steerSession,
@@ -307,6 +308,54 @@ describe("fetchSessions", () => {
     const p = fetchSessions("ws://test/bridge");
     vi.advanceTimersByTime(5000);
     await expect(p).rejects.toThrow("timed out");
+  });
+});
+
+describe("fetchConnectInfo", () => {
+  it("sends gateway.connectInfo and resolves the validated result", async () => {
+    const p = fetchConnectInfo("ws://test/bridge");
+    socket(0).open();
+    expect(JSON.parse(socket(0).sent[0]!).op).toBe("gateway.connectInfo");
+    socket(0).message({
+      id: "x",
+      ok: true,
+      op: "gateway.connectInfo",
+      result: {
+        available: true,
+        urls: ["wss://192.168.1.10:7443"],
+        fingerprint: "AB:CD:EF",
+        certPem: "PEM",
+      },
+    });
+    await expect(p).resolves.toEqual({
+      available: true,
+      urls: ["wss://192.168.1.10:7443"],
+      fingerprint: "AB:CD:EF",
+      certPem: "PEM",
+    });
+  });
+
+  it("resolves available:false (urls default to []) when TLS is off", async () => {
+    const p = fetchConnectInfo("ws://test/bridge");
+    socket(0).open();
+    socket(0).message({
+      id: "x",
+      ok: true,
+      op: "gateway.connectInfo",
+      result: { available: false },
+    });
+    await expect(p).resolves.toEqual({ available: false, urls: [] });
+  });
+
+  it("raises needsAuth and rejects when the socket is unauthenticated", async () => {
+    const seen: boolean[] = [];
+    const off = onNeedsAuth(() => seen.push(true));
+    const p = fetchConnectInfo("ws://test/bridge");
+    socket(0).open();
+    socket(0).message({ id: "x", ok: false, needsAuth: true });
+    await expect(p).rejects.toThrow("authentication required");
+    expect(seen).toEqual([true]);
+    off();
   });
 });
 

@@ -10,6 +10,7 @@ import { resolveTlsMaterial } from "./tls.js";
 import {
   createLogger,
   type LogRecord,
+  type GatewayConnectInfo,
   type SessionSummary,
 } from "@cloakcode/protocol";
 
@@ -410,6 +411,16 @@ describe("startGateway operator auth (F2a — TOTP)", () => {
     operator.close();
   });
 
+  it("refuses gateway.connectInfo until authenticated (no cert served pre-auth)", async () => {
+    gw = await startGateway({ port: 0, operatorAuth: operatorAuth() });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    operator.send(JSON.stringify({ id: "ci", op: "gateway.connectInfo" }));
+    const res = await nextMessage(operator);
+    expect(res["ok"]).toBe(false);
+    expect(res["needsAuth"]).toBe(true);
+    operator.close();
+  });
+
   it("authenticates on a valid code, returns a token, then serves sessions.list", async () => {
     gw = await startGateway({ port: 0, operatorAuth: operatorAuth() });
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
@@ -654,5 +665,39 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     // No `ca` → the self-signed cert is untrusted → the TLS handshake errors
     // (we never fall back to an unverified socket).
     await expect(open(`wss://127.0.0.1:${gw.tlsPort}`)).rejects.toThrow();
+  });
+
+  it("serves gateway.connectInfo (available: pin + cert + wss urls) to the operator", async () => {
+    const mat = await tlsMaterial();
+    gw = await startGateway({
+      port: 0,
+      tls: {
+        port: 0,
+        cert: mat.cert,
+        key: mat.key,
+        fingerprint: mat.fingerprint,
+      },
+    });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    operator.send(JSON.stringify({ id: "ci", op: "gateway.connectInfo" }));
+    const res = await nextMessage(operator);
+    expect(res["ok"]).toBe(true);
+    const info = res["result"] as GatewayConnectInfo;
+    expect(info.available).toBe(true);
+    expect(info.fingerprint).toBe(mat.fingerprint);
+    expect(info.certPem).toBe(mat.cert);
+    expect(info.urls.length).toBeGreaterThan(0);
+    expect(info.urls.every((u) => u.startsWith("wss://"))).toBe(true);
+    operator.close();
+  });
+
+  it("reports connectInfo unavailable when native TLS is off", async () => {
+    gw = await startGateway({ port: 0 });
+    const operator = await open(`ws://127.0.0.1:${gw.port}`);
+    operator.send(JSON.stringify({ id: "ci", op: "gateway.connectInfo" }));
+    const res = await nextMessage(operator);
+    expect(res["ok"]).toBe(true);
+    expect((res["result"] as GatewayConnectInfo).available).toBe(false);
+    operator.close();
   });
 });

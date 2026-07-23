@@ -8,7 +8,9 @@ import {
   sessionAnswerResponseSchema,
   sessionSteerResponseSchema,
   sessionStopResponseSchema,
+  gatewayConnectInfoResponseSchema,
   type Decision,
+  type GatewayConnectInfo,
   type PendingBlocker,
   type QuestionAnswer,
   type SessionEvent,
@@ -107,6 +109,71 @@ export function fetchSessions(
           sessions: ok.data.result,
           ...(ok.data.gateway ? { gateway: ok.data.gateway } : {}),
         });
+        return;
+      }
+      const err = rpcErrorSchema.safeParse(raw);
+      reject(
+        new Error(err.success ? err.data.error.message : "unexpected response"),
+      );
+    });
+
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("cannot reach the bridge"));
+    });
+  });
+}
+
+/**
+ * One-shot `gateway.connectInfo` fetch (C4): how to pair an EXTENSION with the
+ * gateway's `wss://` provider listener — the reachable URLs, the SHA-256
+ * fingerprint pin, and the cert PEM (all public; the key is never sent). Refused
+ * with `needsAuth` until the operator is logged in — same auth prelude as the
+ * other ops. Mirrors {@link fetchSessions}.
+ */
+export function fetchConnectInfo(
+  url: string = bridgeUrl(),
+): Promise<GatewayConnectInfo> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const id = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("bridge timed out"));
+    }, 5000);
+
+    ws.addEventListener("open", () => {
+      sendAuthPrelude(ws);
+      ws.send(JSON.stringify({ id, op: "gateway.connectInfo" }));
+    });
+
+    ws.addEventListener("message", (ev) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(String(ev.data));
+      } catch (e) {
+        clearTimeout(timer);
+        ws.close();
+        reject(e instanceof Error ? e : new Error(String(e)));
+        return;
+      }
+      const kind = authKind(raw);
+      if (kind === "ack") return; // resume ack precedes the real reply; keep open
+      clearTimeout(timer);
+      ws.close();
+      if (kind === "needs") {
+        emitNeedsAuth();
+        reject(new Error("authentication required"));
+        return;
+      }
+      if (kind === "enrol") {
+        emitEnrolmentRequired();
+        reject(new Error("enrolment required"));
+        return;
+      }
+      const ok = gatewayConnectInfoResponseSchema.safeParse(raw);
+      if (ok.success) {
+        resolve(ok.data.result);
         return;
       }
       const err = rpcErrorSchema.safeParse(raw);

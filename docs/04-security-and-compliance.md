@@ -126,9 +126,9 @@ fingerprint" sketch. The `cloakcode.gatewayUrl`/`gatewayCaFile`/`gatewayCertFing
 `machine`-scoped (S4a), so a workspace cannot redirect or unpin the link.
 
 The cert + fingerprint are provisioned **out-of-band via the authenticated PWA** — a “Connect an
-extension” action behind the Dev Tunnel sign-in + operator TOTP (the web view is the remaining slice,
-C4; today the gateway prints the `wss://` URL + fingerprint to its console as the fallback). The PWA
-only _delivers_ the pin — the extension still verifies it. Explicitly **rejected**:
+extension” action behind the Dev Tunnel sign-in + operator TOTP (the `gateway.connectInfo` operator RPC
+→ the web view; the gateway also prints the `wss://` URL + fingerprint to its console as the fallback).
+The PWA only _delivers_ the cert + pin — the extension still verifies it. Explicitly **rejected**:
 `rejectUnauthorized:false`, blind first-connection **TOFU**, and advertising the pin over the same
 unverified socket. The fingerprint is public (integrity matters, not secrecy); the cert private key is
 a mode-`0600`, never-logged gateway secret. Full build-ready design in

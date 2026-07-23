@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import * as path from "node:path";
+import { networkInterfaces } from "node:os";
 import { readFile } from "node:fs/promises";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
@@ -13,6 +14,7 @@ import {
   RateLimiter,
   rpcRequestSchema,
   type CloakcodeHello,
+  type GatewayConnectInfo,
   type GatewayInfo,
   type Logger,
   type SessionSummary,
@@ -21,6 +23,7 @@ import { ProviderRegistry } from "./registry.js";
 import { WsProvider } from "./ws-provider.js";
 import { Relay } from "./relay.js";
 import { contentTypeFor, resolveStaticPath } from "./static-files.js";
+import { connectionUrls } from "./connect-urls.js";
 import { listenWithFallback } from "./listen.js";
 import { silentLogger } from "./console-logger.js";
 import { verifyProviderCredential } from "./auth.js";
@@ -126,6 +129,11 @@ export async function startGateway(
   // The hub's phone-reachable URL (its tunnel), pushed to providers as gateway.info.
   // Set by the runner once the tunnel is up (setPhoneUrl); absent until then.
   let phoneUrl: string | undefined;
+  // Connect-info the authenticated operator fetches to pair an extension over
+  // wss (C4). Populated after the TLS listener binds; `available:false` until/
+  // unless native TLS is on. Captured by the operator handler (a `let` so the
+  // post-bind value is visible).
+  let connectInfo: GatewayConnectInfo = { available: false, urls: [] };
 
   const requestListener = (
     req: http.IncomingMessage,
@@ -301,6 +309,7 @@ export async function startGateway(
           logger,
           gate,
           opts.instanceId,
+          connectInfo,
         );
       };
       socket.on("message", (m) => onOperatorFrame(m.toString()));
@@ -334,6 +343,21 @@ export async function startGateway(
       opts.tls.fallbackToEphemeral ?? false,
     );
   }
+
+  // Connect-info the authenticated operator (PWA) fetches to pair an extension
+  // over wss (C4). All public — the fingerprint is a pin, the cert is public;
+  // the key is never included. `available:false` when native TLS is off.
+  connectInfo =
+    opts.tls && tlsPort !== undefined
+      ? {
+          available: true,
+          urls: connectionUrls(host, tlsPort, networkInterfaces()).map(
+            ({ url }) => url.replace(/^ws:/i, "wss:"),
+          ),
+          fingerprint: opts.tls.fingerprint,
+          certPem: opts.tls.cert,
+        }
+      : { available: false, urls: [] };
 
   return {
     port: boundPort,
@@ -410,6 +434,7 @@ async function handleOperator(
   logger: Logger,
   gate: OperatorGate,
   instanceId?: string,
+  connectInfo?: GatewayConnectInfo,
 ): Promise<void> {
   let json: unknown;
   try {
@@ -462,6 +487,20 @@ async function handleOperator(
       ...(instanceId ? { gateway: instanceId } : {}),
     });
     logger.debug("rpc.sessions_list", { sessions: result.length });
+    return;
+  }
+  if (op === "gateway.connectInfo") {
+    // How to pair an EXTENSION with this gateway's wss provider listener (C4).
+    // Served only after the operator gate passed above; all fields are public.
+    send(socket, {
+      id,
+      ok: true,
+      op: "gateway.connectInfo",
+      result: connectInfo ?? { available: false, urls: [] },
+    });
+    logger.debug("rpc.connect_info", {
+      available: connectInfo?.available ?? false,
+    });
     return;
   }
   // Route by sessionId: the gateway learned each session's owning provider from

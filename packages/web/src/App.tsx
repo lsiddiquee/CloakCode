@@ -4,6 +4,7 @@ import { bridgeUrl, fetchSessions } from "./bridge";
 import { onEnrolmentRequired, onNeedsAuth } from "./auth";
 import { AuthPrompt } from "./AuthPrompt";
 import { EnrolView } from "./EnrolView";
+import { ConnectExtensionView } from "./ConnectExtensionView";
 import { dotClass, statusLabel } from "./format";
 import { groupByWorkspace, isOwnedGroup } from "./grouping";
 import { loadPrefs, savePrefs, type SessionListPrefs } from "./prefs";
@@ -20,6 +21,7 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<SessionSummary | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [enrolOpen, setEnrolOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
   const [prefs, setPrefs] = useState<SessionListPrefs>(() => loadPrefs());
 
   // Persist list preferences to the browser whenever they change.
@@ -88,6 +90,10 @@ export function App(): JSX.Element {
     return <SessionView session={selected} onBack={() => setSelected(null)} />;
   }
 
+  if (connectOpen) {
+    return <ConnectExtensionView onBack={() => setConnectOpen(false)} />;
+  }
+
   const connected = state.kind === "ready";
   const blockedCount =
     state.kind === "ready"
@@ -138,6 +144,14 @@ export function App(): JSX.Element {
                 setPrefs((p) => ({ ...p, showWorkspaceId: next }))
               }
             />
+            <button
+              type="button"
+              className="menu-action"
+              role="menuitem"
+              onClick={() => setConnectOpen(true)}
+            >
+              Connect an extension…
+            </button>
           </SettingsMenu>
         )}
         <button className="conn" onClick={() => void load()} title="Refresh">

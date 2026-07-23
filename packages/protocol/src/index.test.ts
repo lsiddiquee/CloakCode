@@ -14,6 +14,7 @@ import {
   sessionAnswerResponseSchema,
   sessionSteerResponseSchema,
   sessionStopResponseSchema,
+  gatewayConnectInfoResponseSchema,
   DEFAULT_PORT,
   MAX_RPC_TEXT_LEN,
   providerInfoSchema,
@@ -362,6 +363,14 @@ describe("rpcRequestSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("parses a gateway.connectInfo request (no params)", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "ci",
+      op: "gateway.connectInfo",
+    });
+    expect(parsed.op).toBe("gateway.connectInfo");
+  });
 });
 
 describe("sessionPartSchema", () => {
@@ -532,6 +541,31 @@ describe("response schemas", () => {
       gateway: "office",
     };
     expect(sessionsListResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a gateway.connectInfo response (available, with pin + cert)", () => {
+    const res = {
+      id: "ci",
+      ok: true as const,
+      op: "gateway.connectInfo" as const,
+      result: {
+        available: true,
+        urls: ["wss://192.168.1.10:7443"],
+        fingerprint: "AB:CD:EF",
+        certPem: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+      },
+    };
+    expect(gatewayConnectInfoResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a gateway.connectInfo response when TLS is off (available:false, urls default [])", () => {
+    const parsed = gatewayConnectInfoResponseSchema.parse({
+      id: "ci",
+      ok: true,
+      op: "gateway.connectInfo",
+      result: { available: false },
+    });
+    expect(parsed.result).toEqual({ available: false, urls: [] });
   });
 
   it("parses a session.subscribe event frame", () => {
