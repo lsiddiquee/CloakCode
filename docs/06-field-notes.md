@@ -219,6 +219,19 @@ Base: `~/.vscode-server/data/User/`
   LTS**, so a blanket major-ignore would wrongly block the next LTS bumps. 25 is the last non-LTS
   release (older odd 21/23 are EOL). When bumping the major manually, change **both** `FROM node:`
   stages in `packages/gateway/Dockerfile` (build + runtime) together.
+- **TypeScript stays on 5.x — the tsgo 7.x major is gated on typescript-eslint, not us (2026-07-23).**
+  `typescript@7.0.2` is now `latest` — the **Go-native ("tsgo") rewrite** with a different compiler
+  API. We can't adopt it while our type-aware linter **`typescript-eslint@8`** declares peer
+  `typescript: >=4.8.4 <6.1.0` (verified on the registry; `@typescript-eslint/typescript-estree`
+  carries the same cap): bumping past 5.x would break type-aware lint **and** introduce a
+  peer-dependency warning (a no-regression violation). So `.github/dependabot.yml` (npm ecosystem)
+  ignores **only the `typescript` majors** via `update-types: [version-update:semver-major]` — 5.x
+  minor/patch still auto-update. This is the **opposite** call from the Node-LTS note above (there we
+  ignore a _specific_ version, not the update-type) because here the block is the ecosystem peer cap,
+  not an LTS cadence: any TS major is gated until typescript-eslint widens its peer range. **Revisit
+  trigger:** the day a `typescript-eslint` release lands whose `typescript` peer covers the next TS
+  major — drop the ignore in that same change. Dependabot auto-closed the stale 5.9.3→7.0.2 PR once
+  the ignore hit `main`.
 - **No duplicate tool-version pins — run the tool from the project's dep manager (2026-07-22).**
   Dependabot has **no `pre-commit` ecosystem**, so a tool version living in a pre-commit `rev:` never
   gets a Dependabot PR. If that same tool is _also_ pinned elsewhere (e.g. ruff in both
@@ -365,4 +378,28 @@ Base: `~/.vscode-server/data/User/`
   Support/Code/User` / `~/.config/Code/User`), and `--user-data-dir` moves it again → a hardcoded
   path finds **0 sessions**. Derive the root from **`context.globalStorageUri`** (sibling
   `…/User/workspaceStorage`) instead. Both fixes are host-accurate with no `process.platform` check.
+- **GitHub Code Quality coverage is PLAN-gated — unavailable on a public/free repo, so we do NOT
+  upload (2026-07-23).** The `coverage` job in [ci.yml](../.github/workflows/ci.yml) once uploaded
+  Cobertura reports via `actions/upload-code-coverage` so `github-code-quality[bot]` could post a PR
+  coverage summary. On `lsiddiquee/CloakCode` (a **personal / public / free** repo) every upload
+  **404s** and the setting to enable it is **nowhere in repo/profile settings** — because **GitHub
+  Code Quality is only available on GitHub Enterprise Cloud and Team**, per the public-preview
+  changelog's _Availability and pricing_ (2026-05-26; the product went GA 2026-07-20). It is **not** a
+  rollout wait and **not** a permission problem — the `code-quality: write` permission is
+  necessary-but-not-sufficient; the gate is the **account tier**. The `code-scanning` default/advanced
+  setup type is **irrelevant** to it: Code Quality (coverage) and CodeQL (code scanning) are
+  **separate features**, so **switching CodeQL to default setup does NOT unlock coverage** — don't do
+  it hoping to (we stay on **advanced** CodeQL: [codeql.yml](../.github/workflows/codeql.yml),
+  `javascript-typescript` + `security-extended`). **Decision (2026-07-23): the upload steps + the
+  `code-quality: write` permission were REMOVED** rather than left masked with `fail-on-error: false`
+  — a permanently-404ing step behind a silent mask is exactly the kind of hidden CI failure we don't
+  carry. The **real** protection stays: the in-CI `pnpm -r test:coverage` **85% gate**
+  (statements/lines/functions; 75% branches) FAILS the job on a regression, independent of any upload.
+  The job was renamed `Coverage → Code Quality` → **`Coverage — 85% gate`** to match reality; that
+  string is a **required status check** on `main`, so branch protection's required-checks list was
+  updated in the same change (rename the job ⇒ update branch protection or PRs hang on a check that
+  never reports). **Revisit trigger:** the day this repo lives under a GitHub Enterprise Cloud/Team
+  org (or Code Quality reaches personal plans) — enable Code Quality in the repo's Code security
+  settings, then re-add the `actions/upload-code-coverage` steps + `code-quality: write` permission
+  (no `fail-on-error: false` mask — a real upload failure should fail CI).
   Details in docs/02.3 §4.27 + docs/02.4 §4.28.
