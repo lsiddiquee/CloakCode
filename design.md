@@ -9,7 +9,7 @@
 CloakCode lets you **watch and drive GitHub Copilot from your phone** while your code **never
 leaves your machine**. You keep using VS Code's own Copilot chat — select code to discuss, point
 at things, attach files or screenshots — and switch fluidly between the desktop and your phone.
-Only prompts and minimal, redacted context cross a private tunnel to _your_ infra — never GitHub.
+Only prompts and the mirror of Copilot's own transcript cross a private tunnel to _your_ infra — never GitHub or a third party (CloakCode adds no new egress; redacting the mirror is unnecessary by design — see below — and logs stay secret-free).
 
 ## Why (the pain)
 

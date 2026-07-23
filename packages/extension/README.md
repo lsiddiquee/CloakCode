@@ -1,8 +1,9 @@
 # CloakCode — drive GitHub Copilot from your phone
 
 **Watch, unblock, and steer your GitHub Copilot chat sessions from a phone (or another
-machine) — with _zero code-sync to GitHub_.** Your code never leaves your machine; only
-prompts and minimal, redacted context ever cross the bridge.
+machine) — with _zero code-sync to GitHub_.** Your code never leaves your machine; CloakCode adds
+**no new egress** — it mirrors Copilot's own transcript and relays your prompts to your devices, and
+never logs secrets or raw code.
 
 ## The problem
 

@@ -52,6 +52,15 @@ Design implications for an actuator that can stage/inject prompts:
   `remote-operator`, `cloakcode-staged` — end to end.
 - **Never let reflected/staged text be treated as trusted user intent.** The agent loop and
   the operator UI must both distinguish injected content from human input.
+- **Current status (drift audit B4 — honest scope).** Provenance is enforced **operationally**, not
+  yet **structurally**. The operator UI and the per-session action log distinguish `remote-operator`
+  / `cloakcode-staged` from human input, and the actuator only reaches VS Code through
+  provenance-tagged commands — but once VS Code **persists** an injected/steered message it is an
+  ordinary `user.message` on disk with **no carried tag**. So today's guarantee is "the actuator
+  reaches VS Code only via provenance-tagged commands + a tagged action-log record," **not** "every
+  persisted message carries a structural source label end to end." Structural per-message provenance
+  (a tag that survives into the transcript so the agent loop can hard-refuse reflected text) is
+  **post-MVP**.
 - **Destructive actions are Copilot's, gated by Copilot.** CloakCode inserts no processing layer;
   a destructive **tool** call is gated by VS Code's own native approval, which the operator
   allows/denies remotely (`session.decide`) — so there is no extra CloakCode confirm layer to add.

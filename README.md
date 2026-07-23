@@ -13,8 +13,8 @@
 
 CloakCode is a **local-to-remote bridge** that lets you observe and drive GitHub Copilot in your
 local VS Code from a **phone** (a React PWA) or another machine. Your code never syncs to GitHub or
-any third party — only prompts and minimal, redacted context ever cross the bridge, over a secure
-tunnel to your own devices.
+any third party — CloakCode adds **no new egress**: it mirrors Copilot's own chat transcript and
+relays your prompts over a secure tunnel to your own devices, and never logs secrets or raw code.
 
 You keep VS Code's own Copilot chat — the interactive session you prefer, where you select code, point
 at specific things, and attach files or screenshots — which has no remote of its own. CloakCode adds
@@ -26,7 +26,7 @@ GitHub, you want to bring your own models, or you just prefer the VS Code Copilo
 
 > **Status — M0 (dev experience + design).** The read/observe half (list sessions, live mirror,
 > blocker detection) is proven, and the answer/steer/stop actuator is wired end-to-end. The remaining
-> pre-release work is the **security core** (redaction/egress gate + bridge auth, M4). See
+> pre-release work is the **security core** (bounded-egress boundary + bridge auth/TLS, M4). See
 > [docs/05 — Roadmap](docs/05-roadmap-and-open-questions.md).
 
 ## Why it works

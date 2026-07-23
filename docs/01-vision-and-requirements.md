@@ -13,7 +13,7 @@ phone.
 Three core objectives:
 
 1. **Control Copilot** — use Copilot's models and agent behaviour locally via supported APIs.
-2. **Zero code-sync** — only prompts and minimal, redacted context ever traverse the bridge.
+2. **Zero code-sync** — CloakCode adds no new egress: it mirrors Copilot's own transcript and relays your prompts to your own devices; nothing extra is harvested, and logs never carry secrets or raw code.
 3. **Extensible remote controller** — groundwork for a command centre for remote operations from a local editor.
 
 ## Why it exists
