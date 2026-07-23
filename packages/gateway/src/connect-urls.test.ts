@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { NetworkInterfaceInfo } from "node:os";
-import { connectionUrls } from "./connect-urls.js";
+import { browserUrls, connectionUrls } from "./connect-urls.js";
 
 function v4(address: string, internal: boolean): NetworkInterfaceInfo {
   return {
@@ -65,5 +65,27 @@ describe("connectionUrls", () => {
     const urls = connectionUrls("192.168.1.50", 7900, {});
     expect(urls[0]?.url).toBe("ws://192.168.1.50:7900");
     expect(urls.map((u) => u.url)).toContain("ws://127.0.0.1:7900");
+  });
+});
+
+describe("browserUrls", () => {
+  it("converts usable wide-bind addresses to HTTP without advertising 0.0.0.0", () => {
+    const urls = browserUrls("0.0.0.0", 7900, {
+      lo: [v4("127.0.0.1", true)],
+      eth0: [v4("172.20.0.5", false)],
+    });
+
+    expect(urls.map((u) => u.url)).toEqual([
+      "http://127.0.0.1:7900",
+      "http://172.20.0.5:7900",
+      "http://host.docker.internal:7900",
+    ]);
+    expect(urls.some((u) => u.url.includes("0.0.0.0"))).toBe(false);
+  });
+
+  it("offers the loopback PWA URL for the default bind", () => {
+    expect(browserUrls("127.0.0.1", 7900, {})).toEqual([
+      { url: "http://127.0.0.1:7900", label: "same machine" },
+    ]);
   });
 });

@@ -70,7 +70,9 @@ installs [`task`](https://taskfile.dev), so run `task` (or `task --list`) to see
 | `task build` · `task check` | build all · full gate (typecheck + lint + test) |
 | `task package` | package everything — extension `.vsix` + assembled gateway |
 | `task extension:install` / `extension:uninstall` | install / remove the packaged extension (+ its Copilot hook) |
-| `task gateway:dev` · `task gateway:run -- --tunnel` | run the gateway (dev) · run the assembled hub with a tunnel |
+| `task gateway:dev -- --help` | list dev-gateway switches: `--devtunnel`, `--mfa`, `--bind`, `--port`, and optional `--instance-id` |
+| `task gateway:dev -- --devtunnel --mfa` | build + run the dev gateway with a private tunnel and operator TOTP |
+| `task gateway:run -- --tunnel` | run the assembled gateway with a private tunnel |
 | `task playground` · `task web:dev` | UI playground · PWA dev server |
 | `task docker:gateway` | build the gateway image — **run from your WSL/host** (Docker isn't in the container) |
 

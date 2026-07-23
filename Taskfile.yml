@@ -10,8 +10,6 @@
 version: "3"
 
 vars:
-  # Gateway dev listen port (the dev-container F5 flow expects ws://<host>:7900).
-  GATEWAY_PORT: '{{.GATEWAY_PORT | default "7900"}}'
   GATEWAY_DIST: "{{.TASKFILE_DIR}}/dist/gateway"
   EXT_DIST: "{{.TASKFILE_DIR}}/dist/extension"
 
@@ -90,16 +88,9 @@ tasks:
 
   # ── run ─────────────────────────────────────────────────────────────────
   gateway:dev:
-    desc: "⑥ Run the gateway from the workspace build (verbose), serving the local PWA — for dev."
-    env:
-      CLOAKCODE_WEB_DIR: "{{.TASKFILE_DIR}}/packages/web/dist"
-      CLOAKCODE_GATEWAY_PORT: "{{.GATEWAY_PORT}}"
-      CLOAKCODE_VERBOSE: "1"
+    desc: "⑥ Build + run the dev gateway. Options after --: --devtunnel, --mfa, --bind <address>, --port <number>, --instance-id <id>, --help."
     cmds:
-      - pnpm --filter @cloakcode/protocol build
-      - pnpm --filter @cloakcode/web build
-      - pnpm --filter @cloakcode/gateway bundle
-      - node "{{.TASKFILE_DIR}}/packages/gateway/dist/main.mjs"
+      - bash scripts/gateway-dev.sh {{.CLI_ARGS}}
 
   gateway:run:
     desc: "⑦ Run the assembled gateway (from ④) via its run.sh. Flags after -- (e.g. task gateway:run -- --tunnel)."

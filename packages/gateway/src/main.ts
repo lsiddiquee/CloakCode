@@ -28,7 +28,7 @@ import { networkInterfaces } from "node:os";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { connectionUrls } from "./connect-urls.js";
+import { browserUrls, connectionUrls } from "./connect-urls.js";
 import { createConsoleLogger, parseLogLevel } from "./console-logger.js";
 import { startGateway } from "./gateway.js";
 import { resolvePortPlan } from "./listen.js";
@@ -125,8 +125,10 @@ console.log(
   `[cloakcode-gateway] instance: ${seed} (authenticator label + tunnel seed + phone name)`,
 );
 console.log(
-  `[cloakcode-gateway] listening on ws://${host}:${gateway.port}` +
-    (serveDir ? ` (+ PWA from ${serveDir})` : " (WebSocket only)"),
+  `[cloakcode-gateway] listening on ${host}:${gateway.port}` +
+    (serveDir
+      ? ` (HTTP PWA + WebSocket; assets from ${serveDir})`
+      : " (WebSocket only)"),
 );
 if (logFile) {
   console.log(`[cloakcode-gateway] action log → ${logFile}`);
@@ -169,7 +171,7 @@ if (mfaOn && mfaSetup) {
       // Browser (Option A): open the PWA (phone URL below) to scan the QR and
       // verify a code — pairing happens in the app, no console QR needed.
       console.log(
-        "[cloakcode-gateway] open the app (phone URL below) to scan the QR and finish pairing.",
+        "[cloakcode-gateway] open one of the PWA browser URLs below to scan the QR and finish pairing.",
       );
     }
   }
@@ -179,16 +181,23 @@ if (mfaOn && mfaSetup) {
   );
 }
 
-// The URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where it
-// runs relative to this host (probed from the network interfaces).
+const interfaces = networkInterfaces();
+
+// HTTP URLs a browser can actually open. Never advertise `0.0.0.0`: for a wide
+// bind, browserUrls expands it to loopback + concrete interface addresses.
+if (serveDir) {
+  console.log("[cloakcode-gateway] open the PWA in a browser (HTTP):");
+  for (const { url, label } of browserUrls(host, gateway.port, interfaces)) {
+    console.log(`[cloakcode-gateway]   ${url.padEnd(36)} ${label}`);
+  }
+}
+
+// The WS URLs an extension can put in `cloakcode.gatewayUrl`, ranked by where
+// it runs relative to this host (probed from the same network interfaces).
 console.log(
   "[cloakcode-gateway] connect extensions with cloakcode.gatewayUrl:",
 );
-for (const { url, label } of connectionUrls(
-  host,
-  gateway.port,
-  networkInterfaces(),
-)) {
+for (const { url, label } of connectionUrls(host, gateway.port, interfaces)) {
   console.log(`[cloakcode-gateway]   ${url.padEnd(34)} ${label}`);
 }
 
@@ -199,7 +208,9 @@ if (process.env["CLOAKCODE_TUNNEL"] === "devtunnel") {
       devTunnelName(seed),
       (l) => console.log(`[devtunnel] ${l}`),
     );
-    console.log(`[cloakcode-gateway] phone URL: ${tunnel.url}`);
+    console.log(
+      `[cloakcode-gateway] PWA / phone URL (HTTPS, private Dev Tunnel): ${tunnel.url}`,
+    );
     console.log(qrTerminal(tunnel.url));
     gateway.setPhoneUrl(tunnel.url);
   } catch (err) {

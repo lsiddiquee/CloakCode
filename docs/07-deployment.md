@@ -119,7 +119,8 @@ host, and CI never drift:
 | `task extension:install` / `extension:uninstall` | install / remove the packaged extension (uninstall also drops the per-env Copilot hook) |
 | `task package:gateway` | assemble the copy-ready gateway → `dist/gateway/` (`main.mjs` + `web/` + `run.sh`) |
 | `task gateway:run -- --tunnel` | run the assembled gateway via its `run.sh` (opens a private tunnel) |
-| `task gateway:dev` | run the gateway from the workspace build (verbose) for local iteration |
+| `task gateway:dev -- --help` | list the dev switches (`--devtunnel`, `--mfa`, `--bind`, `--port`, optional `--instance-id`) |
+| `task gateway:dev -- --devtunnel --mfa` | build + run the dev gateway with a private tunnel and operator TOTP |
 | `task docker:gateway` | build (+ smoke-test) the gateway image — **run from your WSL/host**; Docker isn't in the dev container |
 
 `task docker:gateway` and `task gateway:run -- --tunnel` are the two you reach for when exposing a

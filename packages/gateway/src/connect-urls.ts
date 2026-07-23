@@ -50,3 +50,21 @@ export function connectionUrls(
 
   return urls;
 }
+
+/**
+ * Browser-facing PWA URLs for the same reachable addresses as
+ * {@link connectionUrls}. The gateway serves HTTP and WebSocket on one port;
+ * callers need `http://` for the page and `ws://` for provider connections.
+ * Reusing the ranked address list also avoids advertising wildcard
+ * `0.0.0.0`, which is a bind address rather than a browser destination.
+ */
+export function browserUrls(
+  host: string,
+  port: number,
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>,
+): ConnectUrl[] {
+  return connectionUrls(host, port, interfaces).map(({ url, label }) => ({
+    url: url.replace(/^ws:/, "http:"),
+    label,
+  }));
+}

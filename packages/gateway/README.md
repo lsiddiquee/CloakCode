@@ -20,7 +20,8 @@ connects to.
 npx @cloakcode/gateway
 ```
 
-Serves the PWA + hub on `ws://127.0.0.1:3543` and prints the URLs to point your extension at.
+Serves the PWA at `http://127.0.0.1:3543` and accepts extension providers at
+`ws://127.0.0.1:3543`, printing separate browser and extension URL lists.
 
 There are no CLI flags — the published bin (`cloakcode-gateway`) is configured entirely by
 **environment variables** set on the command line. The common ones:
