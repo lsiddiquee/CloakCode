@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from "react";
 import type { GatewayConnectInfo } from "@cloakcode/protocol";
-import { fetchConnectInfo } from "./bridge";
+import { fetchConnectInfo, isBridgeInsecure } from "./bridge";
+import { InsecureBanner } from "./InsecureBanner";
 
 type Phase =
   | { kind: "loading" }
@@ -39,15 +40,37 @@ function CopyButton({
 
 /** The settings an operator copies into the extension to pair it over wss. */
 function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
+  const aspects = [
+    ...(info.insecure
+      ? [
+          "The extension (provider) link is a plain ws:// connection — the provider token and the mirrored transcript cross the network in clear.",
+        ]
+      : []),
+    ...(isBridgeInsecure()
+      ? ["This phone’s own connection to the gateway is plain http/ws."]
+      : []),
+  ];
   return (
     <>
+      <InsecureBanner aspects={aspects} />
       <p className="hint">
-        Add these to the CloakCode <strong>extension</strong> settings in VS
-        Code to connect it to this gateway over an encrypted, pinned{" "}
-        <code>wss://</code> link. The{" "}
-        <strong>fingerprint pin is all you need</strong> for a self-signed
-        gateway; the certificate below is optional (stricter full-chain
-        validation):
+        {info.insecure ? (
+          <>
+            Add these to the CloakCode <strong>extension</strong> settings in VS
+            Code to connect it to this gateway over a plain <code>ws://</code>{" "}
+            link — <strong>not encrypted</strong>, so use it only on a trusted
+            network:
+          </>
+        ) : (
+          <>
+            Add these to the CloakCode <strong>extension</strong> settings in VS
+            Code to connect it to this gateway over an encrypted, pinned{" "}
+            <code>wss://</code> link. The{" "}
+            <strong>fingerprint pin is all you need</strong> for a self-signed
+            gateway; the certificate below is optional (stricter full-chain
+            validation):
+          </>
+        )}
       </p>
       <ol className="connect-steps">
         <li>
@@ -103,11 +126,13 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
           </li>
         )}
       </ol>
-      <p className="hint dim">
-        The fingerprint is a public integrity pin and the certificate is public
-        — neither is a secret. The extension verifies the pin on every
-        connection and refuses a mismatch.
-      </p>
+      {!info.insecure && (
+        <p className="hint dim">
+          The fingerprint is a public integrity pin and the certificate is
+          public — neither is a secret. The extension verifies the pin on every
+          connection and refuses a mismatch.
+        </p>
+      )}
     </>
   );
 }

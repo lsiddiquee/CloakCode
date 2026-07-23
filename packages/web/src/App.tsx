@@ -1,10 +1,11 @@
 import { useEffect, useState, type JSX } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
-import { bridgeUrl, fetchSessions } from "./bridge";
+import { bridgeUrl, fetchSessions, isBridgeInsecure } from "./bridge";
 import { onEnrolmentRequired, onNeedsAuth } from "./auth";
 import { AuthPrompt } from "./AuthPrompt";
 import { EnrolView } from "./EnrolView";
 import { ConnectExtensionView } from "./ConnectExtensionView";
+import { InsecureBanner } from "./InsecureBanner";
 import { dotClass, statusLabel } from "./format";
 import { groupByWorkspace, isOwnedGroup } from "./grouping";
 import { loadPrefs, savePrefs, type SessionListPrefs } from "./prefs";
@@ -159,6 +160,16 @@ export function App(): JSX.Element {
           {connected ? "connected" : "reconnect"}
         </button>
       </header>
+
+      <InsecureBanner
+        aspects={
+          isBridgeInsecure()
+            ? [
+                "This phone’s connection to the gateway is plain http/ws (no tunnel) — anyone on this network can read the session transcript and the answers you send.",
+              ]
+            : []
+        }
+      />
 
       <main className="content">
         {state.kind === "loading" && (

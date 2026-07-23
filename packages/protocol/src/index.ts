@@ -467,16 +467,21 @@ export type EnrolBeginResponse = z.infer<typeof enrolBeginResponseSchema>;
 
 /**
  * Result of `gateway.connectInfo` (C4): everything an operator needs to pair an
- * **extension** with the gateway's native-TLS provider listener. All fields are
+ * **extension** with the gateway's dedicated provider listener. All fields are
  * **public** (the fingerprint is an integrity pin, the cert is public; the
- * private key is never included). `available: false` when native TLS is off —
- * the operator should use an overlay/reverse-proxy or a plain `ws://` link.
+ * private key is never included). `available` is true whenever the provider
+ * listener exists (now always). `insecure` is true when that listener is an
+ * **unencrypted** plain `ws://` (the `CLOAKCODE_PROVIDER_INSECURE` opt-in) — then
+ * there is no `fingerprint`/`certPem` and the `urls` are `ws://`; the UI warns
+ * (a confidentiality loss, not an access one — docs/04 insecure mode).
  */
 export const gatewayConnectInfoSchema = z.object({
-  /** True when the gateway serves a `wss://` provider listener. */
+  /** True when the gateway exposes a provider listener (now always). */
   available: z.boolean(),
-  /** Reachable `wss://host:port` URLs for `cloakcode.gatewayUrl`, best-first. */
+  /** Reachable provider URLs for `cloakcode.gatewayUrl`, best-first (wss or ws). */
   urls: z.array(z.string()).default([]),
+  /** True when the provider listener is an unencrypted plain `ws://` (warned). */
+  insecure: z.boolean().default(false),
   /** SHA-256 cert fingerprint (the pin) for `cloakcode.gatewayCertFingerprint`. */
   fingerprint: z.string().optional(),
   /** The gateway's TLS certificate PEM for `cloakcode.gatewayCaFile` (public). */

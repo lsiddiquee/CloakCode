@@ -382,6 +382,52 @@ button.group-label {
   background: var(--red);
 }
 
+/* Insecure-mode warning (docs/04): an expandable, confidentiality-worded banner. */
+.insecure-banner {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #fff;
+  background: var(--amber);
+  border-bottom: 1px solid var(--border);
+}
+.insecure-banner > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  list-style: none;
+}
+.insecure-banner > summary::-webkit-details-marker {
+  display: none;
+}
+.insecure-badge {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.insecure-list {
+  margin: 8px 0 4px;
+  padding-left: 20px;
+}
+.insecure-list li {
+  margin: 2px 0;
+}
+.insecure-note {
+  margin: 6px 0 2px;
+  opacity: 0.92;
+}
+.insecure-note code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
 .hint {
   color: var(--muted);
   font-size: 13px;

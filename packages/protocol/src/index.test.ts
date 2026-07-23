@@ -551,7 +551,7 @@ describe("response schemas", () => {
     expect(sessionsListResponseSchema.parse(res)).toEqual(res);
   });
 
-  it("parses a gateway.connectInfo response (available, with pin + cert)", () => {
+  it("parses a gateway.connectInfo response (available, secure, with pin + cert)", () => {
     const res = {
       id: "ci",
       ok: true as const,
@@ -559,6 +559,7 @@ describe("response schemas", () => {
       result: {
         available: true,
         urls: ["wss://192.168.1.10:7443"],
+        insecure: false,
         fingerprint: "AB:CD:EF",
         certPem: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
       },
@@ -566,14 +567,36 @@ describe("response schemas", () => {
     expect(gatewayConnectInfoResponseSchema.parse(res)).toEqual(res);
   });
 
-  it("parses a gateway.connectInfo response when TLS is off (available:false, urls default [])", () => {
+  it("parses a gateway.connectInfo response for an INSECURE provider listener (ws, no pin)", () => {
+    const parsed = gatewayConnectInfoResponseSchema.parse({
+      id: "ci",
+      ok: true,
+      op: "gateway.connectInfo",
+      result: {
+        available: true,
+        urls: ["ws://192.168.1.10:3544"],
+        insecure: true,
+      },
+    });
+    expect(parsed.result).toEqual({
+      available: true,
+      urls: ["ws://192.168.1.10:3544"],
+      insecure: true,
+    });
+  });
+
+  it("defaults urls to [] and insecure to false when omitted", () => {
     const parsed = gatewayConnectInfoResponseSchema.parse({
       id: "ci",
       ok: true,
       op: "gateway.connectInfo",
       result: { available: false },
     });
-    expect(parsed.result).toEqual({ available: false, urls: [] });
+    expect(parsed.result).toEqual({
+      available: false,
+      urls: [],
+      insecure: false,
+    });
   });
 
   it("parses a session.subscribe event frame", () => {

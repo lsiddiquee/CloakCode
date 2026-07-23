@@ -330,6 +330,7 @@ describe("fetchConnectInfo", () => {
     await expect(p).resolves.toEqual({
       available: true,
       urls: ["wss://192.168.1.10:7443"],
+      insecure: false,
       fingerprint: "AB:CD:EF",
       certPem: "PEM",
     });
@@ -344,7 +345,11 @@ describe("fetchConnectInfo", () => {
       op: "gateway.connectInfo",
       result: { available: false },
     });
-    await expect(p).resolves.toEqual({ available: false, urls: [] });
+    await expect(p).resolves.toEqual({
+      available: false,
+      urls: [],
+      insecure: false,
+    });
   });
 
   it("raises needsAuth and rejects when the socket is unauthenticated", async () => {

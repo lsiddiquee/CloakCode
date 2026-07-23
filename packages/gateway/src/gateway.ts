@@ -154,7 +154,11 @@ export async function startGateway(
   // Connect-info the authenticated operator fetches to pair an extension with the
   // provider listener (C4). Populated after that listener binds (a `let` so the
   // post-bind value is visible to the operator handler).
-  let connectInfo: GatewayConnectInfo = { available: false, urls: [] };
+  let connectInfo: GatewayConnectInfo = {
+    available: false,
+    urls: [],
+    insecure: false,
+  };
 
   const requestListener = (
     req: http.IncomingMessage,
@@ -399,6 +403,7 @@ export async function startGateway(
   // separately) and the URLs keep the `ws://` scheme.
   connectInfo = {
     available: true,
+    insecure: !providerTls,
     urls: connectionUrls(
       providerHost,
       providerBoundPort,

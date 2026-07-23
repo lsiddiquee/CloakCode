@@ -10,7 +10,10 @@ import {
 const { fetchConnectInfoMock } = vi.hoisted(() => ({
   fetchConnectInfoMock: vi.fn(),
 }));
-vi.mock("./bridge", () => ({ fetchConnectInfo: fetchConnectInfoMock }));
+vi.mock("./bridge", () => ({
+  fetchConnectInfo: fetchConnectInfoMock,
+  isBridgeInsecure: () => false,
+}));
 
 import { ConnectExtensionView } from "./ConnectExtensionView";
 
@@ -34,6 +37,22 @@ describe("ConnectExtensionView", () => {
     expect(screen.getByText("AB:CD:EF")).toBeTruthy();
     const cert = screen.getByLabelText(/certificate/i) as HTMLTextAreaElement;
     expect(cert.value).toContain("BEGIN CERTIFICATE");
+  });
+
+  it("warns and shows a plain ws url when the provider listener is insecure", async () => {
+    fetchConnectInfoMock.mockResolvedValue({
+      available: true,
+      insecure: true,
+      urls: ["ws://192.168.1.10:3544"],
+    });
+    render(<ConnectExtensionView onBack={() => {}} />);
+
+    await screen.findByText("ws://192.168.1.10:3544");
+    // The insecure banner appears and names the provider-link exposure.
+    const banner = screen.getByRole("alert");
+    expect(banner.textContent).toMatch(/provider.*plain ws/i);
+    // No fingerprint pin is offered for a plain-ws listener.
+    expect(screen.queryByText("cloakcode.gatewayCertFingerprint")).toBeNull();
   });
 
   it("explains how to enable TLS when it is off", async () => {

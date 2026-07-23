@@ -50,6 +50,19 @@ export function bridgeUrl(): string {
 }
 
 /**
+ * True when the PWA's OWN link to the gateway is **unencrypted** — the page was
+ * served over plain `http` (so {@link bridgeUrl} is `ws://`), which happens when
+ * the operator listener is exposed off-loopback with no tunnel. A confidentiality
+ * signal for the UI's insecure-mode warning (docs/04): the transcript + answers
+ * cross the network in clear. Served over `https` (the tunnel) it is false.
+ */
+export function isBridgeInsecure(): boolean {
+  const override = import.meta.env["VITE_BRIDGE_URL"] as string | undefined;
+  if (override) return /^ws:/i.test(override);
+  return window.location.protocol !== "https:";
+}
+
+/**
  * Result of a `sessions.list` fetch: the session rows plus the optional display
  * name of the gateway that served them (a standalone hub reports its instance id
  * — office/home/hostname; the embedded bridge omits it).

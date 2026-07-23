@@ -700,6 +700,7 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     expect(res["ok"]).toBe(true);
     const info = res["result"] as GatewayConnectInfo;
     expect(info.available).toBe(true);
+    expect(info.insecure).toBe(false); // wss provider listener
     expect(info.fingerprint).toBe(mat.fingerprint);
     expect(info.certPem).toBe(mat.cert);
     expect(info.urls.length).toBeGreaterThan(0);
@@ -715,6 +716,7 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     expect(res["ok"]).toBe(true);
     const info = res["result"] as GatewayConnectInfo;
     expect(info.available).toBe(true); // the provider listener always exists
+    expect(info.insecure).toBe(true); // plain ws — unencrypted
     expect(info.fingerprint).toBeUndefined();
     expect(info.certPem).toBeUndefined();
     expect(info.urls.every((u) => u.startsWith("ws://"))).toBe(true);
