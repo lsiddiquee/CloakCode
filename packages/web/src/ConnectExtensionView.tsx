@@ -44,7 +44,10 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
       <p className="hint">
         Add these to the CloakCode <strong>extension</strong> settings in VS
         Code to connect it to this gateway over an encrypted, pinned{" "}
-        <code>wss://</code> link:
+        <code>wss://</code> link. The{" "}
+        <strong>fingerprint pin is all you need</strong> for a self-signed
+        gateway; the certificate below is optional (stricter full-chain
+        validation):
       </p>
       <ol className="connect-steps">
         <li>
@@ -69,6 +72,10 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
             <div className="connect-label">
               <code>cloakcode.gatewayCertFingerprint</code>
             </div>
+            <p className="hint dim">
+              For a self-signed gateway this pin is all you need — the extension
+              verifies the exact certificate and refuses a mismatch.
+            </p>
             <div className="connect-value">
               <code className="wrap">{info.fingerprint}</code>
               <CopyButton value={info.fingerprint} />
@@ -81,9 +88,9 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
               <code>cloakcode.gatewayCaFile</code>
             </div>
             <p className="hint dim">
-              Save this certificate to a file and point the setting at its path.
-              Needed for the auto self-signed cert; skip it if your gateway uses
-              a real / BYO CA.
+              Optional — the fingerprint above already pins a self-signed
+              gateway. Add this only for stricter full-chain validation; skip it
+              if your gateway uses a real / BYO CA.
             </p>
             <textarea
               className="connect-cert"

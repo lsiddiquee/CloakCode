@@ -280,20 +280,29 @@ the critical path.
      behind the Dev Tunnel sign-in **and** operator TOTP — exposes a **“Connect an extension”** action
      (`gateway.connectInfo` op) that shows the reachable `wss://<host>:<wssPort>` URL, the cert
      fingerprint, and the cert PEM for the operator to copy into `cloakcode.gatewayUrl` +
-     `cloakcode.gatewayCertFingerprint` (+ `cloakcode.gatewayCaFile` for a self-signed cert). The PWA
+     `cloakcode.gatewayCertFingerprint` (the fingerprint alone pins a self-signed gateway;
+     `cloakcode.gatewayCaFile` is optional, for stricter full-chain validation). The PWA
      is a _different, already-verified_ channel (tunnel TLS + operator auth), so this is legitimate
      out-of-band provisioning, not blind TOFU. **Console is the fallback** when no tunnel is up; a
      **BYO real-CA** gateway needs no CA file.
-  4. **The extension always verifies — CA-pin (the shipped refinement).** It keeps
-     `rejectUnauthorized: true` (never downgraded to `ws://` or an unverified socket). A self-signed
-     gateway's cert is trusted as a CA via `cloakcode.gatewayCaFile` so chain validation still holds;
-     `cloakcode.gatewayCertFingerprint` is then verified in `checkServerIdentity` (which Node calls
-     only _after_ CA validation), **replacing** the hostname check and **failing closed** on mismatch.
-     A **fingerprint alone is not a self-signed connect mode** — without the cert there is nothing to
-     validate against, so it fails closed (this refines the earlier "paste just a fingerprint" sketch,
-     which couldn't hold `rejectUnauthorized: true`). The PWA only _delivers_ the cert + pin; delivery
-     never substitutes for verification. Explicitly rejected: `rejectUnauthorized:false`, blind
-     first-connection TOFU, learning the pin over the unverified socket.
+  4. **The extension always verifies — two pin modes (`gateway-tls.ts`).**
+     - **Fingerprint-only (the low-friction default).** With just
+       `cloakcode.gatewayCertFingerprint`, the extension turns chain auth off
+       (`rejectUnauthorized:false`) and verifies the **exact cert fingerprint by hand** the instant the
+       socket opens — `guardFingerprintPin` **terminates before sending the knock/hello** on mismatch.
+       `checkServerIdentity` is ignored once auth is off (and a self-signed chain would fail before any
+       pin ran), so the manual check IS the verification; it also skips the hostname/SAN check a
+       bare-IP / `host.docker.internal` gateway can't satisfy. Pinning the exact cert is as strong as a
+       CA for a single known server (verified live; "Mechanism 2").
+     - **CA-pin (optional, stricter).** Adding `cloakcode.gatewayCaFile` keeps
+       `rejectUnauthorized: true`: the self-signed cert is trusted as a CA and the fingerprint pins it
+       in `checkServerIdentity` (called only _after_ chain validation). A **BYO real-CA** gateway needs
+       neither; with no pin and no CA we still fail closed against the system trust store.
+
+     The PWA only _delivers_ the cert + pin; delivery never substitutes for verification. Explicitly
+     rejected: blind first-connection TOFU and learning the pin over the unverified socket.
+     Fingerprint-only does set `rejectUnauthorized:false`, but only paired with the mandatory
+     exact-cert check that fails closed before any app data — a pin, not TOFU.
   5. **Coexistence = model B (two listeners).** The gateway keeps its **loopback HTTP** listener for
      the tunnelled PWA (Dev Tunnel terminates TLS at ingress → loopback, proven) **and** adds a
      **dedicated `wss://` listener** (its own port, e.g. `CLOAKCODE_TLS_PORT`) for direct providers.

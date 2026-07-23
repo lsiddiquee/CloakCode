@@ -404,8 +404,29 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
     ).rejects.toThrow();
   });
 
-  it("fails closed when a self-signed cert is not trusted (fingerprint alone, no CA)", async () => {
+  it("connects over wss with fingerprint-only pinning (no CA) — the easy path", async () => {
     const { fingerprint } = await startTlsGateway();
+    client = await connectGateway(
+      `wss://127.0.0.1:${gateway!.tlsPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined,
+      undefined,
+      { fingerprint }, // no caPem: the pin is the sole anchor, verified by hand
+    );
+    const [list] = await operator(
+      gateway!.port,
+      { id: "1", op: "sessions.list" },
+      1,
+    );
+    expect(list).toMatchObject({ id: "1", ok: true, op: "sessions.list" });
+    expect((list.result as SessionSummary[])[0]?.sessionId).toBe("sessE2E");
+  });
+
+  it("fails closed on a fingerprint-only mismatch (no CA)", async () => {
+    await startTlsGateway();
     await expect(
       connectGateway(
         `wss://127.0.0.1:${gateway!.tlsPort}`,
@@ -415,7 +436,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
         1200,
         undefined,
         undefined,
-        { fingerprint }, // no caPem → untrusted self-signed → rejectUnauthorized fails
+        { fingerprint: WRONG_PIN }, // no caPem: the manual verify rejects it
       ),
     ).rejects.toThrow();
   });

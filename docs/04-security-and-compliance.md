@@ -119,27 +119,38 @@ with no proxy, **optional product-owned native TLS**: the gateway serves `wss://
 listener** (`CLOAKCODE_TLS_PORT`; its loopback HTTP listener still backs the tunnelled PWA —
 coexistence model B), from an **auto-generated self-signed cert** persisted under `~/.cloakcode`
 (default) or an operator-supplied cert/key (`CLOAKCODE_TLS_CERT_FILE` / `_KEY_FILE`). The extension
-**keeps `rejectUnauthorized: true`** (never downgraded to `ws://` or an unverified socket) and pins the
-cert's **SHA-256 fingerprint** in `checkServerIdentity` (called only _after_ CA validation).
+verifies **which** server it reached before it sends anything, by pinning the cert's **SHA-256
+fingerprint** — two ways, below.
 
-**The delivered mechanism is a CA-pin** (`gateway-tls.ts` · drift audit S4b): because a self-signed
-cert fails default chain validation, the operator supplies it as a trusted anchor via
-`cloakcode.gatewayCaFile` — then `rejectUnauthorized: true` still holds, and the optional
-`cloakcode.gatewayCertFingerprint` is verified in `checkServerIdentity`, **replacing** the hostname
-check (a self-signed cert's identity is its pin, not its possibly-bare-IP SAN) and **failing closed**
-on mismatch. A gateway fronted by a **real/BYO CA** needs no CA file — the system trust store validates
-it (plus the fingerprint pin if provided). A **fingerprint alone is not a self-signed connect mode**:
-without the cert there is nothing to validate against, so the handshake fails closed (we never fall
-back to an unverified socket) — this is the deliberate refinement of the earlier "paste just a
-fingerprint" sketch. The `cloakcode.gatewayUrl`/`gatewayCaFile`/`gatewayCertFingerprint` settings are
-`machine`-scoped (S4a), so a workspace cannot redirect or unpin the link.
+**Two ways to trust the gateway** (`gateway-tls.ts` · drift audit S4b) — pick per what you configure:
+
+- **Fingerprint-only (the low-friction default).** Set just `cloakcode.gatewayCertFingerprint`.
+  Node's `rejectUnauthorized:true` would reject a self-signed chain _before_ any pin runs, and
+  `checkServerIdentity` is _ignored_ once auth is off — so this mode turns chain auth off and verifies
+  the **exact cert fingerprint by hand** the instant the socket opens, **terminating before it sends
+  the knock/hello** on mismatch (`guardFingerprintPin`, fail-closed). Pinning the exact cert is as
+  strong as a CA for a single known server, and it skips the hostname/SAN check a bare-IP /
+  `host.docker.internal` gateway can't satisfy. (Verified secure against the live gateway;
+  "Mechanism 2".)
+- **CA-pin (optional, stricter).** Additionally set `cloakcode.gatewayCaFile` to the gateway's cert:
+  full chain validation stays **on** (`rejectUnauthorized` never downgraded), the self-signed cert is
+  trusted as a CA, and the optional `cloakcode.gatewayCertFingerprint` is verified in
+  `checkServerIdentity` (which Node calls only _after_ chain validation).
+
+A gateway fronted by a **real/BYO CA** needs neither — the system trust store validates it (plus the
+fingerprint pin if provided). With **no pin and no CA** on a `wss://` URL we still fail closed
+(`rejectUnauthorized:true` against the system trust store; never an unverified socket). The
+`cloakcode.gatewayUrl`/`gatewayCaFile`/`gatewayCertFingerprint` settings are `machine`-scoped (S4a),
+so a workspace cannot redirect or unpin the link.
 
 The cert + fingerprint are provisioned **out-of-band via the authenticated PWA** — a “Connect an
 extension” action behind the Dev Tunnel sign-in + operator TOTP (the `gateway.connectInfo` operator RPC
 → the web view; the gateway also prints the `wss://` URL + fingerprint to its console as the fallback).
 The PWA only _delivers_ the cert + pin — the extension still verifies it. Explicitly **rejected**:
-`rejectUnauthorized:false`, blind first-connection **TOFU**, and advertising the pin over the same
-unverified socket. The fingerprint is public (integrity matters, not secrecy); the cert private key is
+blind first-connection **TOFU** (accepting whatever cert first appears) and advertising the pin over
+the same unverified socket. Fingerprint-only _does_ set `rejectUnauthorized:false`, but **only paired
+with a mandatory exact-cert fingerprint check that fails closed before any app data** — a pin, not
+trust-on-first-use. The fingerprint is public (integrity matters, not secrecy); the cert private key is
 a mode-`0600`, never-logged gateway secret. Full build-ready design in
 [docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md).
 

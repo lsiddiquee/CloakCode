@@ -13,7 +13,11 @@ import {
   type Connection,
 } from "./bridge.js";
 import { knockFrame, isGatewayKnock } from "./ws-knock.js";
-import { gatewayTlsOptions, type GatewayPinConfig } from "./gateway-tls.js";
+import {
+  gatewayTlsOptions,
+  guardFingerprintPin,
+  type GatewayPinConfig,
+} from "./gateway-tls.js";
 import { errorCode } from "./errors.js";
 
 export interface GatewayClient {
@@ -105,12 +109,36 @@ export function connectGateway(
       conn = c;
 
       let knocked = false;
-      s.on("open", () => {
-        attempt = 0;
-        // Phase 1: knock with no provider info — the gateway answers only if it
-        // is a real CloakCode gateway; only then do we send the full hello.
-        s.send(knockFrame("provider"));
-      });
+      guardFingerprintPin(
+        s,
+        url,
+        pin,
+        () => {
+          // Server verified (or not fingerprint-only) — safe to send.
+          attempt = 0;
+          // Phase 1: knock with no provider info — the gateway answers only if it
+          // is a real CloakCode gateway; only then do we send the full hello.
+          s.send(knockFrame("provider"));
+        },
+        () => {
+          // Fingerprint-only pin mismatch: fail closed. Do not knock/hello an
+          // unverified server, surface the reason, and do not reconnect-loop.
+          lastError = "GATEWAY_CERT_FINGERPRINT_MISMATCH";
+          log(
+            `gateway ${url} rejected: certificate fingerprint does not match the configured pin`,
+          );
+          closed = true;
+          if (!settled) {
+            settled = true;
+            clearTimeout(firstTimer);
+            reject(
+              new Error(
+                `gateway ${url} certificate fingerprint does not match the configured pin`,
+              ),
+            );
+          }
+        },
+      );
       s.on("message", (raw) => {
         const text = raw.toString();
         if (!knocked) {

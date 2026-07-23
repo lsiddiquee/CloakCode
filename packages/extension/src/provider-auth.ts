@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { rpcErrorSchema, sessionAuthResponseSchema } from "@cloakcode/protocol";
-import { gatewayTlsOptions, type GatewayPinConfig } from "./gateway-tls.js";
+import {
+  gatewayTlsOptions,
+  guardFingerprintPin,
+  type GatewayPinConfig,
+} from "./gateway-tls.js";
 
 /**
  * Provider↔gateway auth for the extension (docs/04, F2a slice 2). A gateway with
@@ -67,17 +71,28 @@ export function exchangeCodeForToken(
       reject(new Error("gateway timed out"));
     }, 5000);
 
-    ws.on("open", () => {
-      // Ask for a PROVIDER-scoped token (drift audit S3) — it registers this
-      // extension as a provider and is rejected at the operator boundary.
-      ws.send(
-        JSON.stringify({
-          id,
-          op: "auth",
-          params: { code, remember, audience: "provider" },
-        }),
-      );
-    });
+    guardFingerprintPin(
+      ws,
+      url,
+      pin,
+      () => {
+        // Server verified (or not fingerprint-only). Ask for a PROVIDER-scoped
+        // token (drift audit S3) — it registers this extension as a provider and
+        // is rejected at the operator boundary.
+        ws.send(
+          JSON.stringify({
+            id,
+            op: "auth",
+            params: { code, remember, audience: "provider" },
+          }),
+        );
+      },
+      (err) => {
+        // Fingerprint-only pin mismatch: fail closed before sending the code.
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
     ws.on("message", (raw) => {
       let parsed: unknown;
       try {

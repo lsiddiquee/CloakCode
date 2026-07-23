@@ -163,12 +163,13 @@ So a wide bind is **authenticated**, not open.
 2. **Optional native gateway TLS (product-owned):** the standalone gateway serves `wss://` on a
    **dedicated listener** (its loopback HTTP listener still backs the tunnelled PWA — coexistence
    model B), from an **auto-generated self-signed cert** (default) or an operator-supplied cert/key.
-   The extension keeps full validation (`rejectUnauthorized` stays **true**) and pins the cert's
-   **SHA-256 fingerprint**, provisioned **out-of-band via the authenticated PWA** — a “Connect an
-   extension” action behind the Dev Tunnel sign-in + operator TOTP hands you the URL + fingerprint to
-   paste in (console/QR fallback with no tunnel; BYO-cert operators point at a CA/cert file). Never
-   blind trust-on-first-use, never `rejectUnauthorized:false`. For a direct LAN/container link with no
-   proxy.
+   The extension verifies **which** server it reached by pinning the cert's **SHA-256 fingerprint**,
+   provisioned **out-of-band via the authenticated PWA** — a “Connect an extension” action behind the
+   Dev Tunnel sign-in + operator TOTP hands you the URL + fingerprint to paste in (console/QR fallback
+   with no tunnel). For a self-signed gateway the **fingerprint alone is enough** (the extension
+   verifies the exact cert by hand and fails closed on a mismatch); adding the cert as a CA file is an
+   optional stricter path, and a BYO real-CA gateway needs neither. **Never** blind
+   trust-on-first-use. For a direct LAN/container link with no proxy.
 3. **Dev Tunnel for a remote extension (documented, friction caveat):** an extension *can* ride the
    gateway's private Dev Tunnel, but not by only changing `cloakcode.gatewayUrl` — the Node client
    can't complete the tunnel's browser sign-in (an unauthenticated `/bridge` request returns HTTP

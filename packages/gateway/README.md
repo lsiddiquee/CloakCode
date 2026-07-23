@@ -251,11 +251,13 @@ under `~/.cloakcode` (key `0600`, never logged) and prints its **SHA-256 fingerp
 
 **Pair an extension** from the app: open the PWA (behind your tunnel + TOTP) → **Settings → Connect an
 extension**. It shows the reachable `wss://` URL, the fingerprint, and the certificate to copy into the
-extension's `cloakcode.gatewayUrl`, `cloakcode.gatewayCertFingerprint`, and (for the self-signed cert)
-`cloakcode.gatewayCaFile`. The extension keeps `rejectUnauthorized: true` and **fails closed** on a
-fingerprint mismatch — it never downgrades to an unverified socket. A gateway behind a **real/BYO CA**
-needs no CA file. The console printout is the fallback when no tunnel is up. The fingerprint and cert
-are **public** (an integrity pin, not a secret); the private key never leaves the gateway.
+extension's `cloakcode.gatewayUrl` and `cloakcode.gatewayCertFingerprint`. For a self-signed gateway
+the **fingerprint alone is enough** — the extension verifies the exact certificate by hand and **fails
+closed** on a mismatch, never downgrading to trust-on-first-use. Adding the cert as
+`cloakcode.gatewayCaFile` is an **optional stricter** path (full-chain validation); a gateway behind a
+**real/BYO CA** needs neither. The console printout is the fallback when no tunnel is up. The
+fingerprint and cert are **public** (an integrity pin, not a secret); the private key never leaves the
+gateway.
 
 ## Operator auth (TOTP)
 
