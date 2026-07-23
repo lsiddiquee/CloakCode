@@ -122,7 +122,13 @@ smoke_test() {
   trap cleanup EXIT
 
   log "starting ${IMAGE} as '${name}' on host port ${HOST_PORT}"
-  "${DOCKER}" run -d --name "${name}" -p "${HOST_PORT}:${CONTAINER_PORT}" "${IMAGE}" >/dev/null
+  # The operator (PWA) listener binds loopback by default (reached via the
+  # gateway's own tunnel); override it to 0.0.0.0 for this smoke test so the
+  # published host port reaches the PWA. The provider listener (3544, wss) is a
+  # separate concern and not exercised here.
+  "${DOCKER}" run -d --name "${name}" \
+    -e CLOAKCODE_GATEWAY_HOST=0.0.0.0 \
+    -p "${HOST_PORT}:${CONTAINER_PORT}" "${IMAGE}" >/dev/null
 
   log "waiting for the gateway to serve the PWA at ${url}"
   local attempt body

@@ -130,11 +130,17 @@ authenticator issuer is always `CloakCode`, so your app shows it as `CloakCode: 
 
 By default the bridge runs inside VS Code. To let several windows or machines share **one** phone
 endpoint, run the standalone **[CloakCode gateway](https://www.npmjs.com/package/@cloakcode/gateway)**
-(`npx @cloakcode/gateway` or the Docker image) and point the extension at it:
+(`npx @cloakcode/gateway` or the Docker image) and point the extension at its **provider listener**
+(`wss://` by default):
 
 ```json
-"cloakcode.gatewayUrl": "ws://<gateway-host>:7900"
+"cloakcode.gatewayUrl": "wss://<gateway-host>:3544"
 ```
+
+Copy the exact URL and the certificate **fingerprint** from the gateway's **Connect an extension**
+view (behind its phone app + sign-in) or its startup console, and set `cloakcode.gatewayCertFingerprint`
+to the pin — that's all a self-signed gateway needs (see the settings above). A gateway started with
+`CLOAKCODE_PROVIDER_INSECURE=1` serves a plain `ws://` link instead (no pin; trusted networks only).
 
 If the gateway is **unreachable** at startup, the extension logs a warning and falls back to
 embedded mode. If the gateway is reachable but **requires sign-in** (operator MFA is on), it does

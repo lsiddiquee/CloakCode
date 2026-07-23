@@ -12,7 +12,7 @@ import { generateTotpSecret } from "./totp.js";
  */
 
 /** Hosts that mean "this machine only" — no phone can reach them. */
-function isLoopbackHost(host: string): boolean {
+export function isLoopbackHost(host: string): boolean {
   return (
     host === "127.0.0.1" ||
     host === "localhost" ||

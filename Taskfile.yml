@@ -88,7 +88,7 @@ tasks:
 
   # ── run ─────────────────────────────────────────────────────────────────
   gateway:dev:
-    desc: "⑥ Build + run the dev gateway. Options after --: --devtunnel, --mfa, --bind <address>, --port <number>, --instance-id <id>, --help."
+    desc: "⑥ Build + run the dev gateway. Options after --: --devtunnel, --mfa, --bind <address>, --port <number>, --tls-host <address>, --tls-port <number>, --insecure-provider, --instance-id <id>, --help."
     cmds:
       - bash scripts/gateway-dev.sh {{.CLI_ARGS}}
 

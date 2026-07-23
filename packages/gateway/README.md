@@ -21,8 +21,9 @@ connects to.
 npx @cloakcode/gateway
 ```
 
-Serves the PWA at `http://127.0.0.1:3543` and accepts extension providers at
-`ws://127.0.0.1:3543`, printing separate browser and extension URL lists.
+Serves the PWA (phone) on the **operator** listener at `http://127.0.0.1:3543` and accepts
+**extensions** on the dedicated **provider** listener at `wss://0.0.0.0:3544` (wss by default),
+printing separate browser and extension URL lists.
 
 There are no CLI flags — the published bin (`cloakcode-gateway`) is configured entirely by
 **environment variables** set on the command line. The common ones:
@@ -34,9 +35,8 @@ CLOAKCODE_TUNNEL=devtunnel npx @cloakcode/gateway
 # pick a fixed port (default 3543; a fixed value keeps the phone/tunnel URL stable)
 CLOAKCODE_GATEWAY_PORT=8080 npx @cloakcode/gateway
 
-# accept LAN / container clients, require a provider token, and tunnel — all at once
-CLOAKCODE_GATEWAY_HOST=0.0.0.0 \
-CLOAKCODE_GATEWAY_PORT=8080 \
+# require a provider token and host a phone tunnel — extensions reach the provider
+# listener (wss on 3544) directly; the phone reaches the PWA via the tunnel
 CLOAKCODE_GATEWAY_TOKEN=<shared-secret> \
 CLOAKCODE_TUNNEL=devtunnel \
   npx @cloakcode/gateway
@@ -47,17 +47,23 @@ See [all options](#configuration-environment-variables) below.
 ## Run it — Docker
 
 ```bash
-docker run --rm -p 3543:3543 ghcr.io/lsiddiquee/cloakcode-gateway:latest
+# extensions connect to the provider listener (wss) on 3544; the phone reaches the
+# PWA via the gateway's own private tunnel (enable it below)
+docker run --rm -p 3544:3544 ghcr.io/lsiddiquee/cloakcode-gateway:latest
 # pin a version:  ...cloakcode-gateway:v0.1.2
 ```
 
-The image serves the PWA + hub on `0.0.0.0:3543`. Configure with the same environment variables via
-`-e`, and map the port with `-p`:
+In the image the **operator** listener (PWA + phone) binds loopback `127.0.0.1:3543` — reach it via
+the gateway's own private Dev Tunnel (below), or front it with your own ingress by setting
+`-e CLOAKCODE_GATEWAY_HOST=0.0.0.0` and publishing `-p 3543:3543`. The **provider** listener binds
+`0.0.0.0:3544` (wss); publish it with `-p 3544:3544` so extensions can connect. Configure with the
+same environment variables via `-e`:
 
 ```bash
-docker run --rm -p 8080:8080 \
-  -e CLOAKCODE_GATEWAY_PORT=8080 \
+docker run --rm -p 3544:3544 \
   -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> \
+  -e CLOAKCODE_TUNNEL=devtunnel \
+  -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
@@ -67,7 +73,7 @@ The image **bundles the `devtunnel` CLI** (inert unless you enable it). To host 
 straight from the container, enable it and mount a volume for the token so you only sign in once:
 
 ```bash
-docker run -p 3543:3543 \
+docker run -p 3544:3544 \
   -e CLOAKCODE_TUNNEL=devtunnel \
   -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
@@ -99,7 +105,7 @@ All three at once — TOTP secret survives upgrades, tunnel signs in once, and t
 named volume:
 
 ```bash
-docker run -p 3543:3543 \
+docker run -p 3544:3544 \
   -v cloakcode-mfa:/home/app/.cloakcode \
   -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   -v cloakcode-logs:/data \
@@ -114,24 +120,27 @@ Prefer **one** volume for everything? Relocate the secret + log into it and moun
 
 ## Full setup — exposed gateway with MFA (step by step)
 
-When the gateway is **exposed** (a wide `0.0.0.0` bind — the Docker default — or a live tunnel),
+When the gateway is **exposed** — a live tunnel (the phone path) or a wide `0.0.0.0` operator bind —
 operator **TOTP is on automatically** (secure-by-exposure). Here's the whole flow: gateway → phone →
 extension. Force it on/off with `CLOAKCODE_MFA=required` / `CLOAKCODE_MFA=off`.
 
 ### 1. Start the gateway
 
 ```bash
-# Docker binds 0.0.0.0 by default, so MFA turns on. Mount a volume so the TOTP
-# secret survives container replacement.
-docker run -p 3543:3543 \
+# The phone reaches the operator via a private tunnel, which EXPOSES it → MFA turns
+# on. Mount a volume so the TOTP secret (and the tunnel sign-in) survive container
+# replacement. Extensions connect to the provider listener on 3544.
+docker run -p 3544:3544 \
+  -e CLOAKCODE_TUNNEL=devtunnel \
   -v cloakcode-mfa:/home/app/.cloakcode \
+  -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
 On first run the console prints the instance name + the connect URLs and reports that **enrolment is
 required** — until you pair an authenticator the hub serves **only** the pairing screen, no session
-data. (Add `-e CLOAKCODE_TUNNEL=devtunnel` for a phone URL — a headless GitHub device-code sign-in, or
-front the port with your own private tunnel.)
+data. (No tunnel? The operator stays on loopback with MFA off; front it with your own private tunnel /
+ingress, or set `-e CLOAKCODE_GATEWAY_HOST=0.0.0.0 -p 3543:3543` to expose the PWA directly.)
 
 ### 2. Enrol an authenticator (operator — one time)
 
@@ -187,11 +196,16 @@ you can answer remotely.
 
 ## Connect your VS Code extension
 
-In VS Code settings, point the extension at the gateway (several windows can share one):
+In VS Code settings, point the extension at the gateway's **provider listener** (several windows can
+share one):
 
 ```json
-"cloakcode.gatewayUrl": "ws://<gateway-host>:<gateway-port>"
+"cloakcode.gatewayUrl": "wss://<gateway-host>:3544"
 ```
+
+Also set `cloakcode.gatewayCertFingerprint` to the pin from the gateway's **Connect an extension** view
+(all a self-signed gateway needs). An insecure gateway (`CLOAKCODE_PROVIDER_INSECURE=1`) uses a plain
+`ws://` URL instead.
 
 If you started the gateway with a token, set the **same** value on the extension so it can register
 as a provider — see [Provider token](#provider-token-shared-secret) below.
@@ -202,8 +216,10 @@ In** prompt (or run **CloakCode: Sign in to Gateway**) and enter a current 6-dig
 authenticator you enrolled on the gateway; the extension stores the issued provider token per URL and
 reconnects. Full walkthrough: [Full setup](#full-setup--exposed-gateway-with-mfa-step-by-step).
 
-For a gateway on **another machine or container**, run it with `CLOAKCODE_GATEWAY_HOST=0.0.0.0` and
-use that host's IP in `gatewayUrl` (loopback only accepts same-host clients).
+For a gateway on **another machine or container**, the **provider** listener already binds `0.0.0.0`,
+so use that host's IP with the provider port in `gatewayUrl` (e.g. `wss://192.168.1.10:3544`) plus the
+`cloakcode.gatewayCertFingerprint` pin from its **Connect an extension** view. (The operator/PWA
+listener stays on loopback — reach the phone via the gateway's tunnel.)
 
 ## Provider token (shared secret)
 
@@ -218,7 +234,8 @@ Set the **same** value on the gateway and on every VS Code window that connects:
 # gateway (env) — npx
 CLOAKCODE_GATEWAY_TOKEN=<shared-secret> npx @cloakcode/gateway
 # gateway (env) — Docker
-docker run --rm -p 3543:3543 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/lsiddiquee/cloakcode-gateway:latest
+# gateway (env) — Docker (publish the provider listener so extensions can reach it)
+docker run --rm -p 3544:3544 -e CLOAKCODE_GATEWAY_TOKEN=<shared-secret> ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
 ```json

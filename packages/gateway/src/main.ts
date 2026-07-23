@@ -42,6 +42,7 @@ import { OperatorAuth } from "./operator-auth.js";
 import { strictEnrolmentLines } from "./enrol-console.js";
 import {
   isExposed,
+  isLoopbackHost,
   loadOrCreateSecret,
   operatorMfaEnabled,
   persistConfirmed,
@@ -270,15 +271,17 @@ if (!gateway.providerInsecure && gateway.fingerprint) {
 
 // Consolidated INSECURE-MODE banner (docs/04): warn — in the console AND, via
 // gateway.info/connectInfo, the UI — when traffic is NOT encrypted. Authentication
-// (TOTP/token) still applies; only confidentiality is lost.
-const operatorExposed = isExposed(host, process.env);
-if (operatorExposed || gateway.providerInsecure) {
+// (TOTP/token) still applies; only confidentiality is lost. The operator is
+// cleartext only on a **wide bind** (a private tunnel in front of a loopback
+// operator supplies TLS, so it is NOT insecure).
+const operatorCleartext = !isLoopbackHost(host);
+if (operatorCleartext || gateway.providerInsecure) {
   console.warn(
     "[cloakcode-gateway] \u26a0 INSECURE MODE — traffic is NOT encrypted and can be read on the network:",
   );
-  if (operatorExposed) {
+  if (operatorCleartext) {
     console.warn(
-      `[cloakcode-gateway]     • operator (PWA + phone) is exposed on ${host} as cleartext HTTP/ws — prefer 127.0.0.1 + a private tunnel (devtunnel), which encrypts it`,
+      `[cloakcode-gateway]     • operator (PWA + phone) is on a wide bind (${host}) in cleartext HTTP/ws — prefer 127.0.0.1 + a private tunnel (devtunnel), which encrypts it`,
     );
   }
   if (gateway.providerInsecure) {

@@ -84,10 +84,17 @@ LABEL org.opencontainers.image.title="CloakCode gateway" \
       org.opencontainers.image.licenses="MIT"
 COPY --from=build --chown=app:app /repo/packages/gateway/dist/main.mjs ./main.mjs
 COPY --from=build --chown=app:app /repo/packages/web/dist ./web
-ENV CLOAKCODE_GATEWAY_HOST=0.0.0.0 \
+# Listener role split (docs/04): the OPERATOR listener (PWA + phone) stays on
+# loopback — reach it via the gateway's own private Dev Tunnel (or front it with
+# your own ingress by overriding CLOAKCODE_GATEWAY_HOST=0.0.0.0). The PROVIDER
+# listener (extensions) binds 0.0.0.0 so containers/LAN can reach it directly over
+# wss; publish it with `-p 3544:3544`.
+ENV CLOAKCODE_GATEWAY_HOST=127.0.0.1 \
     CLOAKCODE_GATEWAY_PORT=3543 \
+    CLOAKCODE_TLS_HOST=0.0.0.0 \
+    CLOAKCODE_TLS_PORT=3544 \
     CLOAKCODE_WEB_DIR=/app/web
-EXPOSE 3543
+EXPOSE 3543 3544
 # The entrypoint handles the optional Dev Tunnels sign-in (only when
 # CLOAKCODE_TUNNEL=devtunnel), then execs the CMD.
 ENTRYPOINT ["cloakcode-entrypoint.sh"]
