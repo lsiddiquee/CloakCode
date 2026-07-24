@@ -364,6 +364,25 @@ the critical path.
 
 ## Known issues (to fix)
 
+- **Steer can capture foreign composer content — no clean fix reachable from an extension
+  (2026-07-24).** `session.steer` prefills the **shared** chat composer (`chat.open
+  {isPartialQuery:true}`) then fires `steerWithMessage`, which submits **whatever is in the composer**
+  at fire time. Anything VS Code injects in the prefill→submit window concatenates onto the operator's
+  text in a **single `remote-operator`-attributed `user.message`** — a provenance break (docs/04
+  rule 4) that can also derail the turn. Verified live (2026-07-23): an **async** `run_in_terminal`
+  completion notification (its "The terminal has been cleaned up / Terminal output:" wording) merged
+  into a steer; a local half-typed message rides the same mechanism. **Why it's blocked** — every
+  clean fix is unreachable from an extension: `steerWithMessage` reads the composer and takes **no**
+  message arg (verified in the VS Code source, `chatQueueActions.ts` → `acceptInput(undefined, { queue:
+  Steering })`); the only payload-carrying submits, `workbench.action.chat.submit` / `.acceptInput`,
+  are **"Failed to find command"** from an extension (docs/02.1 §3.1); and **no** extension API reads
+  the chat input to snapshot-and-guard it. So the steer MUST ride the shared composer and the window is
+  inherent + unguardable server-side. **Partial mitigations (not built):** warn/defer when an async
+  terminal is in flight for the session (needs running-tool tracking the observer doesn't yet expose),
+  or minimize the window. The real fix waits on a **renderer-side** capture/steer channel or an
+  agent-host steer API — the same renderer-vs-ext-host reachability gate as the actuator + image
+  attachments (post-MVP). Relates to the **B4** structural per-message provenance thread (docs/04).
+
 - **Image / pasted-screenshot attachments are NOT mirrorable by the on-disk observer — a limitation we
   cannot handle server-side (2026-07-16).** A conversation's **file/text** attachments are fine — their
   content is **inlined** into the request and thus readable from the transcript/debug-log. But **image**

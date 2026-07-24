@@ -59,6 +59,13 @@ export function buildActuators({
       // Redirect the IN-FLIGHT turn (docs/02 §4.28): focus the session, PREFILL
       // the composer without sending (`isPartialQuery`), then fire
       // `steerWithMessage` — VS Code folds the text into the running turn.
+      //
+      // KNOWN LIMITATION (docs/06, bug-steer-composer-capture): this rides the
+      // SHARED composer, and `steerWithMessage` submits whatever is in it at fire
+      // time. A clean payload-only steer is NOT reachable from an extension —
+      // `steerWithMessage` takes no message arg (it reads the composer) and
+      // `chat.submit`/`acceptInput` are "Failed to find command" (docs/02.1), and
+      // no API reads the composer to snapshot-and-guard. Tracked in docs/05.
       const uri = sessionUri(sessionId);
       log.info("actuator.steer", { sessionId, traceId });
       await execute("vscode.open", uri);
