@@ -66,6 +66,34 @@ describe("App", () => {
     expect(screen.getByText("Reaching the bridge…")).toBeTruthy();
   });
 
+  it("refreshes in place without blanking the list to the loading state", async () => {
+    fetchSessionsMock.mockResolvedValue(
+      listResult([summary({ title: "First" })]),
+    );
+    render(<App />);
+    expect(await screen.findByText("First")).toBeTruthy();
+
+    // The next refresh is slow; the working list must stay visible meanwhile.
+    fetchSessionsMock.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(screen.getByLabelText("Refresh sessions"));
+    expect(screen.queryByText("Reaching the bridge…")).toBeNull();
+    expect(screen.getByText("First")).toBeTruthy();
+  });
+
+  it("refreshes the list when the page becomes visible", async () => {
+    fetchSessionsMock.mockResolvedValue(listResult([summary({})]));
+    render(<App />);
+    await screen.findByText("My session");
+    expect(fetchSessionsMock).toHaveBeenCalledTimes(1);
+
+    fetchSessionsMock.mockResolvedValue(
+      listResult([summary({ title: "Newer" })]),
+    );
+    fireEvent(document, new Event("visibilitychange"));
+    expect(await screen.findByText("Newer")).toBeTruthy();
+    expect(fetchSessionsMock).toHaveBeenCalledTimes(2);
+  });
+
   it("renders the session list with counts and a blocked badge", async () => {
     fetchSessionsMock.mockResolvedValue(
       listResult([

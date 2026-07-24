@@ -40,8 +40,10 @@ export function App(): JSX.Element {
     }));
   }
 
-  async function load(): Promise<void> {
-    setState({ kind: "loading" });
+  async function load(opts?: { silent?: boolean }): Promise<void> {
+    // A silent refresh (focus/visibility or a manual tap) updates in place —
+    // never blank a working list to the loading state (session-list-liveness).
+    if (!opts?.silent) setState({ kind: "loading" });
     try {
       const { sessions, gateway } = await fetchSessions();
       setState({
@@ -50,6 +52,9 @@ export function App(): JSX.Element {
         ...(gateway ? { gateway } : {}),
       });
     } catch (e) {
+      // A silent refresh keeps the current list on failure — don't flip a working
+      // view to an error on a transient hiccup (the conn dot already signals it).
+      if (opts?.silent) return;
       setState({
         kind: "error",
         message: e instanceof Error ? e.message : String(e),
@@ -59,6 +64,21 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  // Refresh the list when the app regains focus / becomes visible (e.g. the phone
+  // is picked back up) so new sessions appear without a manual reload — silently,
+  // so a working list never blanks (session-list-liveness).
+  useEffect(() => {
+    const refresh = (): void => {
+      if (document.visibilityState === "visible") void load({ silent: true });
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   // A socket refused with `needsAuth` raises the TOTP prompt; `enrolmentRequired`
@@ -175,7 +195,19 @@ export function App(): JSX.Element {
             </button>
           </SettingsMenu>
         )}
-        <button className="conn" onClick={() => void load()} title="Refresh">
+        <button
+          className="icon-btn"
+          onClick={() => void load({ silent: true })}
+          title="Refresh sessions"
+          aria-label="Refresh sessions"
+        >
+          ↻
+        </button>
+        <button
+          className="conn"
+          onClick={() => void load({ silent: true })}
+          title="Refresh"
+        >
           <span className={`dot ${connected ? "green" : "grey"}`} />
           {connected ? "connected" : "reconnect"}
         </button>
