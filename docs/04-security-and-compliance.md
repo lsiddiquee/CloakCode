@@ -123,7 +123,8 @@ independently securable (docs/03):
   (default loopback `127.0.0.1`) and is fronted by the private **Dev Tunnel** (which supplies TLS); it
   serves **operators only** (a provider that knocks here is refused);
 - the **provider listener** — the dedicated endpoint extensions connect to — binds `CLOAKCODE_TLS_HOST`
-  (default `0.0.0.0`, so another host/container can reach it) on its own port (`CLOAKCODE_TLS_PORT`,
+  (default `127.0.0.1`; set `0.0.0.0` — as the Docker image does — so another host/container can reach
+  it) on its own port (`CLOAKCODE_TLS_PORT`,
   default 3544) and serves **providers only**. It is `wss://` **by default** (an auto-generated
   self-signed cert persisted under `~/.cloakcode`, or a BYO cert/key `CLOAKCODE_TLS_CERT_FILE` /
   `_KEY_FILE`); `CLOAKCODE_PROVIDER_INSECURE` downgrades it to an insecure plain `ws://` (warned).

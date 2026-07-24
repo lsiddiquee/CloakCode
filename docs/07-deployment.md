@@ -162,7 +162,8 @@ So a wide bind is **authenticated**, not open.
    `127.0.0.1`. Best fit when you already have one of these.
 2. **Native gateway TLS on the provider listener (product-owned, the default):** the gateway binds
    **two role-scoped listeners** — the loopback **operator** listener (PWA + phone, behind the tunnel)
-   and a dedicated **provider** listener (`CLOAKCODE_TLS_HOST`, default `0.0.0.0`, port
+   and a dedicated **provider** listener (`CLOAKCODE_TLS_HOST`, default `127.0.0.1` — `0.0.0.0` in the
+   Docker image, port
    `CLOAKCODE_TLS_PORT`, default 3544) that extensions connect to. The provider listener serves
    `wss://` **by default**, from an **auto-generated self-signed cert** or an operator-supplied cert/key.
    The extension verifies **which** server it reached by pinning the cert's **SHA-256 fingerprint**,

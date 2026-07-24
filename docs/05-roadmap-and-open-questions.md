@@ -306,7 +306,8 @@ the critical path.
   5. **Two role-scoped listeners (the listener split, 2026-07-23).** The gateway binds an **operator**
      listener (loopback HTTP + phone WebSocket, `CLOAKCODE_GATEWAY_HOST` default `127.0.0.1`, fronted
      by the tunnel — Dev Tunnel terminates TLS at ingress → loopback, proven) **and** a dedicated,
-     **always-on provider** listener (`CLOAKCODE_TLS_HOST` default `0.0.0.0`, `CLOAKCODE_TLS_PORT`
+     **always-on provider** listener (`CLOAKCODE_TLS_HOST` default `127.0.0.1` — `0.0.0.0` in the
+     Docker image, `CLOAKCODE_TLS_PORT`
      default 3544) that extensions connect to. Each serves **its role only** — a provider is refused on
      the operator bind and vice-versa (removing the earlier duplication where providers rode both).
      The provider listener is `wss://` **by default** (auto-gen/BYO cert); `CLOAKCODE_PROVIDER_INSECURE`

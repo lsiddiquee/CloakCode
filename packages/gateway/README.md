@@ -22,7 +22,7 @@ npx @cloakcode/gateway
 ```
 
 Serves the PWA (phone) on the **operator** listener at `http://127.0.0.1:3543` and accepts
-**extensions** on the dedicated **provider** listener at `wss://0.0.0.0:3544` (wss by default),
+**extensions** on the dedicated **provider** listener at `wss://127.0.0.1:3544` (wss by default),
 printing separate browser and extension URL lists.
 
 There are no CLI flags — the published bin (`cloakcode-gateway`) is configured entirely by
@@ -216,8 +216,9 @@ In** prompt (or run **CloakCode: Sign in to Gateway**) and enter a current 6-dig
 authenticator you enrolled on the gateway; the extension stores the issued provider token per URL and
 reconnects. Full walkthrough: [Full setup](#full-setup--exposed-gateway-with-mfa-step-by-step).
 
-For a gateway on **another machine or container**, the **provider** listener already binds `0.0.0.0`,
-so use that host's IP with the provider port in `gatewayUrl` (e.g. `wss://192.168.1.10:3544`) plus the
+For a gateway on **another machine or container**, bind the **provider** listener wide
+(`CLOAKCODE_TLS_HOST=0.0.0.0` — the Docker image already does), then use that host's IP with the
+provider port in `gatewayUrl` (e.g. `wss://192.168.1.10:3544`) plus the
 `cloakcode.gatewayCertFingerprint` pin from its **Connect an extension** view. (The operator/PWA
 listener stays on loopback — reach the phone via the gateway's tunnel.)
 
@@ -257,7 +258,8 @@ The gateway binds **two role-scoped listeners**:
 - the **operator** listener — the PWA + phone — on `CLOAKCODE_GATEWAY_HOST` (default `127.0.0.1`),
   fronted by your private Dev Tunnel (which supplies TLS). Operators only.
 - the **provider** listener — the dedicated endpoint **extensions** connect to — on
-  `CLOAKCODE_TLS_HOST` (default `0.0.0.0`) `:CLOAKCODE_TLS_PORT` (default `3544`). Providers only; a
+  `CLOAKCODE_TLS_HOST` (default `127.0.0.1`; the Docker image sets `0.0.0.0`) `:CLOAKCODE_TLS_PORT`
+  (default `3544`). Providers only; a
   provider is **never** served on the operator bind.
 
 The provider listener is **`wss://` by default** — with no BYO cert the gateway generates and persists
@@ -340,7 +342,7 @@ all the volumes (secret, tunnel token, action log).
 | `CLOAKCODE_MFA_SECRET_FILE` | `~/.cloakcode/operator-totp.secret` | where the base32 TOTP secret persists (`0600`); mount it as a volume in Docker |
 | `CLOAKCODE_MFA_ENROL`       | `browser`                   | `strict` never sends the pairing secret over the wire (console QR only)  |
 | `CLOAKCODE_MFA_RESET`       | _(off)_                     | `1` regenerates the secret (lockout recovery) and re-enters enrolment    |
-| `CLOAKCODE_TLS_HOST`        | `0.0.0.0`                   | **provider** listener bind — the dedicated endpoint extensions connect to (separate from the operator listener) |
+| `CLOAKCODE_TLS_HOST`        | `127.0.0.1` (`0.0.0.0` in Docker) | **provider** listener bind — the dedicated endpoint extensions connect to (separate from the operator listener) |
 | `CLOAKCODE_TLS_PORT`        | `3544`                      | **provider** listener port (always on); `0` = ephemeral. Pair extensions via **Connect an extension** in the app |
 | `CLOAKCODE_TLS_CERT_FILE`   | _(auto self-signed)_        | BYO PEM cert for the `wss` provider listener (with `_KEY_FILE`); unset ⇒ an auto self-signed pair persisted under `~/.cloakcode` |
 | `CLOAKCODE_TLS_KEY_FILE`    | _(auto self-signed)_        | BYO PEM private key for `wss` (with `_CERT_FILE`); a `0600` secret, never logged |

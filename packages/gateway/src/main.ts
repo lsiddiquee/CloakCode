@@ -18,7 +18,7 @@
  *   CLOAKCODE_MFA_SECRET_FILE  where the base32 TOTP secret persists; default ~/.cloakcode/operator-totp.secret
  *   CLOAKCODE_MFA_ENROL      browser (default) | strict — strict never reveals the secret over the wire; the QR shows only on a TTY (never docker logs), else the 0600 secret file
  *   CLOAKCODE_MFA_RESET      1 → regenerate the secret (lockout recovery) and re-enter enrolment
- *   CLOAKCODE_TLS_HOST       provider-listener bind (default 0.0.0.0 so other hosts/containers reach it; extensions connect here)
+ *   CLOAKCODE_TLS_HOST       provider-listener bind (default 127.0.0.1; set 0.0.0.0 to reach it from another host/container — the Docker image does; extensions connect here)
  *   CLOAKCODE_TLS_PORT       provider-listener port: unset → 3544 (ephemeral if taken); 0 → ephemeral; N → lock N
  *   CLOAKCODE_TLS_CERT_FILE  BYO PEM cert for the wss provider listener (with _KEY_FILE); unset → auto self-signed pair persisted under ~/.cloakcode
  *   CLOAKCODE_TLS_KEY_FILE   BYO PEM private key (with _CERT_FILE); a 0600 secret, never logged
@@ -120,12 +120,13 @@ const logger = createConsoleLogger({
 
 // The dedicated PROVIDER listener (docs/04 role split): extensions connect here,
 // separate from the operator/PWA listener. Binds CLOAKCODE_TLS_HOST (default
-// 0.0.0.0 so an extension on another host/container can reach it). wss by default
+// 127.0.0.1 — loopback like the operator listener; set 0.0.0.0 to reach it from
+// another host/container, as the Docker image does). wss by default
 // — a BYO cert (CERT_FILE+KEY_FILE) or an auto self-signed pair persisted beside
 // the operator secret (~/.cloakcode); the private key is a 0600 secret, only the
 // public fingerprint (the pin) is shown. CLOAKCODE_PROVIDER_INSECURE=1 makes it an
 // insecure plain ws:// listener (no cert), warned in the console + UI.
-const providerHost = process.env["CLOAKCODE_TLS_HOST"] ?? "0.0.0.0";
+const providerHost = process.env["CLOAKCODE_TLS_HOST"] ?? "127.0.0.1";
 const providerPortPlan = resolvePortPlan(
   process.env["CLOAKCODE_TLS_PORT"],
   null,
