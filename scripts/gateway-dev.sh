@@ -17,6 +17,9 @@ TLS_HOST="${CLOAKCODE_TLS_HOST:-127.0.0.1}"
 TLS_PORT="${CLOAKCODE_TLS_PORT:-7901}"
 # Empty = wss (auto self-signed cert). Set to serve an INSECURE plain-ws listener.
 INSECURE_PROVIDER="${CLOAKCODE_PROVIDER_INSECURE:-}"
+# Log verbosity (trace|debug|info|warn|error). Empty defers to the dev default
+# (CLOAKCODE_VERBOSE=1 ⇒ debug); an explicit level wins in the gateway.
+LOG_LEVEL="${CLOAKCODE_LOG_LEVEL:-}"
 
 usage() {
   cat <<'EOF'
@@ -35,6 +38,7 @@ Options:
   --tls-host <address> Provider listener bind — extensions connect here (default: 127.0.0.1)
   --tls-port <number>  Provider listener port (default: 7901; 0 selects an ephemeral port)
   --insecure-provider  Serve the provider listener as INSECURE plain ws:// (no cert; warned)
+  --log-level <level>  Log verbosity: trace|debug|info|warn|error (default: debug)
   --instance-id <id>   Gateway display/TOTP/tunnel name (default: machine hostname)
   -h, --help           Show these options without building or starting anything
 
@@ -46,11 +50,12 @@ Examples:
   task gateway:dev -- --bind 0.0.0.0 --port 3543
   task gateway:dev -- --tls-host 0.0.0.0 --tls-port 7443
   task gateway:dev -- --insecure-provider
+  task gateway:dev -- --log-level trace
 
 The equivalent CLOAKCODE_GATEWAY_HOST, CLOAKCODE_GATEWAY_PORT, CLOAKCODE_TLS_HOST,
-CLOAKCODE_TLS_PORT, CLOAKCODE_PROVIDER_INSECURE, CLOAKCODE_TUNNEL, CLOAKCODE_MFA,
-and CLOAKCODE_INSTANCE_ID environment variables remain supported. Explicit
-switches take precedence.
+CLOAKCODE_TLS_PORT, CLOAKCODE_PROVIDER_INSECURE, CLOAKCODE_LOG_LEVEL, CLOAKCODE_TUNNEL,
+CLOAKCODE_MFA, and CLOAKCODE_INSTANCE_ID environment variables remain supported.
+Explicit switches take precedence.
 
 Without an MFA switch or CLOAKCODE_MFA, the gateway applies its own policy:
 off on loopback, required for a wide bind or Dev Tunnel.
@@ -111,6 +116,20 @@ while [[ $# -gt 0 ]]; do
       INSECURE_PROVIDER=1
       shift
       ;;
+    --log-level)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --log-level needs a level (trace|debug|info|warn|error)" >&2
+        exit 2
+      fi
+      case "$2" in
+        trace | debug | info | warn | error) LOG_LEVEL="$2" ;;
+        *)
+          echo "error: --log-level must be one of trace|debug|info|warn|error" >&2
+          exit 2
+          ;;
+      esac
+      shift 2
+      ;;
     --instance-id)
       if [[ $# -lt 2 || -z "$2" ]]; then
         echo "error: --instance-id needs a non-empty value" >&2
@@ -151,6 +170,11 @@ if [[ -n "$INSECURE_PROVIDER" ]]; then
   export CLOAKCODE_PROVIDER_INSECURE=1
 else
   unset CLOAKCODE_PROVIDER_INSECURE
+fi
+if [[ -n "$LOG_LEVEL" ]]; then
+  export CLOAKCODE_LOG_LEVEL="$LOG_LEVEL"
+else
+  unset CLOAKCODE_LOG_LEVEL
 fi
 if [[ -n "$MFA" ]]; then
   export CLOAKCODE_MFA="$MFA"
