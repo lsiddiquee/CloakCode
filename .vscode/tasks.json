@@ -4,7 +4,7 @@
     {
       "label": "bundle-extension",
       "type": "shell",
-      "command": "pnpm --filter @cloakcode/extension bundle",
+      "command": "pnpm --filter '@cloakcode/extension^...' build && pnpm --filter @cloakcode/extension bundle",
       "problemMatcher": [],
       "presentation": {
         "reveal": "silent",

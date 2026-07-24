@@ -13,6 +13,7 @@ import type {
   QuestionAnswer,
   SessionEvent,
   SessionPart,
+  SessionStatus,
   SessionSummary,
   ToolStatus,
 } from "@cloakcode/protocol";
@@ -42,12 +43,24 @@ import {
   type UsageTotals,
 } from "./telemetry";
 
+/**
+ * Idle-age (seconds) under which a followed session reads "active" — matches the
+ * scanner's liveness window (docs/02.2) so the header agrees with the list.
+ */
+const LIVE_WINDOW_SECONDS = 120;
+
 interface ViewState {
   parts: SessionPart[];
   resolved: Set<string>;
   pending: PendingBlocker[];
   error: string | null;
   inTurn: boolean;
+  /**
+   * Epoch ms of the last LIVE turn transition, seeded from the summary's
+   * `idleSeconds`. Drives a fresh active/idle header while following, since the
+   * `session` prop is a frozen open-time snapshot (App never refreshes it).
+   */
+  lastActivityAt: number;
 }
 
 type ViewAction =
@@ -106,7 +119,7 @@ function reducer(state: ViewState, action: ViewAction): ViewState {
   if (action.type === "turn")
     return action.inTurn === state.inTurn
       ? state
-      : { ...state, inTurn: action.inTurn };
+      : { ...state, inTurn: action.inTurn, lastActivityAt: Date.now() };
   return applyEvents(state, action.events);
 }
 
@@ -123,6 +136,7 @@ export function SessionView({
     pending: [],
     error: null,
     inTurn: session.inTurn,
+    lastActivityAt: Date.now() - session.idleSeconds * 1000,
   });
   const [conn, setConn] = useState<ConnState>("connecting");
 
@@ -234,21 +248,38 @@ export function SessionView({
     return () => ro.disconnect();
   }, [session.sessionId]);
 
+  // Re-render every 30s so the header's idle age stays live — the `session` prop
+  // is a frozen snapshot (App never refreshes it while a view is open).
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  // Idle age + status from the LIVE last-activity (not the frozen summary), so a
+  // just-ended turn reads "active" instead of a stale "idle 16m" (docs/02.2).
+  const liveIdleSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - state.lastActivityAt) / 1000),
+  );
+  const liveStatus: SessionStatus =
+    liveIdleSeconds < LIVE_WINDOW_SECONDS ? "active" : "idle";
   const activity = useMemo(
     () =>
       sessionActivity(
         state.pending,
         state.parts,
         state.resolved,
-        session.status,
-        session.idleSeconds,
+        liveStatus,
+        state.inTurn,
+        liveIdleSeconds,
       ),
     [
       state.pending,
       state.parts,
       state.resolved,
-      session.status,
-      session.idleSeconds,
+      liveStatus,
+      state.inTurn,
+      liveIdleSeconds,
     ],
   );
   // Foreign workspace (no live extension here) => observe-only. Actuation is
@@ -278,7 +309,7 @@ export function SessionView({
         </div>
         <span className="conn">
           <span
-            className={`dot ${activity.awaiting ? "amber" : dotClass(session.status)}`}
+            className={`dot ${activity.awaiting ? "amber" : dotClass(liveStatus)}`}
           />
           {activity.label}
         </span>
@@ -349,7 +380,11 @@ export function SessionView({
           you can view the transcript but not send, answer, or approve.
         </p>
       ) : (
-        <ChatComposer session={session} inTurn={state.inTurn} />
+        <ChatComposer
+          session={session}
+          inTurn={state.inTurn}
+          onStopped={() => dispatch({ type: "turn", inTurn: false })}
+        />
       )}
     </div>
   );
@@ -842,9 +877,11 @@ function PendingCard({
 function ChatComposer({
   session,
   inTurn,
+  onStopped,
 }: {
   session: SessionSummary;
   inTurn: boolean;
+  onStopped: () => void;
 }): JSX.Element {
   const [msg, setMsg] = useState("");
   const { sending, error, send, steer, stop } = useRemoteSend(session);
@@ -861,9 +898,12 @@ function ChatComposer({
   const doSteer = (): Promise<void> => act(() => steer(text));
   const doStopSend = (): Promise<void> => act(() => stop(text));
   // Pure cancel: needs no message, works with an empty box, and must NOT clear
-  // whatever the operator is drafting.
+  // whatever the operator is drafting. On ack, optimistically clear the mid-turn
+  // flag so the composer flips back to Send immediately — `chat.cancel` writes no
+  // debug-log `turn_end`, so the follower won't emit `inTurn:false` on its own
+  // (docs/05 known issue); the next real turn reconciles it.
   const doStop = async (): Promise<void> => {
-    if (!sending) await stop();
+    if (!sending && (await stop())) onStopped();
   };
   // The submit/Enter action: steer while mid-turn, else a plain queued send.
   const primary = inTurn ? doSteer : doQueue;

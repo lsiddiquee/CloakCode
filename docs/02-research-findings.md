@@ -89,13 +89,13 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§3.4** Actuator lead: the on-server `@github/copilot` agent-host SDK is the live steer/input surface.
 - **§4.2** Injection is **not** prefill-only — a busy-loop injection is queued **and** auto-submitted.
 - **§4.12** Deterministic per-session send: `vscode.open(vscode-chat-session://local/<b64url(id)>)` →
-  `chat.open {query}` targets a **specific** session. **Window-local**: foreign sessions are listed
-  but not actuatable.
+  `chat.submit {inputValue}` targets a **specific** session. **Window-local**: foreign sessions are
+  listed but not actuatable.
 - **M3c** steer / queue / stop / stop-and-send are public `workbench.action.chat.*` sequences,
-  live-confirmed; `isPartialQuery` is the steer↔send switch; none leaves an on-disk marker. **Steer
-  submits the SHARED composer** (`steerWithMessage` reads it, no message arg), so foreign injected
-  content can merge into a `remote-operator` turn — a provenance caveat with no extension-reachable
-  fix (docs/05 Known issues).
+  live-confirmed; each is a **composer-free `chat.submit {inputValue, …}`** payload submit, so the
+  shared composer is **never read**. **Steer's composer-capture caveat is SOLVED (2026-07-24)** —
+  `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}` carries our text (the old
+  `chat.open`+`steerWithMessage` read the composer); none leaves an on-disk marker.
 
 ### Turn tracking & observer liveness — [02.2](02.2-turn-tracking.md)
 
@@ -104,6 +104,10 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.28** Mid-turn = an open `assistant.turn_start` with no `turn_end`, live-gated, with a
   **placeholder guard** (the spurious post-`turn_end` start). The action TYPE is not observable —
   only in-flight-ness (`SessionSummary.inTurn`, now also streamed live).
+- **§4.34** `inTurn` is now **debug-log-authoritative**: the transcript's placeholder `turn_start` +
+  orphaned tool echoes misread ~8/9 sessions as mid-turn, so `computeInTurnFromDebugLog` (clean
+  `turn_start`/`turn_end` spans, last boundary wins) drives the follower + scanner; the transcript
+  parser is the no-debug-log fallback. Pure Stop (`chat.cancel`) writes no `turn_end` → parked.
 
 ### Tool call handling — [02.3](02.3-tool-call-handling.md)
 

@@ -9,7 +9,11 @@ import type {
   SessionPart,
   ToolStatus,
 } from "@cloakcode/protocol";
-import { INTERACTIVE_TOOL_HINTS, computeInTurn } from "./scanner.js";
+import {
+  INTERACTIVE_TOOL_HINTS,
+  computeInTurn,
+  computeInTurnFromDebugLog,
+} from "./scanner.js";
 import { errorCode } from "./errors.js";
 
 /**
@@ -503,10 +507,17 @@ export function stitchEvents(
   return [...prefix, ...retag(debugLog, "dl-", prefix.length)];
 }
 
-/** A resolved session log: the file to tail and the parser for its format. */
+/** A resolved session log: the file to tail, its parser, and its turn detector. */
 export interface SessionLog {
   file: string;
   parse: (content: string) => SessionEvent[];
+  /**
+   * Mid-turn detector for THIS log's format, so `inTurn` is derived from the
+   * same file the follower tails (no divergent transcript path). The debug-log
+   * has clean `turn_start`/`turn_end` spans; the transcript needs the
+   * placeholder-aware parser (docs/02.2).
+   */
+  computeTurn: (content: string) => boolean;
 }
 
 /**
@@ -549,7 +560,11 @@ export async function findSessionLog(
       // No debug-log here; fall back to the transcript (zero-config) if present.
       try {
         await fs.access(transcript);
-        return { file: transcript, parse: parseSessionEvents };
+        return {
+          file: transcript,
+          parse: parseSessionEvents,
+          computeTurn: computeInTurn,
+        };
       } catch {
         continue; // keep looking across envs
       }
@@ -574,6 +589,7 @@ export async function findSessionLog(
     return {
       file: debugLog,
       parse: (content) => stitchEvents(history, parseDebugLogEvents(content)),
+      computeTurn: computeInTurnFromDebugLog,
     };
   }
   return undefined;
@@ -637,23 +653,22 @@ async function fileSizeOrUndefined(file: string): Promise<number | undefined> {
  * delayed, which would otherwise stall the live mirror. Refreshes are serialized
  * on a promise queue, so watch + poll never double-emit or drop an event.
  *
- * When `turnFile` + `onTurn` are given, it ALSO tracks the transcript's mid-turn
- * flag (`computeInTurn`) and fires `onTurn` on each transition — so the composer
- * flips steer/queue↔send live (docs/05 M3c). `turnFile` is the transcript (turn
- * boundaries live there); it may differ from the tailed conversation `filePath`
- * (which can be the debug-log), so it is watched/polled independently.
+ * When `onTurn` is given, it ALSO derives the mid-turn flag from the SAME tailed
+ * `filePath` — via the injected `computeTurn` (the debug-log's clean turn spans
+ * when sourced from it, else the transcript parser) — and fires `onTurn` on each
+ * transition, so the composer flips steer/queue↔send live (docs/05 M3c). There is
+ * no separate turn file: turn state comes from the one authoritative source.
  */
 export class SessionFollower {
   private emitted: number;
   private watcher: fsSync.FSWatcher | undefined;
-  private turnWatcher: fsSync.FSWatcher | undefined;
   private poller: ReturnType<typeof setInterval> | undefined;
   private queue: Promise<void> = Promise.resolve();
   private stopped = false;
   private lastInTurn: boolean | undefined;
   private readonly pollIntervalMs: number;
   private readonly parse: (content: string) => SessionEvent[];
-  private readonly turnFile: string | undefined;
+  private readonly computeTurn: (content: string) => boolean;
   private readonly onTurn: TurnSink | undefined;
   private readonly onError: FollowerErrorSink | undefined;
   private readonly logger: Logger | undefined;
@@ -667,7 +682,7 @@ export class SessionFollower {
     options: {
       pollIntervalMs?: number;
       parse?: (content: string) => SessionEvent[];
-      turnFile?: string;
+      computeTurn?: (content: string) => boolean;
       onTurn?: TurnSink;
       onError?: FollowerErrorSink;
       logger?: Logger;
@@ -676,7 +691,7 @@ export class SessionFollower {
     this.emitted = sinceSeq;
     this.pollIntervalMs = options.pollIntervalMs ?? 400;
     this.parse = options.parse ?? parseSessionEvents;
-    this.turnFile = options.turnFile;
+    this.computeTurn = options.computeTurn ?? computeInTurn;
     this.onTurn = options.onTurn;
     this.onError = options.onError;
     this.logger = options.logger;
@@ -692,17 +707,6 @@ export class SessionFollower {
     } catch (err) {
       // file removed between read and watch; the poll fallback still covers it.
       this.report("watch", "debug", err);
-    }
-    // Watch the transcript for turn transitions when it is a distinct file.
-    if (this.turnFile && this.onTurn && this.turnFile !== this.filePath) {
-      try {
-        this.turnWatcher = fsSync.watch(this.turnFile, () => {
-          void this.refresh();
-        });
-      } catch (err) {
-        // not present yet; the poll fallback covers it.
-        this.report("watch", "debug", err);
-      }
     }
     // Poll fallback: catches flushes when inotify events are missed/delayed.
     if (this.pollIntervalMs > 0) {
@@ -745,30 +749,17 @@ export class SessionFollower {
       if (event) this.sink(event);
     }
     if (events.length > this.emitted) this.emitted = events.length;
-    await this.pumpTurn(content);
+    this.pumpTurn(content);
   }
 
   /**
-   * Recompute the mid-turn flag and fire `onTurn` on a transition. Reads the
-   * transcript when it is a distinct file (debug-log-sourced session); otherwise
-   * reuses the content just read. Emits only on change, so it is idempotent
-   * under watch + poll.
+   * Derive the mid-turn flag from the just-read content (the one authoritative
+   * source, via the injected `computeTurn`) and fire `onTurn` on a transition.
+   * Emits only on change, so it is idempotent under watch + poll.
    */
-  private async pumpTurn(mainContent: string): Promise<void> {
-    if (!this.turnFile || !this.onTurn || this.stopped) return;
-    let content = mainContent;
-    if (this.turnFile !== this.filePath) {
-      try {
-        content = await fs.readFile(this.turnFile, "utf8");
-      } catch (err) {
-        // transcript not readable yet; a later change retriggers.
-        this.report("turn", "debug", err);
-        return;
-      }
-    }
-    if (this.stopped) return;
-    this.clear("turn");
-    const inTurn = computeInTurn(content);
+  private pumpTurn(content: string): void {
+    if (!this.onTurn || this.stopped) return;
+    const inTurn = this.computeTurn(content);
     if (inTurn !== this.lastInTurn) {
       this.lastInTurn = inTurn;
       this.onTurn(inTurn);
@@ -781,7 +772,7 @@ export class SessionFollower {
    * poll. `clear` resets a phase after a good read so a recurrence logs again.
    */
   private report(
-    phase: "read" | "turn" | "watch",
+    phase: "read" | "watch",
     level: "warn" | "debug",
     err: unknown,
     extra?: LogFields,
@@ -799,7 +790,7 @@ export class SessionFollower {
     }
   }
 
-  private clear(phase: "read" | "turn"): void {
+  private clear(phase: "read"): void {
     this.lastCodeByPhase[phase] = undefined;
   }
 
@@ -807,8 +798,6 @@ export class SessionFollower {
     this.stopped = true;
     this.watcher?.close();
     this.watcher = undefined;
-    this.turnWatcher?.close();
-    this.turnWatcher = undefined;
     if (this.poller) {
       clearInterval(this.poller);
       this.poller = undefined;

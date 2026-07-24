@@ -37,24 +37,28 @@ function harness(pending: string[] = ["t"]) {
 const cmds = (calls: Array<[string, unknown[]]>) => calls.map((c) => c[0]);
 
 describe("buildActuators", () => {
-  it("respond opens the session then submits the query", async () => {
+  it("respond opens the session then submits the text (composer-free)", async () => {
     const { actuators, calls } = harness();
     await actuators.respond({ sessionId: "s", text: "hi" });
     expect(calls).toEqual([
       ["vscode.open", ["uri:s"]],
-      ["workbench.action.chat.open", [{ query: "hi" }]],
+      ["workbench.action.chat.submit", [{ inputValue: "hi" }]],
     ]);
   });
 
-  it("steer prefills as a partial query then fires steerWithMessage", async () => {
+  it("steer submits the text directly with the steering queue kind (no composer read)", async () => {
     const { actuators, calls } = harness();
     await actuators.steer({ sessionId: "s", text: "go left" });
-    expect(cmds(calls)).toEqual([
-      "vscode.open",
-      "workbench.action.chat.open",
-      "workbench.action.chat.steerWithMessage",
+    // ONE payload-carrying submit: `inputValue` means chat.submit uses our text
+    // and never reads the shared composer, so there is no prefill→submit capture
+    // window (fixes docs/06 bug-steer-composer-capture).
+    expect(calls).toEqual([
+      ["vscode.open", ["uri:s"]],
+      [
+        "workbench.action.chat.submit",
+        [{ inputValue: "go left", acceptInputOptions: { queue: "steering" } }],
+      ],
     ]);
-    expect(calls[1][1]).toEqual([{ query: "go left", isPartialQuery: true }]);
   });
 
   it("stop cancels + GCs the spool, and does NOT send without text", async () => {
@@ -67,15 +71,21 @@ describe("buildActuators", () => {
     expect(removed).toEqual(["s"]);
   });
 
-  it("stop-and-send appends a fresh prompt when text is given", async () => {
+  it("stop-and-send cancels + sends the text in one atomic submit", async () => {
     const { actuators, calls, removed } = harness();
     await actuators.stop({ sessionId: "s", text: "new task" });
-    expect(cmds(calls)).toEqual([
-      "vscode.open",
-      "workbench.action.chat.cancel",
-      "workbench.action.chat.open",
+    expect(calls).toEqual([
+      ["vscode.open", ["uri:s"]],
+      [
+        "workbench.action.chat.submit",
+        [
+          {
+            inputValue: "new task",
+            acceptInputOptions: { cancelCurrentRequest: true },
+          },
+        ],
+      ],
     ]);
-    expect(calls[2][1]).toEqual([{ query: "new task" }]);
     expect(removed).toEqual(["s"]);
   });
 

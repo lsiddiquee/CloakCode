@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   classifyStatus,
+  computeInTurnFromDebugLog,
   debugLogTitle,
   parseTranscript,
   scanSessions,
@@ -168,6 +169,65 @@ describe("parseTranscript", () => {
       }),
     ].join("\n");
     expect(parseTranscript(content).inTurn).toBe(true);
+  });
+});
+
+describe("computeInTurnFromDebugLog", () => {
+  // Debug-log OTel spans: `{ type, name, spanId, ts, ... }`. The parser tracks
+  // the LAST turn-boundary span (turn_start opens, turn_end closes).
+  const span = (type: string, n = 0): string =>
+    JSON.stringify({
+      ts: 1,
+      type,
+      name: `${type}:${n}`,
+      spanId: `${type}-s-${n}`,
+    });
+
+  it("is mid-turn when the last turn boundary is a turn_start", () => {
+    // A live turn: opens after the previous close and runs a tool (no turn_end).
+    const content = [
+      span("turn_start", 0),
+      span("turn_end", 0),
+      span("turn_start", 1),
+      JSON.stringify({ ts: 2, type: "tool_call", name: "run_in_terminal" }),
+    ].join("\n");
+    expect(computeInTurnFromDebugLog(content)).toBe(true);
+  });
+
+  it("is NOT mid-turn when the last turn boundary is a turn_end", () => {
+    // The debug-log ends cleanly on turn_end (no spurious placeholder) for a
+    // completed/idle session — unlike the transcript. Verified on real sessions.
+    const content = [
+      span("turn_start", 0),
+      JSON.stringify({ ts: 2, type: "agent_response", name: "agent_response" }),
+      span("turn_end", 0),
+    ].join("\n");
+    expect(computeInTurnFromDebugLog(content)).toBe(false);
+  });
+
+  it("tracks the LAST boundary across sequential turns", () => {
+    const content = [
+      span("turn_start", 0),
+      span("turn_end", 0),
+      span("turn_start", 1),
+      span("turn_end", 1),
+    ].join("\n");
+    expect(computeInTurnFromDebugLog(content)).toBe(false);
+  });
+
+  it("ignores blank lines and non-turn spans", () => {
+    const content = [
+      "",
+      JSON.stringify({ ts: 1, type: "user_message", attrs: { content: "hi" } }),
+      span("turn_start", 0),
+      "   ",
+      JSON.stringify({ ts: 2, type: "llm_request", name: "chat" }),
+    ].join("\n");
+    expect(computeInTurnFromDebugLog(content)).toBe(true);
+  });
+
+  it("is not mid-turn on empty content", () => {
+    expect(computeInTurnFromDebugLog("")).toBe(false);
   });
 });
 
@@ -367,6 +427,50 @@ describe("scanSessions", () => {
     );
     expect(byId["sLive"]).toBe(true);
     expect(byId["sOld"]).toBe(false);
+    await fs.rm(r, { recursive: true, force: true });
+  });
+
+  it("derives a live session's inTurn from the debug-log, overriding the transcript's open turn", async () => {
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-inturn-dl-"));
+    const ws = path.join(r, "hashD", "GitHub.copilot-chat");
+    const tx = path.join(ws, "transcripts");
+    await fs.mkdir(tx, { recursive: true });
+    const span = (type: string): string =>
+      JSON.stringify({ ts: 1, type, name: `${type}:0`, spanId: `${type}-s-0` });
+
+    // Both sessions are LIVE and their TRANSCRIPTS end open (placeholder
+    // turn_start) — the transcript alone would read BOTH mid-turn. The debug-log
+    // is the authority: `sDone` closed (turn_end last), `sLive` open.
+    const write = async (id: string, dlTail: string): Promise<void> => {
+      const txFile = path.join(tx, `${id}.jsonl`);
+      await fs.writeFile(
+        txFile,
+        [
+          { type: "user.message", data: { content: "go" } },
+          { type: "assistant.turn_start", data: { turnId: "T1" } },
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n"),
+      );
+      const when = new Date(NOW - 5000); // live
+      await fs.utimes(txFile, when, when);
+      const dl = path.join(ws, "debug-logs", id);
+      await fs.mkdir(dl, { recursive: true });
+      await fs.writeFile(path.join(dl, "main.jsonl"), dlTail);
+    };
+    await write("sDone", [span("turn_start"), span("turn_end")].join("\n"));
+    await write("sLive", [span("turn_end"), span("turn_start")].join("\n"));
+
+    const sessions = await scanSessions({
+      instanceId: "x",
+      root: r,
+      now: () => NOW,
+    });
+    const byId = Object.fromEntries(
+      sessions.map((s) => [s.sessionId, s.inTurn]),
+    );
+    expect(byId["sDone"]).toBe(false); // debug-log turn_end wins over transcript
+    expect(byId["sLive"]).toBe(true); // debug-log ends on turn_start
     await fs.rm(r, { recursive: true, force: true });
   });
 

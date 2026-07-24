@@ -44,15 +44,20 @@ export interface Activity {
 /**
  * A live "what's happening" phrase for the session header, richer than the
  * lagging scan status: a tool approval ("blocked on approval") vs a question
- * ("awaiting response") vs a tool executing now ("tool calling"), falling back
- * to the scan status word. A `PendingBlocker` carries `confirmations` for a
- * question and raw `input` for a tool approval.
+ * ("awaiting response") vs a tool executing now ("tool calling") vs otherwise
+ * mid-turn ("working"), falling back to the scan status word only when idle. A
+ * `PendingBlocker` carries `confirmations` for a question and raw `input` for a
+ * tool approval. `inTurn` is the AUTHORITATIVE mid-turn flag (debug-log turn
+ * spans, docs/02.2): it drives "working"/"tool calling" so a completed turn's
+ * stale `running` tool part can't strand the header, AND a live turn never reads
+ * the lagging scan status (which can show a stale "idle 1h" mid-turn).
  */
 export function sessionActivity(
   pending: PendingBlocker[],
   parts: SessionPart[],
   resolved: ReadonlySet<string>,
   status: SessionStatus,
+  inTurn: boolean,
   idleSeconds: number,
 ): Activity {
   const isApproval = (b: PendingBlocker): boolean =>
@@ -67,8 +72,15 @@ export function sessionActivity(
     parts.some((p) => p.kind === "confirmation" && !resolved.has(p.id))
   )
     return { label: "awaiting response", awaiting: true };
-  if (parts.some((p) => p.kind === "toolCall" && p.status === "running"))
+  if (
+    inTurn &&
+    parts.some((p) => p.kind === "toolCall" && p.status === "running")
+  )
     return { label: "tool calling", awaiting: false };
+  // Mid-turn but no live tool signal (debug-log tools land as `done`, not
+  // `running`): the session IS working — reflect the AUTHORITATIVE inTurn, not
+  // the LAGGING scan status, which can read a stale "idle 1h" during a turn.
+  if (inTurn) return { label: "working", awaiting: false };
 
   return {
     label: statusLabel(status, idleSeconds),

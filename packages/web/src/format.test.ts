@@ -50,14 +50,18 @@ describe("sessionActivity", () => {
   };
 
   it("labels a tool approval as blocked on approval", () => {
-    expect(sessionActivity([approval], noParts, none, "active", 0)).toEqual({
+    expect(
+      sessionActivity([approval], noParts, none, "active", true, 0),
+    ).toEqual({
       label: "blocked on approval",
       awaiting: true,
     });
   });
 
   it("labels a question as awaiting response", () => {
-    expect(sessionActivity([question], noParts, none, "blocked", 0)).toEqual({
+    expect(
+      sessionActivity([question], noParts, none, "blocked", true, 0),
+    ).toEqual({
       label: "awaiting response",
       awaiting: true,
     });
@@ -67,7 +71,7 @@ describe("sessionActivity", () => {
     const parts: SessionPart[] = [
       { kind: "confirmation", id: "c1", prompt: "?", options: [] },
     ];
-    expect(sessionActivity([], parts, none, "blocked", 0).label).toBe(
+    expect(sessionActivity([], parts, none, "blocked", true, 0).label).toBe(
       "awaiting response",
     );
   });
@@ -82,14 +86,39 @@ describe("sessionActivity", () => {
         status: "running",
       },
     ];
-    expect(sessionActivity([], parts, none, "active", 0)).toEqual({
+    expect(sessionActivity([], parts, none, "active", true, 0)).toEqual({
       label: "tool calling",
       awaiting: false,
     });
   });
 
+  it("does NOT show tool calling once the turn ended (inTurn false)", () => {
+    // A stale `running` tool part (transcript-orphan) must not strand the header
+    // after the debug-log says the turn ended (docs/02.2 convergence).
+    const parts: SessionPart[] = [
+      {
+        kind: "toolCall",
+        id: "x",
+        name: "read_file",
+        input: {},
+        status: "running",
+      },
+    ];
+    expect(sessionActivity([], parts, none, "active", false, 0).label).toBe(
+      "active",
+    );
+  });
+
+  it("labels a mid-turn session with no running tool as working", () => {
+    // Debug-log tools land as `done`, so a live turn has no `running` part; the
+    // header must reflect the authoritative inTurn, not the stale scan status.
+    expect(sessionActivity([], noParts, none, "idle", true, 3600).label).toBe(
+      "working",
+    );
+  });
+
   it("falls back to the scan status label", () => {
-    expect(sessionActivity([], noParts, none, "idle", 7200).label).toBe(
+    expect(sessionActivity([], noParts, none, "idle", false, 7200).label).toBe(
       "idle 2h",
     );
   });

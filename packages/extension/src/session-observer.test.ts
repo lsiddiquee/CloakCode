@@ -15,6 +15,7 @@ import {
   parseDebugLogEvents,
   stitchEvents,
 } from "./session-observer.js";
+import { computeInTurnFromDebugLog } from "./scanner.js";
 
 describe("stitchEvents", () => {
   const u = (id: string, text: string): SessionEvent => ({
@@ -459,7 +460,6 @@ describe("SessionFollower", () => {
     );
     const turns: boolean[] = [];
     const follower = new SessionFollower(file, () => {}, 0, {
-      turnFile: file,
       onTurn: (t) => turns.push(t),
     });
     await follower.start();
@@ -496,6 +496,34 @@ describe("SessionFollower", () => {
     await follower.refresh();
     follower.stop();
     expect(turns).toEqual([false, true, false]);
+  });
+
+  it("derives inTurn from a DEBUG-LOG's turn spans via computeTurn", async () => {
+    // The debug-log has clean turn_start/turn_end spans; unlike the transcript it
+    // does NOT append a placeholder turn_start after turn_end, so a completed
+    // turn correctly reads not-in-turn (docs/02.2 convergence).
+    const span = (type: string, n: number): string =>
+      JSON.stringify({
+        ts: 1,
+        type,
+        name: `${type}:${n}`,
+        spanId: `${type}-s-${n}`,
+      });
+    const file = await tmpFile(span("turn_start", 0));
+    const turns: boolean[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      parse: () => [],
+      computeTurn: computeInTurnFromDebugLog,
+      onTurn: (t) => turns.push(t),
+    });
+    await follower.start();
+    expect(turns).toEqual([true]); // an open turn_start
+
+    // Turn closes cleanly — the debug-log ends on turn_end, so inTurn clears.
+    await fs.appendFile(file, `\n${span("turn_end", 0)}`);
+    await follower.refresh();
+    follower.stop();
+    expect(turns).toEqual([true, false]);
   });
 
   it("streams a non-interactive tool call: running append, then updateStatus done on completion", async () => {

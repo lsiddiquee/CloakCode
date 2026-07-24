@@ -235,6 +235,37 @@ export function computeInTurn(content: string): boolean {
   return parseTranscript(content).inTurn;
 }
 
+/**
+ * Whether a Copilot **debug-log** (`debug-logs/<id>/main.jsonl`, OTel spans) is
+ * currently mid-turn — the AUTHORITATIVE turn signal, preferred over
+ * {@link computeInTurn} whenever a debug-log exists. Unlike the transcript —
+ * which appends a spurious placeholder `turn_start` after every `turn_end` (same
+ * timestamp) and can strand orphaned tool echoes, so it almost always reads open
+ * (docs/02.2) — the debug-log carries clean `turn_start`/`turn_end` spans. A turn
+ * is in flight when the LAST turn-boundary span is a `turn_start` not yet closed
+ * by a `turn_end`. Verified across every real workspace session: idle/completed
+ * sessions end on `turn_end`, only a genuinely live one ends on `turn_start`.
+ */
+export function computeInTurnFromDebugLog(content: string): boolean {
+  let inTurn = false;
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    // Cheap prefilter: only turn-boundary spans move the flag, so skip the bulk
+    // (llm_request payloads, tool args) without a JSON parse.
+    if (!trimmed.includes("turn_start") && !trimmed.includes("turn_end"))
+      continue;
+    let event: { type?: unknown };
+    try {
+      event = JSON.parse(trimmed) as { type?: unknown };
+    } catch {
+      continue;
+    }
+    if (event.type === "turn_start") inTurn = true;
+    else if (event.type === "turn_end") inTurn = false;
+  }
+  return inTurn;
+}
+
 /** Liveness classification: mtime window + the blocker signature. */
 export function classifyStatus(
   idleSeconds: number,
@@ -445,6 +476,28 @@ export async function scanSessions(
           const debugLog = await hasDebugLog(debugLogsDir, sessionId);
           const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
           const live = idleSeconds < liveWindow;
+          // `inTurn` is AUTHORITATIVE from the debug-log's clean turn spans when
+          // present — the transcript almost always reads open (placeholder
+          // `turn_start` + orphaned tool echoes, docs/02.2), so only the
+          // mtime-gate saved it. Only a LIVE session can be mid-turn, so read
+          // the debug-log for those alone (cheap: ~0–1 live sessions); idle ones
+          // read idle regardless. Transcript `inTurn` is the no-debug-log path.
+          let midTurn = false;
+          if (live) {
+            midTurn = inTurn;
+            if (debugLog) {
+              try {
+                midTurn = computeInTurnFromDebugLog(
+                  await fs.readFile(
+                    path.join(debugLogsDir, sessionId, "main.jsonl"),
+                    "utf8",
+                  ),
+                );
+              } catch {
+                // debug-log unreadable (e.g. too large) → keep transcript inTurn.
+              }
+            }
+          }
           rows.push({
             mtimeMs,
             summary: {
@@ -460,9 +513,9 @@ export async function scanSessions(
                 liveWindow,
               ),
               idleSeconds,
-              // Mid-turn only counts while live — a dormant transcript that ends
-              // at `turn_start` (never flushed `turn_end`, §4.10) must read idle.
-              inTurn: live && inTurn,
+              // Mid-turn from the authoritative per-log detector, gated to live
+              // sessions above (a dormant log that ends open must read idle).
+              inTurn: midTurn,
               owned: opts.ownedWorkspaceHashes
                 ? opts.ownedWorkspaceHashes.has(hashDir)
                 : true,

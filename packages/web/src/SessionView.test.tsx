@@ -170,6 +170,27 @@ describe("SessionView composer — mid-turn actions", () => {
     expect(screen.queryByRole("button", { name: /Steer/ })).toBeNull();
   });
 
+  it("header reads active after a live turn ends, not the frozen summary idle", () => {
+    render(
+      <SessionView
+        session={session({
+          owned: true,
+          inTurn: false,
+          status: "idle",
+          idleSeconds: 960,
+        })}
+        onBack={() => {}}
+      />,
+    );
+    // A live turn → the header reflects live activity, not the stale "idle 16m".
+    act(() => h.emitTurn(true));
+    expect(screen.getByText("working")).toBeTruthy();
+    // Turn ends → "active" (just finished), NOT the frozen summary idle.
+    act(() => h.emitTurn(false));
+    expect(screen.getByText("active")).toBeTruthy();
+    expect(screen.queryByText(/idle/)).toBeNull();
+  });
+
   it("mid-turn: Ctrl/Cmd+Enter steers into the running turn", () => {
     render(
       <SessionView
@@ -215,6 +236,22 @@ describe("SessionView composer — mid-turn actions", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Stop$/ }));
     expect(h.stop).toHaveBeenCalledTimes(1);
     expect(h.stop.mock.calls[0]?.[0]).toEqual({ sessionId: "sess-1" });
+  });
+
+  it("pure Stop optimistically flips the composer back to Send on ack", async () => {
+    render(
+      <SessionView
+        session={session({ owned: true, inTurn: true })}
+        onBack={() => {}}
+      />,
+    );
+    // `chat.cancel` writes no debug-log turn_end, so the follower won't emit
+    // inTurn:false on its own — the stop ack optimistically resets the composer.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Stop$/ }));
+    });
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Steer/ })).toBeNull();
   });
 
   it("mid-turn: Queue sends via respond (queued after the current step / stale-tracking escape hatch)", () => {

@@ -58,7 +58,10 @@ Base: `~/.vscode-server/data/User/`
      the input box.
    - The "submit" gap is filled by the **runtime queue**, not a submit command.
    - `workbench.action.chat.newChat`: exists but "preconditions not met" (when-clause gated).
-   - `workbench.action.chat.submit` AND `.acceptInput`: "Failed to find command".
+   - `workbench.action.chat.submit` AND `.acceptInput`: "Failed to find command" — but that was the
+     **string-only** `run_vscode_command` probe's limit, NOT the command's absence. `chat.submit` IS
+     reachable from an **extension** `executeCommand` with an OBJECT context (`{ inputValue,
+     acceptInputOptions }`) and is now the actuator's clean composer-free payload path (docs/02.1 M3c).
    - 3 native SEND MODES: **Stop and Send** (interrupt now), **Add to Queue** (Alt+Enter, after
      loop), **Steer with Message** (Enter, inject INTO running loop / redirect). "Steer with Message"
      is the ideal remote blocker-answer / redirect primitive. Command IDs client-side, unverified.

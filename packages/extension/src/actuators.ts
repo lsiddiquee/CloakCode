@@ -47,48 +47,55 @@ export function buildActuators({
   return {
     respond: async ({ sessionId, text, traceId }) => {
       // M3b targeted-send: focus the SPECIFIC local session by its resource URI,
-      // then submit — instead of only the active chat. `sessionId` names the
-      // transcript AND is what Copilot base64url-encodes into
-      // `vscode-chat-session://local/<id>`, a registered editor. See docs/02.
+      // then submit the text DIRECTLY (`chat.submit {inputValue}`) — our payload,
+      // never the shared composer, so a local draft is untouched. While a turn
+      // runs VS Code auto-queues it (default queue kind); idle it sends.
+      // `sessionId` names the transcript AND is what Copilot base64url-encodes
+      // into `vscode-chat-session://local/<id>`, a registered editor. See docs/02.
       const uri = sessionUri(sessionId);
       log.info("actuator.respond", { sessionId, traceId });
       await execute("vscode.open", uri);
-      await execute("workbench.action.chat.open", { query: text });
+      await execute("workbench.action.chat.submit", { inputValue: text });
     },
     steer: async ({ sessionId, text, traceId }) => {
-      // Redirect the IN-FLIGHT turn (docs/02 §4.28): focus the session, PREFILL
-      // the composer without sending (`isPartialQuery`), then fire
-      // `steerWithMessage` — VS Code folds the text into the running turn.
-      //
-      // KNOWN LIMITATION (docs/06, bug-steer-composer-capture): this rides the
-      // SHARED composer, and `steerWithMessage` submits whatever is in it at fire
-      // time. A clean payload-only steer is NOT reachable from an extension —
-      // `steerWithMessage` takes no message arg (it reads the composer) and
-      // `chat.submit`/`acceptInput` are "Failed to find command" (docs/02.1), and
-      // no API reads the composer to snapshot-and-guard. Tracked in docs/05.
+      // Redirect the IN-FLIGHT turn (docs/02 §4.28): focus the session, then
+      // SUBMIT the text directly with the `steering` queue kind. Passing
+      // `inputValue` makes `chat.submit` use OUR payload — VS Code never reads
+      // the shared composer — so there is no prefill→submit capture window
+      // (fixes docs/06 bug-steer-composer-capture). `workbench.action.chat.submit`
+      // is a registered command whose handler runs regardless of precondition
+      // (Action2 preconditions gate menus/keybindings, not `executeCommand`), and
+      // it forwards `inputValue` + `acceptInputOptions` straight to the widget's
+      // `acceptInput`. The earlier "Failed to find command" (docs/02.1) was the
+      // string-only command-runner probe, not the extension's object invocation.
       const uri = sessionUri(sessionId);
       log.info("actuator.steer", { sessionId, traceId });
       await execute("vscode.open", uri);
-      await execute("workbench.action.chat.open", {
-        query: text,
-        isPartialQuery: true,
+      await execute("workbench.action.chat.submit", {
+        inputValue: text,
+        acceptInputOptions: { queue: "steering" },
       });
-      await execute("workbench.action.chat.steerWithMessage");
     },
     stop: async ({ sessionId, text, traceId }) => {
-      // Cancel the in-flight turn (`chat.cancel` acts on the focused session).
-      // With a follow-up `text`, send it as a fresh prompt (stop-and-send).
+      // Cancel the in-flight turn. Plain stop → `chat.cancel` (acts on the
+      // focused session). Stop-and-send → ONE atomic `chat.submit` with
+      // `cancelCurrentRequest` (VS Code's native "Stop and Send"): cancels the
+      // running turn AND sends `text` as a fresh turn, composer-free.
       const uri = sessionUri(sessionId);
       log.info("actuator.stop", { sessionId, send: Boolean(text), traceId });
       await execute("vscode.open", uri);
-      await execute("workbench.action.chat.cancel");
+      if (text) {
+        await execute("workbench.action.chat.submit", {
+          inputValue: text,
+          acceptInputOptions: { cancelCurrentRequest: true },
+        });
+      } else {
+        await execute("workbench.action.chat.cancel");
+      }
       // Force-stop abandons the in-flight turn's pending tool call(s): we're
       // ignoring that blocker, so GC its spool file NOW rather than waiting for
       // `isSuperseded` on the next turn (force-stop spool leak; docs/02 §4.19).
       await removeSpool(sessionId);
-      if (text) {
-        await execute("workbench.action.chat.open", { query: text });
-      }
     },
     decide: async ({ sessionId, toolCallId, decision, traceId }) => {
       // Resolve VS Code's OWN native tool confirmation via command, targeted by

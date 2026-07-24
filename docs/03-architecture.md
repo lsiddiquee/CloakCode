@@ -89,9 +89,9 @@ overlay; questions reuse the `confirmation` part, approvals show `toolName` + co
 | --- | --- | --- | --- | --- | --- | --- |
 | **Approve / deny** a tool call | hook `PreToolUse` → spool `awaitingDecision` | `session.decide {toolCallId, decision}` | `chat.acceptTool` / `skipTool` (by session URI) | _Remote approval_ | Surfacing retires **only** on `PostToolUse` delete or a later turn (`isSuperseded`) — **never** on the tool's own `execution_start` landing in the transcript. A `run_in_terminal` writes its start while still awaiting approval, so that would hide the live card (regressed 2026-07-18). §4.20 | `hook-spool.test.ts` |
 | **Answer a question** | hook `PreToolUse` (interactive tool) → spool question | `session.answer {toolCallId, answers}` | `_chat.notifyQuestionCarouselAnswer` | _Remote approval_ | Free-text-only answer ⇒ **bare string** (else `[object Object]`); multi-select ⇒ `selectedValues`. §4.16/§4.17 | `hook-spool.test.ts`, `actuators.test.ts` |
-| **Send / queue** next | composer | `session.respond {text}` | `chat.open {query}` (auto-queues mid-turn) | _Mid-turn flag_ | Gated by `inTurn`. | `actuators.test.ts` |
-| **Steer** (mid-turn) | composer while `inTurn` | `session.steer {text}` | `chat.open {query, isPartialQuery:true}` → `steerWithMessage` | _Mid-turn flag_ | Leaves **no** on-disk marker (reads as a plain `user.message`). | `actuators.test.ts` |
-| **Stop** / **Stop & send** | composer while `inTurn` | `session.stop {}` / `session.stop {text}` | `chat.cancel` (then `chat.open {query}` for stop-and-send) | _Mid-turn flag_ | A stopped turn has **no** `turn_end`; it leaks a spool file that the `isSuperseded` self-heal sweeps on the next turn. | `actuators.test.ts` |
+| **Send / queue** next | composer | `session.respond {text}` | `chat.submit {inputValue}` (auto-queues mid-turn) | _Mid-turn flag_ | Gated by `inTurn`. Payload-carrying — the shared composer is never read. | `actuators.test.ts` |
+| **Steer** (mid-turn) | composer while `inTurn` | `session.steer {text}` | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}` | _Mid-turn flag_ | Composer-free (our text, not a local draft); leaves **no** on-disk marker (reads as a plain `user.message`). | `actuators.test.ts` |
+| **Stop** / **Stop & send** | composer while `inTurn` | `session.stop {}` / `session.stop {text}` | `chat.cancel` / `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` (one atomic "Stop and Send") | _Mid-turn flag_ | Pure Stop writes **no** `turn_end`, so `inTurn` can stick true until the next turn (masked by the client's optimistic `onStopped` reset; docs/05); a force-stop can also leak a spool file the `isSuperseded` self-heal sweeps next turn. | `actuators.test.ts` |
 
 **Visibility rules that gate these (also easy to regress):**
 
@@ -420,17 +420,24 @@ extra egress:
 | -------------------------------------------------------------------------- | --------------------- | ------------------ |
 | pending blocker with raw `input` and no `confirmations`                    | `blocked on approval` | yes (amber)        |
 | pending blocker with `confirmations`, or an unresolved `confirmation` part | `awaiting response`   | yes (amber)        |
-| a `toolCall` part currently `running`                                      | `tool calling`        | no                 |
+| a `toolCall` part `running` while `inTurn`                                 | `tool calling`        | no                 |
+| `inTurn` with no `running` tool part                                       | `working`             | no                 |
 | otherwise                                                                  | the scan status word  | `blocked` → amber  |
 
 The returned `awaiting` bit drives the amber indicator; every phrase is derived
 purely from data the observer already streams (no new `SessionPart`, no new RPC).
+`tool calling`/`working` are gated on the **authoritative** `inTurn` (debug-log turn
+spans, docs/02 §4.34) — debug-log tool parts land as `done`, never `running`, so a
+mid-turn with no live tool reads `working`, not `tool calling`. The active/idle **age**
+comes from a live `lastActivityAt` bumped on each turn transition, not the frozen
+session-summary snapshot, so a just-ended turn reads active, not a stale "idle 16m".
 
 ### Mid-turn flag (`SessionSummary.inTurn`) — gate for steer/queue/stop
 
 `sessions.list` also stamps each row with **`inTurn: boolean`** — the model is
-generating (an open `assistant.turn_start` with no matching `assistant.turn_end`,
-**and** the row is live by mtime). It is orthogonal to `status`: a live session can
+generating (an open `assistant.turn_start` with no matching `assistant.turn_end` in
+the **debug-log**, **and** the row is live by mtime; docs/02 §4.34). It is orthogonal
+to `status`: a live session can
 be `inTurn` (generating) or waiting for the user. This gates the panel actions the
 composer offers. While `inTurn` the composer shows **Steer** (the default, ⌘/Ctrl+⏎)
 **and Queue side by side** — steer folds into the running turn when the agent next
@@ -439,22 +446,22 @@ When not `inTurn` it's a plain **Send** (which is queue). All are `remote-operat
 actions (docs/04), driven by public `workbench.action.chat.*` commands after focusing
 the session URI, and none leaves a distinct on-disk marker (docs/02 §4.28):
 
-| Action           | RPC                                  | Extension command sequence                                        |
-| ---------------- | ------------------------------------ | ----------------------------------------------------------------- |
-| Queue / send     | `session.respond {text}`             | `chat.open {query}` (auto-queues while a turn runs)               |
-| **Steer**        | `session.steer {text}`               | `chat.open {query, isPartialQuery:true}` → `steerWithMessage`     |
-| **Stop & send**  | `session.stop {text}`                | `chat.cancel` → `chat.open {query}`                               |
-| **Stop**         | `session.stop {}`                    | `chat.cancel` (no-arg)                                            |
+| Action           | RPC                                  | Extension command sequence                                                  |
+| ---------------- | ------------------------------------ | --------------------------------------------------------------------------- |
+| Queue / send     | `session.respond {text}`             | `chat.submit {inputValue}` (auto-queues while a turn runs)                  |
+| **Steer**        | `session.steer {text}`               | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}`           |
+| **Stop & send**  | `session.stop {text}`                | `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` |
+| **Stop**         | `session.stop {}`                    | `chat.cancel` (no-arg)                                                      |
 
-**Queue doubles as the stale-`inTurn` escape hatch:** `inTurn` can lag (editor-hosted
-sessions never flush `turn_end`, and Copilot's post-`turn_end` placeholder start is
-guarded against in docs/02 §4.28). Because Queue is `chat.open {query}` it works either
-way — it queues while a turn runs and just sends if the turn has already ended — so a
-stale `inTurn` never traps the operator. The flag now **also streams live** over
-`session.subscribe` (`{kind:"turn", inTurn}`, emitted on transition), so the composer
-flips steer/queue↔send the moment the turn opens or closes — not only on the next
-`sessions.list` refresh (SHIPPED 2026-07-16). The derivation + self-heal rules are in
-docs/02 §4.28.
+**Queue doubles as the stale-`inTurn` escape hatch:** `inTurn` can still lag (a pure Stop
+via `chat.cancel` writes no `turn_end`, so it stays true until the next turn — docs/05
+Known issues). Because Queue is `chat.submit {inputValue}` it works either way — it queues
+while a turn runs and just sends if the turn has already ended — so a stale `inTurn` never
+traps the operator. The flag is now sourced from the **debug-log's** turn spans (docs/02
+§4.34) and **also streams live** over `session.subscribe` (`{kind:"turn", inTurn}`, emitted
+on transition), so the composer flips steer/queue↔send the moment the turn opens or closes —
+not only on the next `sessions.list` refresh (SHIPPED 2026-07-16). The derivation + self-heal
+rules are in docs/02 §4.28/§4.34.
 
 ## Data flows
 

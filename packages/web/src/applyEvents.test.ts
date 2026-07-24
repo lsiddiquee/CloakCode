@@ -8,6 +8,7 @@ const empty = {
   pending: [],
   error: null,
   inTurn: false,
+  lastActivityAt: 0,
 };
 
 const md = (id: string, seq: number): SessionEvent => ({
