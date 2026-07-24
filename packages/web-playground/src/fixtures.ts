@@ -37,6 +37,8 @@ export const SESSIONS: SessionSummary[] = [
     idleSeconds: 42,
     owned: true,
     inTurn: false,
+    // Transcript-sourced (no debug-log) → demo the freshness lag advisory.
+    logSource: "transcript",
   },
   {
     instanceId: "devcontainer:cloakcode",

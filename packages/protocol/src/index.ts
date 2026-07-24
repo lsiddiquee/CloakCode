@@ -134,6 +134,18 @@ export const sessionSummarySchema = z.object({
    * leave no on-disk marker (docs/02 §4.28), so we track only in-flight-ness.
    */
   inTurn: z.boolean(),
+  /**
+   * Which on-disk source the observer will tail for this session (docs/02.4
+   * §4.23/§4.25) — **display-only**, for a freshness advisory. `"transcript"`
+   * means there is no debug-log, so the **newest** assistant reply can LAG (a
+   * finished turn only flushes to the transcript when the next turn starts);
+   * `"debug-log"` is live. Resolved **empirically** (debug-log file presence),
+   * NEVER from the experiment-gated config flag (which lies both ways). Optional:
+   * an older producer that omits it simply shows no advisory (parallel to
+   * `InsecureBanner`'s "only warn when we know"), and the field rides the existing
+   * `sessions.list` fan-out — no new frame, no new egress.
+   */
+  logSource: z.enum(["debug-log", "transcript"]).optional(),
 });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 

@@ -88,6 +88,33 @@ describe("SessionView read-only gating", () => {
   });
 });
 
+describe("SessionView lag advisory (transcript source)", () => {
+  it("shows a freshness advisory when logSource is transcript", () => {
+    render(
+      <SessionView
+        session={session({ logSource: "transcript" })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.getByText(/latest reply can lag/i)).toBeTruthy();
+  });
+
+  it("hides the advisory when the debug-log is the live source", () => {
+    render(
+      <SessionView
+        session={session({ logSource: "debug-log" })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/latest reply can lag/i)).toBeNull();
+  });
+
+  it("hides the advisory when logSource is absent (older producer)", () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    expect(screen.queryByText(/latest reply can lag/i)).toBeNull();
+  });
+});
+
 describe("SessionView composer", () => {
   it("is a multi-line textarea; Ctrl/Cmd+Enter sends, plain Enter does not", () => {
     render(

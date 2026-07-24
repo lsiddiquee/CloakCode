@@ -337,6 +337,12 @@ export function SessionView({
           ))}
         </footer>
       )}
+      {session.logSource === "transcript" && (
+        <p className="lag-banner" role="status">
+          ⚠ Transcript-based — the latest reply can lag. Enable Copilot’s agent
+          debug log for live updates.
+        </p>
+      )}
       {readOnly ? (
         <p className="readonly-banner">
           Read-only — no CloakCode extension is running in this workspace, so

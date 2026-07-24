@@ -139,10 +139,13 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.22** Ephemeral `workspaceStorage`: a rebuild wipes everything; the transcript **rehydrates**
   (with fake timestamps), the debug-log does **not**.
 - **§4.23** The transcript is always **one reply behind**; the debug-log has the latest turn.
+  Surfaced per-session as `SessionSummary.logSource` (empirical — `main.jsonl` presence, not the
+  config flag) → a phone freshness advisory.
 - **§4.24** The transcript schema is authoritatively typed; `tool.execution_complete` carries
   `result.content` (the tool output).
 - **§4.25** Copilot Chat is **built into core VS Code** (the standalone repo was archived); the
-  debug-log toggle was renamed + is experiment-gated.
+  debug-log toggle was renamed + is experiment-gated — an **unreliable proxy** (lies both ways), so
+  the freshness signal is the empirically-resolved per-session source, never the flag.
 - **§4.26** `session-store.db` is a **lagging** index — read the logs directly.
 - **§4.28** The transcript storage root is **host-relative** — derive it from `context.globalStorageUri`
   (sibling `…/User/workspaceStorage`), not a hardcoded `~/.vscode-server` (0 sessions on desktop hosts).

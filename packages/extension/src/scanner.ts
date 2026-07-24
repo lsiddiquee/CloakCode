@@ -352,6 +352,27 @@ export async function debugLogTitle(
 }
 
 /**
+ * Whether this session resolves to a LIVE debug-log source — the presence of
+ * `<debugLogsDir>/<sessionId>/main.jsonl`, exactly what `findSessionLog` tails
+ * (session-observer.ts). Drives `SessionSummary.logSource` (docs/02.4 §4.23): a
+ * session WITHOUT it tails the transcript, whose newest reply lags. Empirical
+ * (file existence) — never the experiment-gated config flag, which lies both ways
+ * (docs/02.4 §4.25). NB: a debug-log dir with only a `title-*.jsonl` (no
+ * `main.jsonl`) is still transcript-sourced, so we check `main.jsonl` specifically.
+ */
+async function hasDebugLog(
+  debugLogsDir: string,
+  sessionId: string,
+): Promise<boolean> {
+  try {
+    await fs.access(path.join(debugLogsDir, sessionId, "main.jsonl"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Enumerate every session transcript under one environment's workspaceStorage
  * and derive the phone's session picker rows, newest first.
  */
@@ -419,6 +440,9 @@ export async function scanSessions(
           // Prefer VS Code's own LLM-generated title (from the debug-log) over
           // the first user message; fall back when there's no debug-log.
           const generatedTitle = await debugLogTitle(debugLogsDir, sessionId);
+          // Which source the observer will tail (docs/02.4 §4.23) — display-only
+          // freshness signal, resolved empirically (main.jsonl presence).
+          const debugLog = await hasDebugLog(debugLogsDir, sessionId);
           const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
           const live = idleSeconds < liveWindow;
           rows.push({
@@ -442,6 +466,7 @@ export async function scanSessions(
               owned: opts.ownedWorkspaceHashes
                 ? opts.ownedWorkspaceHashes.has(hashDir)
                 : true,
+              logSource: debugLog ? "debug-log" : "transcript",
             },
           });
         }),

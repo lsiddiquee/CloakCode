@@ -493,6 +493,87 @@ describe("scanSessions", () => {
       await fs.rm(r, { recursive: true, force: true });
     }
   });
+
+  it("reports logSource: transcript for a session with no debug-log", async () => {
+    const sessions = await scanSessions({
+      instanceId: "inst-test",
+      root,
+      now: () => NOW,
+    });
+    // sessA/sessB are transcript-only (no debug-logs/<id>/main.jsonl) → may lag.
+    expect(sessions).toHaveLength(2);
+    for (const s of sessions) expect(s.logSource).toBe("transcript");
+  });
+
+  it("reports logSource: debug-log when debug-logs/<id>/main.jsonl exists", async () => {
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-scan-logsrc-"));
+    const ws = path.join(r, "hashL");
+    const tx = path.join(ws, "GitHub.copilot-chat", "transcripts");
+    const dl = path.join(ws, "GitHub.copilot-chat", "debug-logs", "sessL");
+    await fs.mkdir(tx, { recursive: true });
+    await fs.mkdir(dl, { recursive: true });
+    await fs.writeFile(
+      path.join(ws, "workspace.json"),
+      JSON.stringify({ folder: "file:///home/u/repo" }),
+    );
+    await fs.writeFile(
+      path.join(tx, "sessL.jsonl"),
+      JSON.stringify({ type: "user.message", data: { content: "hello" } }),
+    );
+    // The debug-log main.jsonl is exactly what findSessionLog resolves → live.
+    await fs.writeFile(
+      path.join(dl, "main.jsonl"),
+      JSON.stringify({
+        type: "session_start",
+        name: "session_start",
+        attrs: {},
+      }),
+    );
+    try {
+      const sessions = await scanSessions({
+        instanceId: "i",
+        root: r,
+        now: () => NOW,
+      });
+      expect(sessions[0]?.logSource).toBe("debug-log");
+    } finally {
+      await fs.rm(r, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps logSource transcript when only a title child log exists (no main.jsonl)", async () => {
+    // Accuracy: a debug-log DIR with a title but no main.jsonl still tails the
+    // transcript (findSessionLog), so the source — and the lag — is transcript.
+    // Presence of the title file must NOT be mistaken for a live debug-log.
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-scan-titleonly-"));
+    const ws = path.join(r, "hashTO");
+    const tx = path.join(ws, "GitHub.copilot-chat", "transcripts");
+    const dl = path.join(ws, "GitHub.copilot-chat", "debug-logs", "sessTO");
+    await fs.mkdir(tx, { recursive: true });
+    await fs.mkdir(dl, { recursive: true });
+    await fs.writeFile(
+      path.join(ws, "workspace.json"),
+      JSON.stringify({ folder: "file:///home/u/repo" }),
+    );
+    await fs.writeFile(
+      path.join(tx, "sessTO.jsonl"),
+      JSON.stringify({ type: "user.message", data: { content: "hi" } }),
+    );
+    await fs.writeFile(
+      path.join(dl, "title-c1.jsonl"),
+      JSON.stringify({ type: "agent_response", attrs: {} }),
+    );
+    try {
+      const sessions = await scanSessions({
+        instanceId: "i",
+        root: r,
+        now: () => NOW,
+      });
+      expect(sessions[0]?.logSource).toBe("transcript");
+    } finally {
+      await fs.rm(r, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("debugLogTitle", () => {

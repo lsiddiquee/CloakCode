@@ -367,6 +367,19 @@ button.group-label {
   border-top: 1px solid var(--border);
 }
 
+/* Transcript-source freshness advisory (docs/02.4 §4.23): with no debug-log the
+   newest reply can lag. Display-only + understated — a freshness hint, not an
+   error; the ⚠ carries the amber accent. */
+.lag-banner {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
 .conn-banner {
   padding: 6px 14px;
   font-size: 12px;

@@ -95,6 +95,11 @@
         "command": "cloakcode.signInGateway",
         "title": "Sign in to Gateway",
         "category": "CloakCode"
+      },
+      {
+        "command": "cloakcode.enableDebugLog",
+        "title": "Enable Copilot Agent Debug Log (live updates)",
+        "category": "CloakCode"
       }
     ],
     "menus": {

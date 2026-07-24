@@ -620,6 +620,12 @@ export async function activate(
     vscode.commands.registerCommand("cloakcode.reconnect", () =>
       reconnect("command"),
     ),
+    // Re-surface the debug-log fix on demand (the once-dismissed hint isn't a dead
+    // end): enable Copilot's agent debug log + offer a reload. Backs the phone's
+    // transcript-lag advisory (SessionSummary.logSource, docs/02.4 §4.23).
+    vscode.commands.registerCommand("cloakcode.enableDebugLog", () =>
+      enableDebugLog(),
+    ),
     vscode.commands.registerCommand("cloakcode.setInstanceId", async () => {
       const input = await vscode.window.showInputBox({
         title: "CloakCode: Instance ID",
@@ -1222,20 +1228,28 @@ async function recommendDebugLog(
     "Don't show again",
   );
   if (pick === "Enable") {
-    await conf.update(
-      DEBUG_LOG_SETTING,
-      true,
-      vscode.ConfigurationTarget.Global,
-    );
-    const reload = await vscode.window.showInformationMessage(
-      "Copilot agent debug log enabled — reload the window to apply.",
-      "Reload Window",
-    );
-    if (reload === "Reload Window") {
-      void vscode.commands.executeCommand("workbench.action.reloadWindow");
-    }
+    await enableDebugLog();
   } else if (pick === "Don't show again") {
     await context.globalState.update("skipDebugLogHint", true);
+  }
+}
+
+/**
+ * Enable Copilot's agent debug log (the observer's live source) at the Global
+ * scope and offer a window reload to apply it (the setting only takes effect
+ * after a reload — docs/02.4 §4.25). Shared by the activation hint
+ * ({@link recommendDebugLog}) and the on-demand `cloakcode.enableDebugLog`
+ * command, so a once-dismissed hint still has a way back.
+ */
+async function enableDebugLog(): Promise<void> {
+  const conf = vscode.workspace.getConfiguration();
+  await conf.update(DEBUG_LOG_SETTING, true, vscode.ConfigurationTarget.Global);
+  const reload = await vscode.window.showInformationMessage(
+    "Copilot agent debug log enabled — reload the window to apply.",
+    "Reload Window",
+  );
+  if (reload === "Reload Window") {
+    void vscode.commands.executeCommand("workbench.action.reloadWindow");
   }
 }
 

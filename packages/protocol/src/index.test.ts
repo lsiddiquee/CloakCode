@@ -149,6 +149,26 @@ describe("sessionSummarySchema", () => {
         .success,
     ).toBe(false);
   });
+
+  it("carries an optional logSource (absent, debug-log, or transcript)", () => {
+    // Display-only + optional: an older producer omitting it is valid (no advisory).
+    expect(sessionSummarySchema.parse(validSummary).logSource).toBeUndefined();
+    expect(
+      sessionSummarySchema.parse({ ...validSummary, logSource: "transcript" })
+        .logSource,
+    ).toBe("transcript");
+    expect(
+      sessionSummarySchema.parse({ ...validSummary, logSource: "debug-log" })
+        .logSource,
+    ).toBe("debug-log");
+  });
+
+  it("rejects an unknown logSource", () => {
+    expect(
+      sessionSummarySchema.safeParse({ ...validSummary, logSource: "nope" })
+        .success,
+    ).toBe(false);
+  });
 });
 
 describe("rpcRequestSchema", () => {
