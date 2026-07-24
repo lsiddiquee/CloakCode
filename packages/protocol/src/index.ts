@@ -325,6 +325,25 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     params: z.object({
       sessionId: sessionIdSchema,
       sinceSeq: z.number().int().nonnegative().default(0),
+      // Optional TAIL bound for the INITIAL replay: emit only the last `limit`
+      // events (the window) instead of the whole history from `sinceSeq`, so the
+      // phone opens a huge session fast and pages older on demand via
+      // `session.history` (docs/02.6 windowing). OMITTED on a reconnect-resume
+      // (`sinceSeq` set) so every missed event still replays.
+      limit: z.number().int().positive().optional(),
+    }),
+  }),
+  z.object({
+    id: z.string(),
+    traceId: z.string().optional(),
+    op: z.literal("session.history"),
+    // One-shot BACKWARD page for scroll-up lazy-loading: the seq'd events with
+    // index in [max(0, beforeSeq - limit), beforeSeq). Empty ⇒ at the top. It
+    // complements the forward, `sinceSeq`-resumable `session.subscribe` stream.
+    params: z.object({
+      sessionId: sessionIdSchema,
+      beforeSeq: z.number().int().nonnegative(),
+      limit: z.number().int().positive(),
     }),
   }),
   z.object({
@@ -538,6 +557,23 @@ export const sessionsListResponseSchema = z.object({
   gateway: z.string().optional(),
 });
 export type SessionsListResponse = z.infer<typeof sessionsListResponseSchema>;
+
+/**
+ * Result of `session.history` — a one-shot BACKWARD page of the seq'd log for
+ * scroll-up lazy-loading. `events` are older than the requested `beforeSeq`
+ * (index ascending, prefix-stable); an empty array means the client has reached
+ * the top. The live tail keeps arriving on the separate `session.subscribe`
+ * stream (docs/02.6 windowing).
+ */
+export const sessionHistoryResponseSchema = z.object({
+  id: z.string(),
+  ok: z.literal(true),
+  op: z.literal("session.history"),
+  result: z.object({ events: z.array(sessionEventSchema) }),
+});
+export type SessionHistoryResponse = z.infer<
+  typeof sessionHistoryResponseSchema
+>;
 
 /**
  * Ack for `session.respond`. The text is a `remote-operator`-provenance action

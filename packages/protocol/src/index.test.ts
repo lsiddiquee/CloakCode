@@ -11,6 +11,7 @@ import {
   rpcErrorSchema,
   enrolBeginResponseSchema,
   sessionsListResponseSchema,
+  sessionHistoryResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
   sessionSteerResponseSchema,
@@ -206,6 +207,71 @@ describe("rpcRequestSchema", () => {
       op: "session.subscribe",
       params: { sessionId: "sessA", sinceSeq: 0 },
     });
+  });
+
+  it("parses a session.subscribe request with an optional tail limit", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "2",
+      op: "session.subscribe",
+      params: { sessionId: "sessA", limit: 50 },
+    });
+    expect(parsed).toEqual({
+      id: "2",
+      op: "session.subscribe",
+      params: { sessionId: "sessA", sinceSeq: 0, limit: 50 },
+    });
+  });
+
+  it("omits the subscribe tail limit by default", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "2",
+      op: "session.subscribe",
+      params: { sessionId: "sessA" },
+    });
+    if (parsed.op !== "session.subscribe") throw new Error("wrong op");
+    expect(parsed.params.limit).toBeUndefined();
+  });
+
+  it("rejects a non-positive or fractional subscribe limit", () => {
+    for (const limit of [0, -1, 1.5]) {
+      expect(
+        rpcRequestSchema.safeParse({
+          id: "2",
+          op: "session.subscribe",
+          params: { sessionId: "sessA", limit },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("parses a session.history backward-page request", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "3",
+      op: "session.history",
+      params: { sessionId: "sessA", beforeSeq: 100, limit: 50 },
+    });
+    expect(parsed).toEqual({
+      id: "3",
+      op: "session.history",
+      params: { sessionId: "sessA", beforeSeq: 100, limit: 50 },
+    });
+  });
+
+  it("rejects a session.history with a negative beforeSeq or non-positive limit", () => {
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "3",
+        op: "session.history",
+        params: { sessionId: "sessA", beforeSeq: -1, limit: 50 },
+      }).success,
+    ).toBe(false);
+    expect(
+      rpcRequestSchema.safeParse({
+        id: "3",
+        op: "session.history",
+        params: { sessionId: "sessA", beforeSeq: 0, limit: 0 },
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects an unknown op", () => {
@@ -571,6 +637,34 @@ describe("response schemas", () => {
       gateway: "office",
     };
     expect(sessionsListResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses a session.history response (a backward page of events)", () => {
+    const res = {
+      id: "3",
+      ok: true as const,
+      op: "session.history" as const,
+      result: {
+        events: [
+          {
+            type: "append" as const,
+            seq: 7,
+            part: { kind: "userMessage" as const, id: "u7", text: "older" },
+          },
+        ],
+      },
+    };
+    expect(sessionHistoryResponseSchema.parse(res)).toEqual(res);
+  });
+
+  it("parses an empty session.history page (client is at the top)", () => {
+    const res = {
+      id: "3",
+      ok: true as const,
+      op: "session.history" as const,
+      result: { events: [] },
+    };
+    expect(sessionHistoryResponseSchema.parse(res)).toEqual(res);
   });
 
   it("parses a gateway.connectInfo response (available, secure, with pin + cert)", () => {
