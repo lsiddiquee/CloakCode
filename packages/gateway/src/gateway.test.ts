@@ -558,7 +558,7 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     ws.close();
   });
 
-  it("rejects a bad credential with provider.auth_required, then closes", async () => {
+  it("asks a bad credential to sign in (auth_required) and keeps the socket open", async () => {
     const operatorAuth = new OperatorAuth({
       secret,
       now: () => 59_000,
@@ -574,9 +574,12 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
         token: "bogus",
       }),
     );
+    // With MFA on, a bad token asks for a code on the SAME socket — the socket
+    // stays OPEN for the sign-in exchange (one connection), and nothing registers.
     expect(await nextMessage(ws)).toEqual({ type: "provider.auth_required" });
-    await new Promise<void>((r) => ws.once("close", () => r()));
+    expect(ws.readyState).toBe(WebSocket.OPEN);
     expect(gw!.registry.all().length).toBe(0);
+    ws.close();
   });
 
   it("rejects an OPERATOR-scoped token presented as a provider (S3)", async () => {
@@ -599,6 +602,83 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     );
     expect(await nextMessage(ws)).toEqual({ type: "provider.auth_required" });
     expect(gw!.registry.all().length).toBe(0);
+  });
+
+  it("signs a provider in over the SAME socket: hello → auth_required → code → registered", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    gw = await startGateway({ port: 0, operatorAuth });
+    const ws = await knockProvider(gw);
+    // Accumulate frames: the auth ack + gateway.info arrive back-to-back, which a
+    // one-shot nextMessage would race (the real client uses a persistent handler).
+    const seen: Record<string, unknown>[] = [];
+    ws.on("message", (m) => seen.push(JSON.parse(m.toString())));
+
+    // No token yet → the gateway asks for sign-in on THIS SAME socket.
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "p1" },
+      }),
+    );
+    await waitFor(() =>
+      seen.some((f) => f["type"] === "provider.auth_required"),
+    );
+
+    // Answer with a valid TOTP code on the same socket → a provider token comes
+    // back and the provider registers (no second connection).
+    ws.send(
+      JSON.stringify({
+        id: "a",
+        op: "auth",
+        params: { code: "287082", remember: true, audience: "provider" },
+      }),
+    );
+    await waitFor(() => seen.some((f) => f["type"] === "gateway.info"));
+
+    const ack = seen.find((f) => f["op"] === "auth");
+    expect(ack).toMatchObject({ id: "a", ok: true, op: "auth" });
+    expect(operatorAuth.verifyToken(ack!["token"] as string, "provider")).toBe(
+      true,
+    );
+    await waitFor(() => gw!.registry.all().length === 1);
+    ws.close();
+  });
+
+  it("rejects a bad code during provider sign-in and does not register", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    gw = await startGateway({ port: 0, operatorAuth });
+    const ws = await knockProvider(gw);
+    const seen: Record<string, unknown>[] = [];
+    ws.on("message", (m) => seen.push(JSON.parse(m.toString())));
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "p2" },
+      }),
+    );
+    await waitFor(() =>
+      seen.some((f) => f["type"] === "provider.auth_required"),
+    );
+    ws.send(
+      JSON.stringify({
+        id: "b",
+        op: "auth",
+        params: { code: "000000", audience: "provider" },
+      }),
+    );
+    await waitFor(() => seen.some((f) => f["id"] === "b" && f["ok"] === false));
+    expect(gw!.registry.all().length).toBe(0);
+    ws.close();
   });
 });
 

@@ -64,7 +64,6 @@ import {
   resetOperatorSecret,
 } from "./operator-mfa.js";
 import {
-  exchangeCodeForToken,
   resolveProviderCredential,
   storeProviderToken,
 } from "./provider-auth.js";
@@ -81,6 +80,9 @@ import {
 let bridge: Bridge | undefined;
 let gatewayClient: GatewayClient | undefined;
 let tunnel: Tunnel | undefined;
+// A one-shot TOTP code from `Sign in to Gateway`, consumed by the next provider
+// connect's `onAuthRequired` (F2a slice 2 — sign-in rides the provider socket).
+let pendingSignInCode: string | undefined;
 
 /**
  * Write the user-global hook config (`~/.copilot/hooks/cloakcode.json`) pointing
@@ -479,6 +481,20 @@ export async function activate(
         gatewayUrl,
         gatewayToken,
       );
+      // Provider sign-in rides the SAME provider connection (F2a slice 2): when
+      // the gateway asks for auth, hand it the code the user entered via `Sign in
+      // to Gateway` (a one-shot `pendingSignInCode`); with none, show the prompt
+      // and stay unauthenticated. `onToken` persists the issued provider token so
+      // the next reconnect presents it in the hello.
+      const onAuthRequired = async (): Promise<string | undefined> => {
+        const code = pendingSignInCode;
+        pendingSignInCode = undefined;
+        if (code) return code;
+        promptGatewaySignIn(gatewayUrl);
+        return undefined;
+      };
+      const onToken = (t: string): Thenable<void> =>
+        storeProviderToken(context.secrets, gatewayUrl, t);
       try {
         gatewayClient = await connectGateway(
           gatewayUrl,
@@ -487,7 +503,8 @@ export async function activate(
           (m) => log.debug("gateway.client", { msg: m }),
           undefined,
           credential,
-          () => promptGatewaySignIn(gatewayUrl),
+          onAuthRequired,
+          onToken,
           gatewayPin,
         );
       } catch (err) {
@@ -817,9 +834,11 @@ export async function activate(
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cloakcode.signInGateway", async () => {
-      // Provider sign-in (F2a slice 2): exchange a TOTP code for a provider token
-      // stored per gateway, then reconnect so the hello presents it. Gateway mode
-      // only — the embedded bridge authenticates the operator, not a provider.
+      // Provider sign-in (F2a slice 2): reconnect and hand the TOTP code to the
+      // provider socket's `onAuthRequired`, which exchanges it in-place for a
+      // provider token — the gateway registers us on that same connection and
+      // `onToken` stores the token for later reconnects. Gateway mode only — the
+      // embedded bridge authenticates the operator, not a provider.
       const cfgNow = vscode.workspace.getConfiguration("cloakcode");
       const plan = resolveConnectionPlan({
         gatewayUrl: cfgNow.get<string>("gatewayUrl"),
@@ -839,24 +858,19 @@ export async function activate(
           /^\d{6,8}$/.test(v.trim()) ? undefined : "Enter the 6-digit code",
       });
       if (!code) return;
-      try {
-        const pin = await resolveGatewayPin(cfgNow, log);
-        const token = await exchangeCodeForToken(
-          plan.url,
-          code.trim(),
-          true,
-          pin,
-        );
-        await storeProviderToken(context.secrets, plan.url, token);
-        await reconnect("gateway-signin");
+      // Hand the code to the next provider connect (consumed by onAuthRequired on
+      // the provider socket), then reconnect. Success ⇒ the provider registered
+      // (gatewayClient set); a bad code stays in gateway sign-in mode (no embedded
+      // fallback).
+      pendingSignInCode = code.trim();
+      await reconnect("gateway-signin");
+      if (gatewayClient) {
         void vscode.window.showInformationMessage(
           "CloakCode: signed in to the gateway.",
         );
-      } catch (e) {
+      } else {
         void vscode.window.showErrorMessage(
-          `CloakCode: gateway sign-in failed — ${
-            e instanceof Error ? e.message : String(e)
-          }`,
+          "CloakCode: gateway sign-in failed — check the code (and that the gateway operator has enrolled an authenticator).",
         );
       }
     }),

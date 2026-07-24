@@ -378,6 +378,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
       4000,
       undefined,
       undefined,
+      undefined,
       { caPem, fingerprint },
     );
     // The operator uses the untouched loopback listener; the provider is on wss.
@@ -401,6 +402,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
         1200,
         undefined,
         undefined,
+        undefined,
         { caPem, fingerprint: WRONG_PIN },
       ),
     ).rejects.toThrow();
@@ -414,6 +416,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
       deps,
       () => {},
       4000,
+      undefined,
       undefined,
       undefined,
       { fingerprint }, // no caPem: the pin is the sole anchor, verified by hand
@@ -436,6 +439,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
         deps,
         () => {},
         1200,
+        undefined,
         undefined,
         undefined,
         { fingerprint: WRONG_PIN }, // no caPem: the manual verify rejects it

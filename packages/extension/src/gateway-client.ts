@@ -2,9 +2,12 @@ import { WebSocket } from "ws";
 import {
   gatewayInfoSchema,
   providerAuthRequiredSchema,
+  rpcErrorSchema,
+  sessionAuthResponseSchema,
   type GatewayInfo,
   type ProviderInfo,
 } from "@cloakcode/protocol";
+import { randomUUID } from "node:crypto";
 import { OperatorGate } from "@cloakcode/gateway";
 import {
   handleMessage,
@@ -36,8 +39,12 @@ export interface GatewayClient {
  * a competing local bridge would only add a second, confusing MFA enrolment.
  */
 export class GatewayAuthRequiredError extends Error {
-  constructor(url: string) {
-    super(`gateway ${url} requires provider sign-in`);
+  constructor(url: string, reason?: string) {
+    super(
+      reason
+        ? `gateway ${url} sign-in failed: ${reason}`
+        : `gateway ${url} requires provider sign-in`,
+    );
     this.name = "GatewayAuthRequiredError";
   }
 }
@@ -60,7 +67,8 @@ export function connectGateway(
   log: (line: string) => void,
   firstConnectTimeoutMs = 4000,
   token?: string,
-  onAuthRequired?: () => void,
+  onAuthRequired?: () => Promise<string | undefined>,
+  onToken?: (token: string) => void | PromiseLike<void>,
   pin: GatewayPinConfig = {},
 ): Promise<GatewayClient> {
   return new Promise((resolve, reject) => {
@@ -173,18 +181,54 @@ export function connectGateway(
         // accepted our hello and registered us — only now is the connection
         // truly established.
         if (tryProviderAuthRequired(text)) {
-          // The gateway requires provider auth and our credential was missing /
-          // invalid. Surface it so the user can sign in (enter a code once), then
-          // reject so the caller falls back to embedded until they do.
+          // The gateway has MFA and our credential was missing/invalid. Ask the
+          // operator for a TOTP code (onAuthRequired) and send it over THIS SAME
+          // socket — the gateway mints a provider token and registers us (one
+          // connection, no separate sign-in socket). With no code we reject so the
+          // caller shows "sign-in required" instead of reconnect-looping.
           log(`gateway: ${url} requires provider sign-in`);
-          onAuthRequired?.();
-          if (!settled) {
+          void (async () => {
+            const code = await onAuthRequired?.();
+            if (!code) {
+              if (!settled) {
+                settled = true;
+                clearTimeout(firstTimer);
+                reject(new GatewayAuthRequiredError(url));
+              }
+              closed = true; // no credential — don't reconnect-loop
+              s.close();
+              return;
+            }
+            s.send(
+              JSON.stringify({
+                id: `signin-${randomUUID()}`,
+                op: "auth",
+                params: { code, remember: true, audience: "provider" },
+              }),
+            );
+            log(`gateway: sent provider sign-in code; awaiting token`);
+          })();
+          return;
+        }
+        // Sign-in reply on the same socket: the gateway minted (ok+token) or
+        // refused (bad code) a provider token. On success, persist it (onToken) —
+        // the gateway registers us and pushes gateway.info next. On failure, fail
+        // closed with the reason so the sign-in command can show it.
+        const auth = tryAuthReply(text);
+        if (auth) {
+          if (auth.ok && auth.token) {
+            void onToken?.(auth.token);
+            log(`gateway: provider sign-in accepted; token stored`);
+          } else if (!settled) {
+            // A bad/used code is still "sign-in required", NOT unreachable — reject
+            // with GatewayAuthRequiredError so the caller stays in gateway mode
+            // (never falls back to a competing embedded bridge).
             settled = true;
             clearTimeout(firstTimer);
-            reject(new GatewayAuthRequiredError(url));
+            closed = true;
+            reject(new GatewayAuthRequiredError(url, auth.error));
+            s.close();
           }
-          closed = true; // don't reconnect-loop with the same bad credential
-          s.close();
           return;
         }
         const info = tryGatewayInfo(text);
@@ -273,4 +317,27 @@ function tryProviderAuthRequired(text: string): boolean {
     return false;
   }
   return providerAuthRequiredSchema.safeParse(json).success;
+}
+
+/**
+ * Parse a frame as the provider sign-in reply sent over the same socket: a
+ * successful `auth` response carrying the issued provider token, or an RPC error
+ * (a bad/used code). Undefined for any other frame.
+ */
+function tryAuthReply(
+  text: string,
+): { ok: boolean; token?: string; error?: string } | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const ok = sessionAuthResponseSchema.safeParse(json);
+  if (ok.success) {
+    return { ok: true, ...(ok.data.token ? { token: ok.data.token } : {}) };
+  }
+  const err = rpcErrorSchema.safeParse(json);
+  if (err.success) return { ok: false, error: err.data.error.message };
+  return undefined;
 }

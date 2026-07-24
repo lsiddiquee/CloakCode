@@ -1,20 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { WebSocket } from "ws";
-import { rpcErrorSchema, sessionAuthResponseSchema } from "@cloakcode/protocol";
-import {
-  gatewayTlsOptions,
-  guardFingerprintPin,
-  type GatewayPinConfig,
-} from "./gateway-tls.js";
-
 /**
- * Provider↔gateway auth for the extension (docs/04, F2a slice 2). A gateway with
- * operator MFA authenticates providers the same way it authenticates the phone:
- * a human enters a TOTP code once in VS Code, the extension exchanges it for a
- * session **token** (never holding the secret), stores it, and presents it in its
- * provider hello. The static `cloakcode.gatewayToken` stays as the demoted
- * headless/automation escape hatch. Pure over a minimal SecretStorage port + the
- * `ws` client, so the store logic unit-tests without an extension host.
+ * Provider↔gateway token storage for the extension (docs/04, F2a slice 2). A
+ * gateway with operator MFA authenticates a provider the same way it does the
+ * phone: a human enters a TOTP code once in VS Code and the extension exchanges
+ * it — over its OWN (knocked) provider connection, see `connectGateway` — for a
+ * provider **token** (never holding the secret). This module just persists that
+ * token per gateway and resolves the credential for the hello; a pure
+ * SecretStorage port, unit-tested without an extension host.
  */
 
 /** The slice of `vscode.SecretStorage` we use (get + store). */
@@ -49,74 +40,4 @@ export function storeProviderToken(
   token: string,
 ): Thenable<void> {
   return secrets.store(providerTokenKey(gatewayUrl), token);
-}
-
-/**
- * Exchange a TOTP `code` for a provider session token via the gateway's operator
- * `auth` handshake (the same one the phone uses — no secret ever reaches the
- * provider). `remember` asks for a long-lived (30d) token so a background
- * provider seldom re-prompts. Rejects on a bad code / error / timeout.
- */
-export function exchangeCodeForToken(
-  url: string,
-  code: string,
-  remember = true,
-  pin: GatewayPinConfig = {},
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, gatewayTlsOptions(url, pin));
-    const id = `auth-${randomUUID()}`;
-    const timer = setTimeout(() => {
-      ws.close();
-      reject(new Error("gateway timed out"));
-    }, 5000);
-
-    guardFingerprintPin(
-      ws,
-      url,
-      pin,
-      () => {
-        // Server verified (or not fingerprint-only). Ask for a PROVIDER-scoped
-        // token (drift audit S3) — it registers this extension as a provider and
-        // is rejected at the operator boundary.
-        ws.send(
-          JSON.stringify({
-            id,
-            op: "auth",
-            params: { code, remember, audience: "provider" },
-          }),
-        );
-      },
-      (err) => {
-        // Fingerprint-only pin mismatch: fail closed before sending the code.
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-    ws.on("message", (raw) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      const ok = sessionAuthResponseSchema.safeParse(parsed);
-      if (ok.success && ok.data.token) {
-        clearTimeout(timer);
-        ws.close();
-        resolve(ok.data.token);
-        return;
-      }
-      const err = rpcErrorSchema.safeParse(parsed);
-      if (err.success) {
-        clearTimeout(timer);
-        ws.close();
-        reject(new Error(err.data.error.message));
-      }
-    });
-    ws.on("error", (e: unknown) => {
-      clearTimeout(timer);
-      reject(e instanceof Error ? e : new Error(String(e)));
-    });
-  });
 }

@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { startGateway, OperatorAuth, type Gateway } from "@cloakcode/gateway";
 import {
-  exchangeCodeForToken,
   providerTokenKey,
   resolveProviderCredential,
   storeProviderToken,
   type SecretStore,
 } from "./provider-auth.js";
+import {
+  connectGateway,
+  GatewayAuthRequiredError,
+  type GatewayClient,
+} from "./gateway-client.js";
+import type { BridgeDeps } from "./bridge.js";
 
 // RFC 6238 seed "12345678901234567890" as base32; code "287082" valid at t=59s.
 const SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // gitleaks:allow
@@ -54,39 +59,88 @@ describe("resolveProviderCredential", () => {
   });
 });
 
-describe("exchangeCodeForToken (integration)", () => {
+describe("connectGateway provider sign-in (integration, one socket)", () => {
   const secret = SECRET;
+  const deps: BridgeDeps = {
+    listSessions: async () => [],
+    findTranscript: async () => undefined,
+    findSessionLog: async () => undefined,
+  };
   let gw: Gateway | undefined;
+  let client: GatewayClient | undefined;
   afterEach(async () => {
+    client?.close();
+    client = undefined;
     await gw?.close();
     gw = undefined;
   });
 
-  it("exchanges a valid code for a token, and the gateway accepts it as a provider credential", async () => {
+  it("signs in over the provider connection with a code, stores the token, and registers", async () => {
     const operatorAuth = new OperatorAuth({
       secret,
       now: () => 59_000,
       confirmed: true,
     });
     gw = await startGateway({ port: 0, operatorAuth });
-    const url = `ws://127.0.0.1:${gw.port}`;
-    const token = await exchangeCodeForToken(url, "287082", true);
-    expect(typeof token).toBe("string");
-    expect(token.length).toBeGreaterThan(0);
-    // The token verifies against the same secret the gateway holds — and it is a
-    // PROVIDER-scoped token (S3), rejected at the operator boundary.
-    expect(operatorAuth.verifyToken(token, "provider")).toBe(true);
-    expect(operatorAuth.verifyToken(token, "operator")).toBe(false);
+    let stored: string | undefined;
+    client = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined, // no stored credential → the gateway asks for sign-in
+      async () => "287082", // onAuthRequired → the TOTP code, over the SAME socket
+      (t) => {
+        stored = t;
+      },
+    );
+    // Registered as a provider; the issued token is PROVIDER-scoped (S3) + stored.
+    expect(stored).toBeDefined();
+    expect(operatorAuth.verifyToken(stored!, "provider")).toBe(true);
+    expect(operatorAuth.verifyToken(stored!, "operator")).toBe(false);
+    expect(gw.registry.all().length).toBe(1);
   });
 
-  it("rejects a bad code", async () => {
+  it("rejects a bad code with GatewayAuthRequiredError, without registering", async () => {
     const operatorAuth = new OperatorAuth({
       secret,
       now: () => 59_000,
       confirmed: true,
     });
     gw = await startGateway({ port: 0, operatorAuth });
-    const url = `ws://127.0.0.1:${gw.port}`;
-    await expect(exchangeCodeForToken(url, "000000")).rejects.toThrow();
+    await expect(
+      connectGateway(
+        `ws://127.0.0.1:${gw.providerPort}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        4000,
+        undefined,
+        async () => "000000",
+      ),
+    ).rejects.toBeInstanceOf(GatewayAuthRequiredError);
+    expect(gw.registry.all().length).toBe(0);
+  });
+
+  it("rejects with GatewayAuthRequiredError when no code is supplied", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    gw = await startGateway({ port: 0, operatorAuth });
+    await expect(
+      connectGateway(
+        `ws://127.0.0.1:${gw.providerPort}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        4000,
+        undefined,
+        async () => undefined,
+      ),
+    ).rejects.toBeInstanceOf(GatewayAuthRequiredError);
+    expect(gw.registry.all().length).toBe(0);
   });
 });

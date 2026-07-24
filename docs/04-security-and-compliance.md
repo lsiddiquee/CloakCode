@@ -242,18 +242,22 @@ only a derived token.
   `provider` hello, verified by `verifyProviderCredential` before it can register or serve any RPC.
   Two accepted forms:
   - **TOTP→token (default, interactive).** A human runs **CloakCode: Sign in to Gateway**, enters a
-    6-digit code once; the extension exchanges it (via the gateway's operator `auth` handshake) for a
-    long-lived (30d) **session token**, stores it in SecretStorage (per gateway), and presents it in
-    the hello. The provider **never holds the TOTP secret** — only a token the operator secret
-    issued — so the secret's blast radius stays gateway+phone. The token is **audience-scoped**
-    (`<audience>.<exp>.<hmac>`, the audience bound into the signature): a provider token presents
-    `audience:"provider"` and is **rejected at the operator boundary**, and an operator token is
-    rejected as a provider (drift audit S3), so a token captured at one boundary can't be replayed at
-    the other. On refusal the gateway sends
-    `provider.auth_required`; the extension surfaces a sign-in prompt (`GatewayAuthRequiredError`)
-    and **stays in gateway mode without falling back to the embedded bridge** — an unreachable hub
-    falls back, but a reachable-yet-auth-blocked one must not start a competing bridge (which would
-    add a second, confusing operator-MFA enrolment). It connects once the user signs in.
+    6-digit code once; the extension sends it as an `auth` op **over its existing knocked provider
+    connection** — the gateway runs that code through the **same `OperatorGate`** the operator uses
+    (enrolment, replay guard, lockout) to mint a long-lived (30d) **PROVIDER-scoped session token**,
+    which the extension stores in SecretStorage (per gateway) and presents in the hello on later
+    connects. There is **no separate sign-in socket**: the code exchange and the provider
+    registration ride **one connection** (F2a slice 2). The provider **never holds the TOTP secret** —
+    only a token the operator secret issued — so the secret's blast radius stays gateway+phone. The
+    token is **audience-scoped** (`<audience>.<exp>.<hmac>`, the audience bound into the signature): a
+    provider token presents `audience:"provider"` and is **rejected at the operator boundary**, and an
+    operator token is rejected as a provider (drift audit S3), so a token captured at one boundary
+    can't be replayed at the other. On refusal the gateway keeps the socket **open** and sends
+    `provider.auth_required`; the extension surfaces a sign-in prompt (`GatewayAuthRequiredError`) and
+    **stays in gateway mode without falling back to the embedded bridge** — an unreachable hub falls
+    back, but a reachable-yet-auth-blocked one must not start a competing bridge (which would add a
+    second, confusing operator-MFA enrolment). Once the user enters a code it registers **in place on
+    the same socket**, no reconnect.
   - **Static shared secret (demoted escape hatch).** `CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`
     still works, verified **timing-safe** (`verifyGatewayToken`) — for headless / automation /
     bootstrap setups where interactive sign-in isn't practical. The `cloakcode.gatewayUrl` /

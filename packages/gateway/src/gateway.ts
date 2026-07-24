@@ -252,38 +252,10 @@ export async function startGateway(
 
   const relay = new Relay();
 
-  // Register a provider once it completes the knock + full hello. We only reach
-  // here after answering the provider's knock, so no provider info was exchanged
-  // with a non-CloakCode peer.
-  const addProvider = (text: string, socket: WebSocket): void => {
-    const hello = parseHello(text);
-    if (hello?.role !== "provider") {
-      logger.debug("provider.hello_missing");
-      socket.close(); // knocked as a provider but didn't complete the hello
-      return;
-    }
-    // Provider↔gateway auth: the extension presents a credential in its hello —
-    // a TOTP-issued session token (the default, from a code entered once in VS
-    // Code) and/or the static shared secret (the demoted escape hatch). Rejected
-    // before it can register. When neither is configured it's open (loopback dev).
-    // On reject, signal `provider.auth_required` so the extension prompts + retries
-    // instead of reconnect-looping (docs/04, F2a slice 2).
-    if (
-      !verifyProviderCredential(hello.token, {
-        staticToken: opts.token,
-        verifyToken: opts.operatorAuth
-          ? // A provider must present a PROVIDER-scoped token (drift audit S3) —
-            // an operator token is rejected here.
-            (t) => opts.operatorAuth!.verifyToken(t, "provider")
-          : undefined,
-      })
-    ) {
-      logger.warn("provider.auth_reject");
-      send(socket, { type: "provider.auth_required" });
-      socket.close();
-      return;
-    }
-    const instanceId = hello.provider.instanceId;
+  // Register an AUTHENTICATED provider: create its relay-backed handle and wire
+  // its frames. The caller has already verified the credential (or none is
+  // required) — this is the post-auth registration only.
+  function registerProvider(instanceId: string, socket: WebSocket): void {
     const provider = new WsProvider(instanceId, socket);
     registry.add(provider);
     logger.info("provider.connect", {
@@ -309,11 +281,15 @@ export async function startGateway(
         providers: registry.all().length,
       });
     });
-  };
+  }
 
-  // A connection on the PROVIDER listener: the first frame MUST be a provider
-  // knock; anything else (an operator RPC, a browser, garbage) is refused — this
-  // listener serves providers ONLY.
+  // A connection on the PROVIDER listener. The first frame MUST be a provider
+  // knock (anything else is refused — this listener serves providers ONLY). After
+  // the knock the provider sends its hello; if it lacks a valid token and the hub
+  // has operator MFA, it signs in with an `auth` code over THIS SAME socket (F2a
+  // slice 2 — one connection, no separate operator-style sign-in socket). A
+  // per-connection OperatorGate mints the PROVIDER-scoped token (reusing the
+  // operator enrolment/lockout logic) and the provider then registers.
   function handleProviderConnection(socket: WebSocket): void {
     socket.once("message", (raw) => {
       const knock = parseKnock(raw.toString());
@@ -323,7 +299,72 @@ export async function startGateway(
         return;
       }
       send(socket, cloakcodeHello("gateway")); // answer the knock, no payload
-      socket.once("message", (m) => addProvider(m.toString(), socket));
+
+      // Provider↔gateway auth: the extension presents a credential in its hello —
+      // a TOTP-issued PROVIDER token (drift audit S3) and/or the static shared
+      // secret. When neither verifies and MFA is on, it signs in with a code on
+      // this socket; the gate mints a fresh provider token, `pending` carries the
+      // provider info from the earlier hello, and we register once the code passes.
+      const gate = new OperatorGate(opts.operatorAuth);
+      let registered = false;
+      let pending: { instanceId: string } | undefined;
+
+      socket.on("message", (m) => {
+        if (registered) return; // handed off to the relay handler after register
+        const text = m.toString();
+
+        const hello = parseHello(text);
+        if (hello?.role === "provider") {
+          pending = hello.provider;
+          if (
+            verifyProviderCredential(hello.token, {
+              staticToken: opts.token,
+              verifyToken: opts.operatorAuth
+                ? // A provider must present a PROVIDER-scoped token (S3).
+                  (t) => opts.operatorAuth!.verifyToken(t, "provider")
+                : undefined,
+            })
+          ) {
+            registered = true;
+            socket.removeAllListeners("message");
+            registerProvider(hello.provider.instanceId, socket);
+          } else if (opts.operatorAuth) {
+            // Sign-in required: keep the socket OPEN for the `auth` code exchange
+            // on it (one connection). The extension prompts + sends a code next.
+            logger.info("provider.auth_required");
+            send(socket, { type: "provider.auth_required" });
+          } else {
+            // No way to authenticate (no MFA + bad/absent static token) — refuse.
+            logger.warn("provider.auth_reject");
+            send(socket, { type: "provider.auth_required" });
+            socket.close();
+          }
+          return;
+        }
+
+        // A provider signing in over the same socket: an `auth` op carrying a code,
+        // routed through the SAME OperatorGate the operator uses (enrolment,
+        // lockout, PROVIDER-scoped token issuance). Register once it authenticates.
+        const authReq = parseAuthRequest(text);
+        if (authReq && authReq.op === "auth" && opts.operatorAuth) {
+          const decision = gate.check(authReq);
+          if (decision.kind !== "proceed") send(socket, decision.response);
+          if (decision.kind === "close") {
+            logger.warn("provider.auth_lockout");
+            socket.close();
+            return;
+          }
+          if (gate.authenticated && pending) {
+            registered = true;
+            socket.removeAllListeners("message");
+            registerProvider(pending.instanceId, socket);
+          }
+          return;
+        }
+
+        logger.debug("provider.reject_non_provider");
+        socket.close(); // junk after the knock
+      });
     });
   }
 
@@ -467,6 +508,24 @@ function parseKnock(text: string): CloakcodeHello | undefined {
     return undefined;
   }
   const parsed = cloakcodeHelloSchema.safeParse(json);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Parse a frame as an RPC request (`{ id, op, params? }`) — used on the provider
+ * listener to spot a provider sign-in `auth` op sent over the knocked connection.
+ * Undefined if it isn't a well-formed request.
+ */
+function parseAuthRequest(
+  text: string,
+): { id: string; op: string; params?: unknown } | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const parsed = rpcRequestSchema.safeParse(json);
   return parsed.success ? parsed.data : undefined;
 }
 

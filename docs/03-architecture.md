@@ -572,7 +572,10 @@ or phone URL. On the provider listener the first frame **must** be a `provider` 
 refused); on the operator listener a `provider` knock is refused and an operator knock is optional (the
 phone/embedded path is unchanged). Only after a valid knock does the gateway answer with its own
 `cloakcode.hello { role: "gateway" }`; **then** the peer sends its real payload (a `provider` its full
-`provider.hello`, an operator its RPCs) and the gateway its `gateway.info`. So a stray port scanner
+`provider.hello`, an operator its RPCs) and the gateway its `gateway.info`. If a provider's hello lacks
+a valid token and operator-MFA is on, it signs in with a TOTP `auth` code **over this same connection**
+and registers in place — there is **no separate sign-in socket** (F2a slice 2; mechanism in docs/04).
+So a stray port scanner
 that opens the socket and stays silent — or sends garbage — learns nothing and is dropped, and a
 `provider` never leaks its instance/workspace to a non-gateway it probed.
 
