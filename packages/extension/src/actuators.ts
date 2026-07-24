@@ -92,7 +92,6 @@ export function buildActuators({
     },
     decide: async ({ sessionId, toolCallId, decision, traceId }) => {
       // Resolve VS Code's OWN native tool confirmation via command, targeted by
-      // Resolve VS Code's OWN native tool confirmation via command, targeted by
       // the session URI. `acceptTool`/`skipTool` resolve that session's FIRST
       // waiting confirmation and are NOT keyed on `toolCallId`, so a STALE tap
       // (for a call that already completed) would otherwise resolve whatever is

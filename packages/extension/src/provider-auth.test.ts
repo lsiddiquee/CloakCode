@@ -102,6 +102,33 @@ describe("connectGateway provider sign-in (integration, one socket)", () => {
     expect(gw.registry.all().length).toBe(1);
   });
 
+  it("passes the gateway's advertised instance-id to onAuthRequired (OTP hint)", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    // The gateway advertises its own instance-id on provider.auth_required so the
+    // extension's sign-in prompt can name which instance the code is for.
+    gw = await startGateway({ port: 0, operatorAuth, instanceId: "office" });
+    let seenInstanceId: string | undefined;
+    client = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined,
+      async (instanceId) => {
+        seenInstanceId = instanceId;
+        return "287082";
+      },
+      () => {},
+    );
+    expect(seenInstanceId).toBe("office");
+    expect(gw.registry.all().length).toBe(1);
+  });
+
   it("rejects a bad code with GatewayAuthRequiredError, without registering", async () => {
     const operatorAuth = new OperatorAuth({
       secret,

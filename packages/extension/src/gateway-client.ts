@@ -70,7 +70,7 @@ export function connectGateway(
   log: (line: string) => void,
   firstConnectTimeoutMs = 4000,
   token?: string,
-  onAuthRequired?: () => Promise<string | undefined>,
+  onAuthRequired?: (instanceId?: string) => Promise<string | undefined>,
   onToken?: (token: string) => void | PromiseLike<void>,
   pin: GatewayPinConfig = {},
 ): Promise<GatewayClient> {
@@ -183,15 +183,17 @@ export function connectGateway(
         // through the RPC handler. The FIRST such frame also confirms the gateway
         // accepted our hello and registered us — only now is the connection
         // truly established.
-        if (tryProviderAuthRequired(text)) {
+        const authRequired = tryProviderAuthRequired(text);
+        if (authRequired) {
           // The gateway has MFA and our credential was missing/invalid. Ask the
           // operator for a TOTP code (onAuthRequired) and send it over THIS SAME
           // socket — the gateway mints a provider token and registers us (one
           // connection, no separate sign-in socket). With no code we reject so the
-          // caller shows "sign-in required" instead of reconnect-looping.
+          // caller shows "sign-in required" instead of reconnect-looping. The
+          // gateway's instance-id (if advertised) lets the prompt name the hub.
           log(`gateway: ${url} requires provider sign-in`);
           void (async () => {
-            const code = await onAuthRequired?.();
+            const code = await onAuthRequired?.(authRequired.instanceId);
             if (!code) {
               log(
                 `gateway: sign-in cancelled (no code); staying unauthenticated`,
@@ -317,15 +319,22 @@ function tryGatewayInfo(text: string): GatewayInfo | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-/** True when a frame is the gateway's `provider.auth_required` control message. */
-function tryProviderAuthRequired(text: string): boolean {
+/**
+ * The gateway's `provider.auth_required` control frame, parsed — `{ instanceId? }`
+ * (the hub's display label, for the sign-in prompt) — or undefined if it isn't one.
+ */
+function tryProviderAuthRequired(
+  text: string,
+): { instanceId?: string } | undefined {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    return false;
+    return undefined;
   }
-  return providerAuthRequiredSchema.safeParse(json).success;
+  const parsed = providerAuthRequiredSchema.safeParse(json);
+  if (!parsed.success) return undefined;
+  return parsed.data.instanceId ? { instanceId: parsed.data.instanceId } : {};
 }
 
 /**

@@ -296,7 +296,11 @@ only a derived token.
   `enrol.begin` reply carry an optional **`instanceId`** — the ingress's own label
   (`OperatorAuth.#label`, the same string the authenticator shows as the `CloakCode:<id>` account).
   The phone renders it on the OTP prompt / enrol screen (the enrol reply carries it too, so the hint
-  shows even in **strict** mode where the `otpauthUri` — which encodes the label — is withheld). It is
+  shows even in **strict** mode where the `otpauthUri` — which encodes the label — is withheld). The
+  **extension's** `Sign in to Gateway` prompt shows it too: the gateway advertises its own instance-id
+  on the `provider.auth_required` frame, the extension caches it per gateway URL and names
+  `CloakCode:<id>` on the code prompt (falling back to the gateway URL for the very first sign-in,
+  before it has seen the frame). It is
   **pre-auth-safe** (already public in the otpauth label + the tunnel name), **never a secret**, and
   **never used for trust/routing** — the server still verifies the code against its own secret. Absent
   on an older ingress ⇒ the screen simply omits the hint.

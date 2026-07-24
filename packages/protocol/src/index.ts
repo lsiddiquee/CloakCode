@@ -728,5 +728,11 @@ export type GatewayInfo = z.infer<typeof gatewayInfoSchema>;
  */
 export const providerAuthRequiredSchema = z.object({
   type: z.literal("provider.auth_required"),
+  // The gateway's own instance-id (display label) so the extension's sign-in
+  // prompt can name WHICH gateway/instance the TOTP code is for (mfa-otp-hint,
+  // matching the PWA). Display-only + pre-auth-safe (already public in the
+  // `CloakCode:<id>` authenticator label + the tunnel name); never a secret,
+  // never used for trust/routing. Optional — an older gateway omits it.
+  instanceId: z.string().optional(),
 });
 export type ProviderAuthRequired = z.infer<typeof providerAuthRequiredSchema>;

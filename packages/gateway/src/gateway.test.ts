@@ -593,6 +593,30 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     ws.close();
   });
 
+  it("advertises the gateway's instance-id on provider.auth_required (OTP hint)", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    // The gateway's OWN instance-id rides the frame so the extension sign-in
+    // prompt can name which instance the code is for (parity with the PWA).
+    gw = await startGateway({ port: 0, operatorAuth, instanceId: "office" });
+    const ws = await knockProvider(gw);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "p1" },
+      }),
+    );
+    expect(await nextMessage(ws)).toEqual({
+      type: "provider.auth_required",
+      instanceId: "office",
+    });
+    ws.close();
+  });
+
   it("rejects an OPERATOR-scoped token presented as a provider (S3)", async () => {
     const operatorAuth = new OperatorAuth({
       secret,

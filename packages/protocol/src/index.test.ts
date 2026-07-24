@@ -23,6 +23,7 @@ import {
   cloakcodeHelloSchema,
   connectionHelloSchema,
   gatewayInfoSchema,
+  providerAuthRequiredSchema,
   sessionIdSchema,
   isAllowedUpgrade,
   type SessionSummary,
@@ -852,5 +853,21 @@ describe("gatewayInfoSchema", () => {
         phoneUrl: "not a url",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("providerAuthRequiredSchema", () => {
+  it("parses the bare frame and an optional display-only instanceId", () => {
+    // Bare (older gateway) is valid — the extension just shows the URL.
+    expect(
+      providerAuthRequiredSchema.parse({ type: "provider.auth_required" }),
+    ).toEqual({ type: "provider.auth_required" });
+    // The gateway's own instance-id (the OTP-screen hint) rides the frame.
+    expect(
+      providerAuthRequiredSchema.parse({
+        type: "provider.auth_required",
+        instanceId: "office",
+      }).instanceId,
+    ).toBe("office");
   });
 });

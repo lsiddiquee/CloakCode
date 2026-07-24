@@ -83,6 +83,11 @@ let tunnel: Tunnel | undefined;
 // A one-shot TOTP code from `Sign in to Gateway`, consumed by the next provider
 // connect's `onAuthRequired` (F2a slice 2 — sign-in rides the provider socket).
 let pendingSignInCode: string | undefined;
+// The gateway's advertised instance-id (its `CloakCode:<id>` label), keyed by
+// gateway URL — learned from `provider.auth_required` and shown on the sign-in
+// prompt so the operator knows WHICH instance the code is for (mfa-otp-hint,
+// matching the PWA). Display-only, never a secret.
+const gatewayInstanceIds = new Map<string, string>();
 
 /**
  * Write the user-global hook config (`~/.copilot/hooks/cloakcode.json`) pointing
@@ -486,7 +491,12 @@ export async function activate(
       // to Gateway` (a one-shot `pendingSignInCode`); with none, show the prompt
       // and stay unauthenticated. `onToken` persists the issued provider token so
       // the next reconnect presents it in the hello.
-      const onAuthRequired = async (): Promise<string | undefined> => {
+      const onAuthRequired = async (
+        instanceId?: string,
+      ): Promise<string | undefined> => {
+        // Cache the hub's advertised label (which instance) so the sign-in prompt
+        // can name it — parity with the PWA's OTP hint (mfa-otp-hint).
+        if (instanceId) gatewayInstanceIds.set(gatewayUrl, instanceId);
         const code = pendingSignInCode;
         pendingSignInCode = undefined;
         if (code) return code;
@@ -862,9 +872,12 @@ export async function activate(
         );
         return;
       }
+      // Name which gateway/instance this code is for (mfa-otp-hint): the gateway's
+      // advertised `CloakCode:<id>` label if we've learned it, else the URL.
+      const label = gatewayInstanceIds.get(plan.url) ?? plan.url;
       const code = await vscode.window.showInputBox({
         title: "CloakCode: Gateway sign-in",
-        prompt: "Enter the 6-digit code from your authenticator app",
+        prompt: `Enter the 6-digit code for ${label} from your authenticator app`,
         ignoreFocusOut: true,
         validateInput: (v) =>
           /^\d{6,8}$/.test(v.trim()) ? undefined : "Enter the 6-digit code",

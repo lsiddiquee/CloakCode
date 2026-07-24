@@ -347,11 +347,16 @@ export async function startGateway(
           } else if (opts.operatorAuth) {
             // Sign-in required: keep the socket OPEN for the `auth` code exchange
             // on it (one connection). The extension prompts + sends a code next.
+            // Advertise this gateway's OWN instance-id (display label) so the
+            // extension's sign-in prompt can name which instance the code is for.
             logger.info("provider.auth_required", {
               instanceId: hello.provider.instanceId,
               credentialPresented,
             });
-            send(socket, { type: "provider.auth_required" });
+            send(socket, {
+              type: "provider.auth_required",
+              ...(opts.instanceId ? { instanceId: opts.instanceId } : {}),
+            });
           } else {
             // No way to authenticate (no MFA + bad/absent static token) — refuse.
             logger.warn("provider.auth_reject", {
