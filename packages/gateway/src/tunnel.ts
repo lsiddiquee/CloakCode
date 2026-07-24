@@ -127,7 +127,10 @@ async function reconcileStalePorts(
 ): Promise<void> {
   let listing: string;
   try {
-    listing = await cliOut(["port", "list", name]);
+    // --json: the human table starts with "Found N tunnel port(s).", whose COUNT
+    // N a text scraper false-matches as a forwarded port (it "found" a phantom
+    // stale port every run); the JSON carries only real portNumbers.
+    listing = await cliOut(["port", "list", name, "--json"]);
   } catch (err) {
     log(`tunnel: skipping stale-port cleanup (${errText(err)})`);
     return;
@@ -142,16 +145,33 @@ async function reconcileStalePorts(
 }
 
 /**
- * Forwarded port numbers in `devtunnel port list` output. Matches only
- * **standalone** integer tokens in `1–65535` (the table's Port column), so a
- * tunnel name/ID/region or a URL's embedded `-<port>` never false-matches. Pure.
+ * Forwarded port numbers from `devtunnel port list --json`
+ * (`{ ports: [{ portNumber }] }`). Reading the JSON — not the human table — avoids
+ * false-matching the "Found N tunnel port(s)." header's COUNT as a port (which
+ * "found" a phantom stale port to delete every run). Pure + best-effort: any
+ * malformed / unexpected shape yields [] (stale-port cleanup is non-critical).
  */
-export function parsePortList(output: string): number[] {
+export function parsePortList(jsonOutput: string): number[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonOutput);
+  } catch {
+    return [];
+  }
+  const list =
+    parsed && typeof parsed === "object" && "ports" in parsed
+      ? (parsed as { ports?: unknown }).ports
+      : undefined;
+  if (!Array.isArray(list)) return [];
   const ports = new Set<number>();
-  for (const tok of output.split(/\s+/)) {
-    if (!/^[0-9]{1,5}$/.test(tok)) continue;
-    const n = Number(tok);
-    if (n >= 1 && n <= 65535) ports.add(n);
+  for (const entry of list) {
+    const n =
+      entry && typeof entry === "object" && "portNumber" in entry
+        ? (entry as { portNumber?: unknown }).portNumber
+        : undefined;
+    if (typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 65535) {
+      ports.add(n);
+    }
   }
   return [...ports];
 }

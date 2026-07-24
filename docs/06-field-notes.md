@@ -234,6 +234,16 @@ Base: `~/.vscode-server/data/User/`
   `gateway.test.ts` (raw-ws lockout + log assertions). Lockout (5 bad codes on **one** connection) is
   only reachable at the raw-ws level — `connectGateway` sends one code per connection, so a fresh
   connect resets the per-connection gate.
+- **Parse `devtunnel` with `--json`, never scrape its human table (2026-07-24).** `devtunnel port
+  list <name>` prints `Found N tunnel port(s).` as its first line; the old `parsePortList` text
+  scraper matched that **count** `N` as a forwarded port and issued a spurious
+  `devtunnel port delete -p N (stale)` **every run** (harmless no-op — deleting a non-existent port —
+  but confusing logs, spotted during device testing: it "detected port 1 stale" whenever exactly one
+  port was forwarded). Fix: `devtunnel port list <name> --json` → parse `ports[].portNumber`
+  (`tunnel.ts`). `--json` is a documented flag on the port commands; note some entries omit
+  `clientConnections`, so read only `portNumber`. General rule: any `devtunnel` query we parse uses
+  `--json`, never the table.
+
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
   the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does

@@ -121,8 +121,13 @@ describe("startDevTunnel", () => {
         cb: (...a: unknown[]) => void,
       ) => {
         if (args[0] === "port" && args[1] === "list") {
-          // A previous run left 7905; the current port is 7801.
-          cb(null, { stdout: "Port\n7905\n7801\n", stderr: "" });
+          // A previous run left 7905; the current port is 7801 (--json output).
+          cb(null, {
+            stdout: JSON.stringify({
+              ports: [{ portNumber: 7905 }, { portNumber: 7801 }],
+            }),
+            stderr: "",
+          });
           return;
         }
         if (args[0] === "port" && args[1] === "delete") deleted.push(args);

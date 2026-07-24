@@ -53,27 +53,32 @@ describe("parseTunnelUrl", () => {
 });
 
 describe("parsePortList", () => {
-  it("extracts standalone port integers from a port-list table", () => {
-    const out = [
-      "Ports for tunnel cloakcode-2856ebf5:",
-      "Port  Protocol  URI",
-      "7905  https     https://cloakcode-2856ebf5-7905.usw2.devtunnels.ms/",
-      "7990  https     https://cloakcode-2856ebf5-7990.usw2.devtunnels.ms/",
-    ].join("\n");
+  it("extracts portNumbers from `devtunnel port list --json`", () => {
+    const out = JSON.stringify({
+      ports: [
+        { portNumber: 7905, protocol: "auto", clientConnections: 0 },
+        { portNumber: 7990, protocol: "auto", clientConnections: 0 },
+      ],
+    });
     expect(parsePortList(out).sort((a, b) => a - b)).toEqual([7905, 7990]);
   });
 
-  it("never matches a name/hash/region or a URL's embedded -<port>", () => {
-    // The only bare integer token is the real port; the name, the region label,
-    // and the URL (with an embedded -7443) must NOT be parsed as ports.
-    const out =
-      "cloakcode-2856ebf5 usw2 https://cloakcode-2856ebf5-7443.usw2.devtunnels.ms/ 7443";
-    expect(parsePortList(out)).toEqual([7443]);
+  it("never mistakes the 'Found N tunnel port(s).' COUNT for a port", () => {
+    // The regression this fixes: the human table began with "Found 1 tunnel
+    // port." and the old text scraper matched that 1 as a phantom forwarded
+    // port, deleting "port 1" every run. The JSON has no such count — only
+    // portNumber is read.
+    const out = JSON.stringify({
+      ports: [{ portNumber: 7900, protocol: "auto", clientConnections: 0 }],
+    });
+    expect(parsePortList(out)).toEqual([7900]);
   });
 
-  it("returns [] when no ports are forwarded", () => {
-    expect(parsePortList("No ports are currently forwarded.")).toEqual([]);
+  it("returns [] for an empty tunnel or malformed output", () => {
+    expect(parsePortList(JSON.stringify({ ports: [] }))).toEqual([]);
+    expect(parsePortList("Found 0 tunnel ports.")).toEqual([]); // not JSON
     expect(parsePortList("")).toEqual([]);
+    expect(parsePortList("{bad json")).toEqual([]);
   });
 });
 
