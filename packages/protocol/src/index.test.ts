@@ -20,6 +20,7 @@ import {
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PORT,
   MAX_RPC_TEXT_LEN,
+  WS_PERMESSAGE_DEFLATE,
   providerInfoSchema,
   cloakcodeHelloSchema,
   connectionHelloSchema,
@@ -113,6 +114,14 @@ const validSummary: SessionSummary = {
 describe("DEFAULT_PORT", () => {
   it("is the shared preferred loopback port (3543)", () => {
     expect(DEFAULT_PORT).toBe(3543);
+  });
+});
+
+describe("WS_PERMESSAGE_DEFLATE", () => {
+  it("enables compression with a threshold and bounded (no-context-takeover) memory", () => {
+    expect(WS_PERMESSAGE_DEFLATE.threshold).toBeGreaterThan(0);
+    expect(WS_PERMESSAGE_DEFLATE.serverNoContextTakeover).toBe(true);
+    expect(WS_PERMESSAGE_DEFLATE.clientNoContextTakeover).toBe(true);
   });
 });
 

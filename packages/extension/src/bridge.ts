@@ -7,6 +7,7 @@ import {
   DEFAULT_PORT,
   isAllowedUpgrade,
   MAX_WS_PAYLOAD_BYTES,
+  WS_PERMESSAGE_DEFLATE,
   OPERATOR_MSG_BURST,
   OPERATOR_MSG_RATE_PER_SEC,
   RateLimiter,
@@ -232,6 +233,7 @@ export async function startBridge(
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
+    perMessageDeflate: WS_PERMESSAGE_DEFLATE, // compress the mirror (wire-bandwidth)
   });
   server.on("upgrade", (req, socket, head) => {
     if (

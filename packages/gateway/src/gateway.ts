@@ -9,6 +9,7 @@ import {
   connectionHelloSchema,
   isAllowedUpgrade,
   MAX_WS_PAYLOAD_BYTES,
+  WS_PERMESSAGE_DEFLATE,
   OPERATOR_MSG_BURST,
   OPERATOR_MSG_RATE_PER_SEC,
   RateLimiter,
@@ -218,6 +219,7 @@ export async function startGateway(
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES, // bound a single frame (F2b)
+    perMessageDeflate: WS_PERMESSAGE_DEFLATE, // compress the mirror (wire-bandwidth)
   });
   // Per-listener upgrade gate. The origin/host check (S1) is shared; the ROLE is
   // fixed by WHICH listener the upgrade arrived on — so a provider can never be

@@ -32,6 +32,23 @@ export const MAX_RPC_TEXT_LEN = 100_000;
  */
 export const MAX_WS_PAYLOAD_BYTES = 4 * 1024 * 1024;
 
+/**
+ * `ws` per-message compression config, shared by the bridge and gateway servers.
+ * `ws` disables permessage-deflate by default (memory concerns); we enable it
+ * because the mirrored transcript is highly compressible JSON/markdown — a large
+ * win over a bandwidth-capped tunnel (wire-bandwidth / devtunnel). Tuned to bound
+ * memory: `threshold` skips tiny control frames; NO context-takeover caps
+ * per-connection state (phones/providers are few, so the ratio stays good on the
+ * repetitive JSON). It compresses only the OUTBOUND mirror; `maxPayload` still
+ * bounds inbound frames and `ws` enforces it during inflate (deflate-bomb-safe).
+ */
+export const WS_PERMESSAGE_DEFLATE = {
+  threshold: 1024,
+  serverNoContextTakeover: true,
+  clientNoContextTakeover: true,
+  zlibDeflateOptions: { level: 6 },
+};
+
 // The ILogger-style logger port + traceId helper (pure; local-only output).
 export * from "./logger.js";
 

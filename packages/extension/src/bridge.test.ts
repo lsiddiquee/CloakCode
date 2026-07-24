@@ -1036,6 +1036,27 @@ describe("session.history (backward paging for scroll-up)", () => {
   });
 });
 
+describe("startBridge compression (permessage-deflate)", () => {
+  it("offers permessage-deflate on the operator handshake (wire-bandwidth)", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const ext = await new Promise<string | undefined>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+        ws.on("upgrade", (res) => {
+          resolve(
+            res.headers["sec-websocket-extensions"] as string | undefined,
+          );
+          ws.close();
+        });
+        ws.on("error", reject);
+      });
+      expect(ext).toContain("permessage-deflate");
+    } finally {
+      await bridge.close();
+    }
+  });
+});
+
 describe("startBridge operator auth (F2a — TOTP)", () => {
   // RFC 6238 seed "12345678901234567890" as base32; code "287082" valid at t=59s.
   // Public test vector, not a real secret.
