@@ -507,6 +507,9 @@ export async function activate(
           onToken,
           gatewayPin,
         );
+        // A visible lifecycle marker (INFO): the extension registered with the
+        // hub as a provider. The per-frame play-by-play stays at debug above.
+        log.info("gateway.connected", { url: gatewayUrl, instanceId });
       } catch (err) {
         if (err instanceof GatewayAuthRequiredError) {
           // Reachable but auth-blocked: do NOT fall back to the embedded bridge
