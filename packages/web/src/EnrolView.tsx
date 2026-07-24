@@ -13,7 +13,13 @@ type Phase =
  * into an authenticator app (or, in strict mode, tell the operator to scan the
  * out-of-band QR), then verify one code to enable MFA. On success `onDone` fires.
  */
-export function EnrolView({ onDone }: { onDone: () => void }): JSX.Element {
+export function EnrolView({
+  onDone,
+  instanceId,
+}: {
+  onDone: () => void;
+  instanceId?: string | undefined;
+}): JSX.Element {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [code, setCode] = useState("");
   const [remember, setRemember] = useState(true);
@@ -70,6 +76,7 @@ export function EnrolView({ onDone }: { onDone: () => void }): JSX.Element {
   }
 
   const { otpauthUri, secret } = phase.provisioning;
+  const label = instanceId ?? phase.provisioning.instanceId;
   return (
     <div className="modal-backdrop">
       <form
@@ -80,6 +87,11 @@ export function EnrolView({ onDone }: { onDone: () => void }): JSX.Element {
         }}
       >
         <h2>Set up two-factor auth</h2>
+        {label ? (
+          <p className="hint">
+            Pairing <strong className="auth-instance">{label}</strong>.
+          </p>
+        ) : null}
         {otpauthUri ? (
           <>
             <p className="hint">

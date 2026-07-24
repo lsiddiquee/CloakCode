@@ -22,6 +22,9 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<SessionSummary | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [enrolOpen, setEnrolOpen] = useState(false);
+  // The instance-id hint from an auth refusal (which paired instance the code is
+  // for) — display-only, shown on the OTP prompt / enrol screen (mfa-otp-hint).
+  const [authInstanceId, setAuthInstanceId] = useState<string | undefined>();
   const [connectOpen, setConnectOpen] = useState(false);
   const [prefs, setPrefs] = useState<SessionListPrefs>(() => loadPrefs());
 
@@ -59,13 +62,29 @@ export function App(): JSX.Element {
   }, []);
 
   // A socket refused with `needsAuth` raises the TOTP prompt; `enrolmentRequired`
-  // raises first-run pairing (docs/04, F2a).
-  useEffect(() => onNeedsAuth(() => setAuthOpen(true)), []);
-  useEffect(() => onEnrolmentRequired(() => setEnrolOpen(true)), []);
+  // raises first-run pairing (docs/04, F2a). The refusal's instance-id hint (if
+  // any) is stashed for the prompt/enrol screen.
+  useEffect(
+    () =>
+      onNeedsAuth((id) => {
+        setAuthInstanceId(id);
+        setAuthOpen(true);
+      }),
+    [],
+  );
+  useEffect(
+    () =>
+      onEnrolmentRequired((id) => {
+        setAuthInstanceId(id);
+        setEnrolOpen(true);
+      }),
+    [],
+  );
 
   if (enrolOpen) {
     return (
       <EnrolView
+        instanceId={authInstanceId}
         onDone={() => {
           setEnrolOpen(false);
           setSelected(null);
@@ -78,6 +97,7 @@ export function App(): JSX.Element {
   if (authOpen) {
     return (
       <AuthPrompt
+        instanceId={authInstanceId}
         onDone={() => {
           setAuthOpen(false);
           setSelected(null);

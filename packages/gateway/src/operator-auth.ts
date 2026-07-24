@@ -86,6 +86,15 @@ export class OperatorAuth {
     return this.#strictEnrol;
   }
 
+  /**
+   * The instance-id label (the otpauth account, `CloakCode:<label>`). Display-only
+   * — surfaced pre-auth as the OTP-screen hint so the operator knows WHICH paired
+   * instance a code is for (mfa-otp-hint). Never a secret; never used for trust.
+   */
+  get label(): string {
+    return this.#label;
+  }
+
   /** Pairing provisioning: the otpauth URI (for the QR) + the base32 secret. */
   provisioning(): { otpauthUri: string; secret: string } {
     return {
@@ -212,6 +221,7 @@ export class OperatorGate {
             id: req.id,
             ok: true,
             op: "enrol.begin",
+            instanceId: auth.label,
             ...provisioning,
           },
         };
@@ -233,14 +243,18 @@ export class OperatorGate {
           };
         }
         this.#attempts += 1;
-        const response = enrolmentRequired(req.id, res.error ?? "invalid code");
+        const response = enrolmentRequired(
+          req.id,
+          res.error ?? "invalid code",
+          auth.label,
+        );
         return this.#attempts >= MAX_AUTH_ATTEMPTS
           ? { kind: "close", response }
           : { kind: "reply", response };
       }
       return {
         kind: "reply",
-        response: enrolmentRequired(req.id, "enrolment required"),
+        response: enrolmentRequired(req.id, "enrolment required", auth.label),
       };
     }
 
@@ -251,7 +265,7 @@ export class OperatorGate {
     if (req.op !== "auth") {
       return {
         kind: "reply",
-        response: needsAuth(req.id, "authentication required"),
+        response: needsAuth(req.id, "authentication required", auth.label),
       };
     }
     if (token && auth.verifyToken(token, "operator")) {
@@ -274,24 +288,44 @@ export class OperatorGate {
         };
       }
       this.#attempts += 1;
-      const response = needsAuth(req.id, res.error ?? "invalid code");
+      const response = needsAuth(
+        req.id,
+        res.error ?? "invalid code",
+        auth.label,
+      );
       return this.#attempts >= MAX_AUTH_ATTEMPTS
         ? { kind: "close", response }
         : { kind: "reply", response };
     }
     return {
       kind: "reply",
-      response: needsAuth(req.id, "authentication required"),
+      response: needsAuth(req.id, "authentication required", auth.label),
     };
   }
 }
 
-function needsAuth(id: string, message: string): unknown {
-  return { id, ok: false, needsAuth: true, error: { message } };
+function needsAuth(id: string, message: string, instanceId?: string): unknown {
+  return {
+    id,
+    ok: false,
+    needsAuth: true,
+    error: { message },
+    ...(instanceId ? { instanceId } : {}),
+  };
 }
 
-function enrolmentRequired(id: string, message: string): unknown {
-  return { id, ok: false, enrolmentRequired: true, error: { message } };
+function enrolmentRequired(
+  id: string,
+  message: string,
+  instanceId?: string,
+): unknown {
+  return {
+    id,
+    ok: false,
+    enrolmentRequired: true,
+    error: { message },
+    ...(instanceId ? { instanceId } : {}),
+  };
 }
 
 function alreadyEnrolled(id: string): unknown {

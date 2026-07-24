@@ -18,6 +18,7 @@ import {
 } from "@cloakcode/protocol";
 import {
   authKind,
+  authInstanceId,
   emitEnrolmentRequired,
   emitNeedsAuth,
   getStoredToken,
@@ -107,12 +108,12 @@ export function fetchSessions(
       clearTimeout(timer);
       ws.close();
       if (kind === "needs") {
-        emitNeedsAuth();
+        emitNeedsAuth(authInstanceId(raw));
         reject(new Error("authentication required"));
         return;
       }
       if (kind === "enrol") {
-        emitEnrolmentRequired();
+        emitEnrolmentRequired(authInstanceId(raw));
         reject(new Error("enrolment required"));
         return;
       }
@@ -175,12 +176,12 @@ export function fetchConnectInfo(
       clearTimeout(timer);
       ws.close();
       if (kind === "needs") {
-        emitNeedsAuth();
+        emitNeedsAuth(authInstanceId(raw));
         reject(new Error("authentication required"));
         return;
       }
       if (kind === "enrol") {
-        emitEnrolmentRequired();
+        emitEnrolmentRequired(authInstanceId(raw));
         reject(new Error("enrolment required"));
         return;
       }
@@ -279,12 +280,12 @@ export function subscribeSession(
       if (kind === "needs") {
         // Refused: prompt the operator. Stay open (no reconnect storm) — the App
         // re-subscribes once a token is obtained.
-        emitNeedsAuth();
+        emitNeedsAuth(authInstanceId(raw));
         onError("authentication required");
         return;
       }
       if (kind === "enrol") {
-        emitEnrolmentRequired();
+        emitEnrolmentRequired(authInstanceId(raw));
         onError("enrolment required");
         return;
       }
@@ -372,12 +373,12 @@ function oneShotRpc(
       clearTimeout(timer);
       ws.close();
       if (kind === "needs") {
-        emitNeedsAuth();
+        emitNeedsAuth(authInstanceId(raw));
         reject(new Error("authentication required"));
         return;
       }
       if (kind === "enrol") {
-        emitEnrolmentRequired();
+        emitEnrolmentRequired(authInstanceId(raw));
         reject(new Error("enrolment required"));
         return;
       }

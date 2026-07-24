@@ -442,6 +442,12 @@ export const rpcErrorSchema = z.object({
   // enrolment. The client should run the pairing flow (`enrol.begin` → scan →
   // verify a code via `auth`) before any session op (docs/04, F2a).
   enrolmentRequired: z.boolean().optional(),
+  // Display-only hint on an auth refusal: the ingress's instance id — the SAME
+  // string the authenticator shows as the `CloakCode:<instanceId>` account label
+  // — so the operator knows WHICH paired instance this code is for (mfa-otp-hint).
+  // Pre-auth-safe (already public in the otpauth label + tunnel name); NEVER a
+  // secret, NEVER used for trust/routing. Optional (older ingress omits it).
+  instanceId: z.string().optional(),
 });
 export type RpcError = z.infer<typeof rpcErrorSchema>;
 
@@ -474,6 +480,10 @@ export const enrolBeginResponseSchema = z.object({
   op: z.literal("enrol.begin"),
   otpauthUri: z.string().optional(),
   secret: z.string().optional(),
+  // Display-only instance-id label (see `rpcErrorSchema.instanceId`) so the enrol
+  // screen can name the instance even in strict mode, where `otpauthUri` (which
+  // encodes the label) is withheld. Optional; never a secret.
+  instanceId: z.string().optional(),
 });
 export type EnrolBeginResponse = z.infer<typeof enrolBeginResponseSchema>;
 

@@ -7,7 +7,13 @@ import { submitAuthCode } from "./auth";
  * authenticator app; "remember this device" asks for a long-lived (30d) token so
  * the phone stays signed in. On success the token is stored and `onDone` fires.
  */
-export function AuthPrompt({ onDone }: { onDone: () => void }): JSX.Element {
+export function AuthPrompt({
+  onDone,
+  instanceId,
+}: {
+  onDone: () => void;
+  instanceId?: string | undefined;
+}): JSX.Element {
   const [code, setCode] = useState("");
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -37,7 +43,14 @@ export function AuthPrompt({ onDone }: { onDone: () => void }): JSX.Element {
       >
         <h2>Enter your code</h2>
         <p className="hint">
-          Open your authenticator app and enter the 6-digit CloakCode code.
+          Open your authenticator app and enter the 6-digit CloakCode code
+          {instanceId ? (
+            <>
+              {" "}
+              for <strong className="auth-instance">{instanceId}</strong>
+            </>
+          ) : null}
+          .
         </p>
         <input
           className="auth-code"

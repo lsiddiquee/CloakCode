@@ -291,6 +291,15 @@ only a derived token.
   on**. The client calls `enrol.begin` to get the otpauth provisioning, renders the QR to scan into
   an authenticator app, then verifies one code (`auth`), which **confirms** enrolment (persisted) and
   logs in. This closes the "unconfirmed window" hole — nothing sensitive is served while unconfirmed.
+- **OTP-screen instance hint (display-only).** So an operator who paired **several** ingresses can
+  tell WHICH 6-digit code to enter, the `needsAuth` / `enrolmentRequired` refusals **and** the
+  `enrol.begin` reply carry an optional **`instanceId`** — the ingress's own label
+  (`OperatorAuth.#label`, the same string the authenticator shows as the `CloakCode:<id>` account).
+  The phone renders it on the OTP prompt / enrol screen (the enrol reply carries it too, so the hint
+  shows even in **strict** mode where the `otpauthUri` — which encodes the label — is withheld). It is
+  **pre-auth-safe** (already public in the otpauth label + the tunnel name), **never a secret**, and
+  **never used for trust/routing** — the server still verifies the code against its own secret. Absent
+  on an older ingress ⇒ the screen simply omits the hint.
 - **Gate the bridge before it's exposed (drift audit S6).** The embedded bridge's operator gate is
   computed from the current exposure (`cloakcode.tunnel` / `CLOAKCODE_PUBLIC_URL`) at bridge start.
   A change to `cloakcode.tunnel` / `cloakcode.mfa` / `cloakcode.mfaEnrolment` now triggers a

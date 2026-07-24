@@ -9,6 +9,7 @@ import {
   confirmationPartSchema,
   rpcRequestSchema,
   rpcErrorSchema,
+  enrolBeginResponseSchema,
   sessionsListResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
@@ -699,6 +700,40 @@ describe("response schemas", () => {
   it("parses an error response", () => {
     const err = { id: "1", ok: false as const, error: { message: "boom" } };
     expect(rpcErrorSchema.parse(err)).toEqual(err);
+  });
+
+  it("carries an optional display-only instanceId on an auth refusal", () => {
+    // The OTP-label hint (which paired instance this code is for) rides the
+    // pre-auth-safe refusal frame; it is display-only, never used for trust.
+    const err = {
+      id: "1",
+      ok: false as const,
+      needsAuth: true,
+      error: { message: "authentication required" },
+      instanceId: "office",
+    };
+    expect(rpcErrorSchema.parse(err)).toEqual(err);
+    // Optional: a refusal without it is still valid.
+    expect(
+      rpcErrorSchema.safeParse({
+        id: "1",
+        ok: false,
+        error: { message: "x" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("carries an optional instanceId on enrol.begin (the OTP label hint)", () => {
+    const res = {
+      id: "2",
+      ok: true as const,
+      op: "enrol.begin" as const,
+      otpauthUri: "otpauth://totp/CloakCode:home",
+      secret: "ABC",
+      instanceId: "home",
+    };
+    expect(enrolBeginResponseSchema.parse(res)).toEqual(res);
+    expect(enrolBeginResponseSchema.parse(res).instanceId).toBe("home");
   });
 
   it("parses a session.decide ack", () => {

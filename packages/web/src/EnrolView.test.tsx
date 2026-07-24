@@ -46,6 +46,14 @@ describe("EnrolView", () => {
     expect(document.querySelector(".qr svg")).toBeNull();
   });
 
+  it("shows the instance-id hint (which instance you're pairing)", async () => {
+    // Rides the enrol.begin provisioning (works even in strict mode, where the
+    // otpauthUri — which encodes the label — is withheld).
+    beginEnrolmentMock.mockResolvedValue({ instanceId: "home" });
+    render(<EnrolView onDone={() => {}} />);
+    await screen.findByText("home");
+  });
+
   it("shows an error when pairing can't start", async () => {
     beginEnrolmentMock.mockRejectedValue(new Error("bridge timed out"));
     render(<EnrolView onDone={() => {}} />);

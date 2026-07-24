@@ -80,6 +80,21 @@ describe("OperatorGate — auth enabled", () => {
     expect(gate.authenticated).toBe(false);
   });
 
+  it("stamps the instance-id label onto the needsAuth refusal (OTP hint)", () => {
+    const gate = new OperatorGate(
+      new OperatorAuth({
+        secret: SECRET,
+        now,
+        confirmed: true,
+        label: "office",
+      }),
+    );
+    expect(gate.check({ id: "1", op: "sessions.list" })).toMatchObject({
+      kind: "reply",
+      response: { id: "1", ok: false, needsAuth: true, instanceId: "office" },
+    });
+  });
+
   it("authenticates on a valid code, returns a token, then proceeds", () => {
     const gate = new OperatorGate(auth());
     const d = gate.check({ id: "2", op: "auth", params: { code: "287082" } });
@@ -202,5 +217,25 @@ describe("OperatorGate — enrolment mode (unconfirmed)", () => {
     expect(
       gate.check({ id: "x", op: "auth", params: { code: "000000" } }).kind,
     ).toBe("close");
+  });
+
+  it("stamps the instance-id label onto enrolmentRequired + enrol.begin (OTP hint)", () => {
+    const gate = new OperatorGate(
+      new OperatorAuth({ secret: SECRET, now, label: "home" }),
+    );
+    // A session op before enrolment → enrolmentRequired carries the label.
+    expect(gate.check({ id: "1", op: "sessions.list" })).toMatchObject({
+      response: {
+        id: "1",
+        ok: false,
+        enrolmentRequired: true,
+        instanceId: "home",
+      },
+    });
+    // enrol.begin also carries it (so the enrol screen shows it in strict mode,
+    // where otpauthUri — which encodes the label — is withheld).
+    expect(gate.check({ id: "2", op: "enrol.begin" })).toMatchObject({
+      response: { id: "2", ok: true, op: "enrol.begin", instanceId: "home" },
+    });
   });
 });

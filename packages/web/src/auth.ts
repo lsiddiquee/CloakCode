@@ -67,7 +67,7 @@ export function authKind(raw: unknown): "ack" | "needs" | "enrol" | "other" {
 }
 
 // --- event buses: the bridge signals, the App shows the prompt / enrol view ---
-type Handler = () => void;
+type Handler = (instanceId?: string) => void;
 let needsAuthHandler: Handler | undefined;
 let enrolHandler: Handler | undefined;
 
@@ -79,8 +79,8 @@ export function onNeedsAuth(cb: Handler): () => void {
   };
 }
 
-export function emitNeedsAuth(): void {
-  needsAuthHandler?.();
+export function emitNeedsAuth(instanceId?: string): void {
+  needsAuthHandler?.(instanceId);
 }
 
 /** Register the handler shown when a socket needs first-run enrolment. */
@@ -91,8 +91,22 @@ export function onEnrolmentRequired(cb: Handler): () => void {
   };
 }
 
-export function emitEnrolmentRequired(): void {
-  enrolHandler?.();
+export function emitEnrolmentRequired(instanceId?: string): void {
+  enrolHandler?.(instanceId);
+}
+
+/**
+ * The display-only instance-id hint on an auth refusal (`needsAuth` /
+ * `enrolmentRequired`), if the ingress sent one — the `CloakCode:<id>`
+ * authenticator label, so the operator knows WHICH paired instance a code is for
+ * (mfa-otp-hint). Never a secret; never used for trust.
+ */
+export function authInstanceId(raw: unknown): string | undefined {
+  if (raw && typeof raw === "object") {
+    const v = (raw as Record<string, unknown>)["instanceId"];
+    if (typeof v === "string" && v) return v;
+  }
+  return undefined;
 }
 
 /**
@@ -152,6 +166,8 @@ export interface EnrolProvisioning {
   otpauthUri?: string;
   /** The base32 secret for manual entry (absent in strict mode). */
   secret?: string;
+  /** Display-only instance-id label (which paired instance this is). */
+  instanceId?: string;
 }
 
 /**
@@ -189,6 +205,7 @@ export function beginEnrolment(
         const out: EnrolProvisioning = {};
         if (ok.data.otpauthUri) out.otpauthUri = ok.data.otpauthUri;
         if (ok.data.secret) out.secret = ok.data.secret;
+        if (ok.data.instanceId) out.instanceId = ok.data.instanceId;
         resolve(out);
         return;
       }

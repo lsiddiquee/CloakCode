@@ -36,6 +36,16 @@ describe("AuthPrompt", () => {
     expect(input.value).toBe("123");
   });
 
+  it("shows the instance-id hint when provided (which code to enter)", () => {
+    render(<AuthPrompt onDone={() => {}} instanceId="office" />);
+    expect(screen.getByText("office")).toBeTruthy();
+  });
+
+  it("omits the instance-id hint when none is provided", () => {
+    render(<AuthPrompt onDone={() => {}} />);
+    expect(screen.queryByText("office")).toBeNull();
+  });
+
   it("submits the code with remember and calls onDone on success", async () => {
     submitAuthCodeMock.mockResolvedValue("tok");
     const onDone = vi.fn();

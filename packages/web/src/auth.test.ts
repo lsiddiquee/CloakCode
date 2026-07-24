@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authKind,
+  authInstanceId,
   beginEnrolment,
   clearStoredToken,
   emitEnrolmentRequired,
@@ -79,6 +80,24 @@ describe("authKind", () => {
   });
 });
 
+describe("authInstanceId", () => {
+  it("extracts a display-only instanceId from a refusal, else undefined", () => {
+    expect(
+      authInstanceId({
+        id: "1",
+        ok: false,
+        needsAuth: true,
+        instanceId: "office",
+      }),
+    ).toBe("office");
+    expect(
+      authInstanceId({ id: "1", ok: false, needsAuth: true }),
+    ).toBeUndefined();
+    expect(authInstanceId({ instanceId: "" })).toBeUndefined(); // empty ignored
+    expect(authInstanceId(null)).toBeUndefined();
+  });
+});
+
 describe("tokenAuthFrame", () => {
   it("builds an auth op carrying the token", () => {
     const frame = JSON.parse(tokenAuthFrame("tok"));
@@ -103,6 +122,14 @@ describe("needs-auth bus", () => {
     off();
     emitNeedsAuth();
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes the instance-id hint through to the handler", () => {
+    const cb = vi.fn();
+    const off = onNeedsAuth(cb);
+    emitNeedsAuth("office");
+    expect(cb).toHaveBeenCalledWith("office");
+    off();
   });
 });
 
