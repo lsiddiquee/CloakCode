@@ -382,6 +382,52 @@ describe("SessionFollower", () => {
     expect(seen[0]).toMatchObject({ seq: 1, part: { text: "two" } });
   });
 
+  it("emits only the last `limit` events on the initial load (tail window)", async () => {
+    const file = await tmpFile(
+      jsonl([
+        { type: "user.message", data: { content: "one" } },
+        { type: "user.message", data: { content: "two" } },
+        { type: "user.message", data: { content: "three" } },
+      ]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      limit: 2,
+    });
+    await follower.start();
+    follower.stop();
+    // Only the last 2 of 3 replay; seq stays ABSOLUTE (prefix-stable) so the
+    // client can page older via session.history from the first seq it received.
+    expect(seen).toHaveLength(2);
+    expect(seen.map((e) => e.seq)).toEqual([1, 2]);
+    expect(seen[0]).toMatchObject({ part: { text: "two" } });
+  });
+
+  it("bounds only the initial load — live events after the tail are not limited", async () => {
+    const file = await tmpFile(
+      jsonl([
+        { type: "user.message", data: { content: "one" } },
+        { type: "user.message", data: { content: "two" } },
+      ]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      limit: 1,
+    });
+    await follower.start(); // tail = last 1 → "two" (seq 1)
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({ type: "user.message", data: { content: "three" } })}`,
+    );
+    const deadline = Date.now() + 1000;
+    while (seen.length < 2 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    follower.stop();
+    expect(seen.map((e) => e.seq)).toEqual([1, 2]); // "two" (tail) + "three" (live)
+  });
+
   it("logs a read failure once (deduped) and surfaces it via onError", async () => {
     const file = await tmpFile(
       jsonl([{ type: "user.message", data: { content: "one" } }]),

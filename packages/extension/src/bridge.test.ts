@@ -962,6 +962,80 @@ describe("bridge teardown / re-establish (reconnect contract)", () => {
   });
 });
 
+describe("session.history (backward paging for scroll-up)", () => {
+  const fiveMsgs = async (): Promise<{ dir: string; file: string }> => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-hist-"));
+    const file = path.join(dir, "sessA.jsonl");
+    await fs.writeFile(
+      file,
+      Array.from({ length: 5 }, (_, i) =>
+        JSON.stringify({ type: "user.message", data: { content: `m${i}` } }),
+      ).join("\n"),
+    );
+    return { dir, file };
+  };
+
+  it("returns the [beforeSeq-limit, beforeSeq) window (index === seq)", async () => {
+    const { dir, file } = await fiveMsgs();
+    const bridge = await startBridge(
+      deps({ findTranscript: async () => file }),
+      {
+        port: 0,
+      },
+    );
+    try {
+      const res = (await request(bridge.port, {
+        id: "h",
+        op: "session.history",
+        params: { sessionId: "sessA", beforeSeq: 4, limit: 2 },
+      })) as { ok: boolean; op: string; result: { events: { seq: number }[] } };
+      expect(res.ok).toBe(true);
+      expect(res.op).toBe("session.history");
+      expect(res.result.events.map((e) => e.seq)).toEqual([2, 3]);
+    } finally {
+      await bridge.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("clamps at the top — an empty page when beforeSeq is 0", async () => {
+    const { dir, file } = await fiveMsgs();
+    const bridge = await startBridge(
+      deps({ findTranscript: async () => file }),
+      {
+        port: 0,
+      },
+    );
+    try {
+      const res = (await request(bridge.port, {
+        id: "h",
+        op: "session.history",
+        params: { sessionId: "sessA", beforeSeq: 0, limit: 5 },
+      })) as { ok: boolean; result: { events: unknown[] } };
+      expect(res.ok).toBe(true);
+      expect(res.result.events).toEqual([]);
+    } finally {
+      await bridge.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an empty page for an unknown session (no throw)", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    try {
+      const res = (await request(bridge.port, {
+        id: "h",
+        op: "session.history",
+        params: { sessionId: "ghost", beforeSeq: 10, limit: 5 },
+      })) as { ok: boolean; result: { events: unknown[] } };
+      expect(res.ok).toBe(true);
+      expect(res.result.events).toEqual([]);
+    } finally {
+      await bridge.close();
+    }
+  });
+});
+
 describe("startBridge operator auth (F2a — TOTP)", () => {
   // RFC 6238 seed "12345678901234567890" as base32; code "287082" valid at t=59s.
   // Public test vector, not a real secret.

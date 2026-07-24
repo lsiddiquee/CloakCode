@@ -474,6 +474,9 @@ export async function handleMessage(
                   }),
                 }
               : {}),
+            ...(request.params.limit !== undefined
+              ? { limit: request.params.limit }
+              : {}),
           },
         );
         followers.set(request.params.sessionId, follower);
@@ -508,6 +511,40 @@ export async function handleMessage(
           spoolFollowers.set(request.params.sessionId, spoolFollower);
           await spoolFollower.start();
         }
+        break;
+      }
+      case "session.history": {
+        // Read-only BACKWARD page for scroll-up lazy-loading (docs/02.6). NOT
+        // gated on ownership — like session.subscribe, observing history is
+        // allowed for a read-only session. A too-large/unreadable log yields an
+        // empty page (the client treats it as "at the top"; the >512 MiB case is
+        // surfaced by the subscribe error frame, not here).
+        const historyLog = await deps.findSessionLog(request.params.sessionId);
+        let allEvents: ReturnType<SessionLog["parse"]> = [];
+        if (historyLog) {
+          try {
+            allEvents = historyLog.parse(
+              await readFile(historyLog.file, "utf8"),
+            );
+          } catch (err) {
+            deps.logger?.warn("history.read_failed", { code: errorCode(err) });
+          }
+        }
+        const { beforeSeq, limit: pageLimit } = request.params;
+        // seq === array index (contiguous from 0; the parsers + stitch renumber),
+        // so an index slice IS the [beforeSeq-limit, beforeSeq) seq window.
+        const page = allEvents.slice(
+          Math.max(0, beforeSeq - pageLimit),
+          beforeSeq,
+        );
+        socket.send(
+          JSON.stringify({
+            id: request.id,
+            ok: true,
+            op: "session.history",
+            result: { events: page },
+          }),
+        );
         break;
       }
       case "session.respond": {

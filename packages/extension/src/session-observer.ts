@@ -672,6 +672,14 @@ export class SessionFollower {
   private readonly onTurn: TurnSink | undefined;
   private readonly onError: FollowerErrorSink | undefined;
   private readonly logger: Logger | undefined;
+  /**
+   * Max events to emit on the INITIAL load (the tail window) — the client's
+   * `limit`. Undefined = emit everything from `sinceSeq` (unchanged default).
+   * Bounds only the first emit; live events after are never dropped (docs/02.6).
+   */
+  private readonly tailLimit: number | undefined;
+  /** First successful parse still pending — gates the one-shot tail clamp. */
+  private firstPump = true;
   /** Last error code per phase, so a persistent failure logs once, not per poll. */
   private lastCodeByPhase: Record<string, string | undefined> = {};
 
@@ -686,6 +694,7 @@ export class SessionFollower {
       onTurn?: TurnSink;
       onError?: FollowerErrorSink;
       logger?: Logger;
+      limit?: number;
     } = {},
   ) {
     this.emitted = sinceSeq;
@@ -695,6 +704,7 @@ export class SessionFollower {
     this.onTurn = options.onTurn;
     this.onError = options.onError;
     this.logger = options.logger;
+    this.tailLimit = options.limit;
   }
 
   async start(): Promise<void> {
@@ -743,6 +753,14 @@ export class SessionFollower {
     }
     this.clear("read");
     const events = this.parse(content);
+    // Tail window: on the FIRST successful parse, skip everything before the last
+    // `limit` events so a huge session opens light (the client pages older via
+    // session.history). seq stays absolute ⇒ prefix-stable; live events after are
+    // never clamped. No-op when `limit` is unset (the default).
+    if (this.firstPump && this.tailLimit !== undefined) {
+      this.emitted = Math.max(this.emitted, events.length - this.tailLimit);
+    }
+    this.firstPump = false;
     for (let i = this.emitted; i < events.length; i += 1) {
       if (this.stopped) return;
       const event = events[i];
