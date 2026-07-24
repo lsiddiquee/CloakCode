@@ -188,6 +188,15 @@ that reaches the tunnel URL — can connect to, so every frame is treated as unt
     `maxPayload`) on **both** the bridge and gateway; operator free-text (answers / prompts /
     steer / stop) is bounded by `MAX_RPC_TEXT_LEN` (100k chars) in the schemas; and each operator
     connection is **rate-limited** (token bucket, burst 40 / 20 msg·s⁻¹) at both ingresses.
+  - **Compression (permessage-deflate).** The mirror is highly compressible JSON/markdown, so both
+    servers enable `ws` permessage-deflate (shared `WS_PERMESSAGE_DEFLATE`: a `threshold` skips tiny
+    frames, no-context-takeover bounds per-connection memory) — a large win over a bandwidth-capped
+    tunnel. It compresses only the OUTBOUND mirror and does **not** weaken the input bounds:
+    `maxPayload` is enforced by `ws` during **inflate**, so a compressed "zip-bomb" frame is aborted
+    at the cap. Compression-oracle attacks (CRIME/BREACH) need an attacker mixing chosen text with a
+    secret in one compression context; the stream carries neither attacker-controlled framing nor
+    secrets, over your own authenticated `wss` — so the risk is low (keep secrets off the stream, as
+    they already are).
   - **Ownership re-check.** Every actuator (`respond` / `decide` / `answer` / `steer` / `stop`)
     re-verifies the target session is **owned** by this window (`BridgeDeps.isOwned`) — the UI hides
     controls for foreign sessions, but a direct RPC is rejected here too, so a `remote-operator`
