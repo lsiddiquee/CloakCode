@@ -9,6 +9,7 @@ import { OperatorAuth } from "./operator-auth.js";
 import { resolveTlsMaterial } from "./tls.js";
 import {
   createLogger,
+  type Logger,
   type LogRecord,
   type GatewayConnectInfo,
   type SessionSummary,
@@ -536,6 +537,16 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     return ws;
   }
 
+  /** A logger that captures every record, so a test can assert the diagnostics. */
+  function capture(): { logger: Logger; records: LogRecord[] } {
+    const records: LogRecord[] = [];
+    const logger = createLogger({
+      sink: (r) => records.push(r),
+      level: "trace",
+    });
+    return { logger, records };
+  }
+
   it("registers a provider presenting a valid TOTP-issued session token", async () => {
     const operatorAuth = new OperatorAuth({
       secret,
@@ -679,6 +690,185 @@ describe("startGateway provider auth via TOTP token (F2a slice 2)", () => {
     await waitFor(() => seen.some((f) => f["id"] === "b" && f["ok"] === false));
     expect(gw!.registry.all().length).toBe(0);
     ws.close();
+  });
+
+  // Diagnosability ("determine the cause of failure from logs, not guess"): every
+  // handshake failure branch emits a distinct, redaction-safe record.
+  it("logs a failed provider sign-in with a redaction-safe reason (no code)", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { logger, records } = capture();
+    gw = await startGateway({ port: 0, operatorAuth, logger });
+    const ws = await knockProvider(gw);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "pf" },
+      }),
+    );
+    await waitFor(() =>
+      records.some((r) => r.event === "provider.auth_required"),
+    );
+    // No credential presented — the triage log says so (a boolean, never a token).
+    expect(
+      records.find((r) => r.event === "provider.auth_required")?.fields,
+    ).toMatchObject({ instanceId: "pf", credentialPresented: false });
+
+    ws.send(
+      JSON.stringify({
+        id: "b",
+        op: "auth",
+        params: { code: "000000", audience: "provider" },
+      }),
+    );
+    await waitFor(() =>
+      records.some((r) => r.event === "provider.auth_failed"),
+    );
+    expect(
+      records.find((r) => r.event === "provider.auth_failed")?.fields,
+    ).toMatchObject({ instanceId: "pf", reason: "invalid code" });
+    // Redaction by construction: the submitted code appears in NO log record.
+    expect(JSON.stringify(records)).not.toContain("000000");
+    ws.close();
+  });
+
+  it("logs a bad token as credentialPresented:true and never logs the token", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { logger, records } = capture();
+    gw = await startGateway({ port: 0, operatorAuth, logger });
+    const ws = await knockProvider(gw);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "pb" },
+        token: "bogus-token",
+      }),
+    );
+    await waitFor(() =>
+      records.some((r) => r.event === "provider.auth_required"),
+    );
+    // A bad token is a DIFFERENT failure from an absent one — the boolean tells them
+    // apart without ever putting the token in the log.
+    expect(
+      records.find((r) => r.event === "provider.auth_required")?.fields,
+    ).toMatchObject({ instanceId: "pb", credentialPresented: true });
+    expect(JSON.stringify(records)).not.toContain("bogus-token");
+    ws.close();
+  });
+
+  it("logs provider.connect via:credential vs via:signin for the two auth paths", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { token } = operatorAuth.submitCode("287082", true, "provider");
+    const { logger, records } = capture();
+    gw = await startGateway({ port: 0, operatorAuth, logger });
+
+    // Path 1: a valid presented token → via:credential.
+    const wsTok = await knockProvider(gw);
+    wsTok.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "pc" },
+        token,
+      }),
+    );
+    await waitFor(() =>
+      records.some(
+        (r) => r.event === "provider.connect" && r.fields.instanceId === "pc",
+      ),
+    );
+    expect(
+      records.find(
+        (r) => r.event === "provider.connect" && r.fields.instanceId === "pc",
+      )?.fields,
+    ).toMatchObject({ via: "credential" });
+    wsTok.close();
+  });
+
+  it("logs provider.connect via:signin after a TOTP code sign-in", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { logger, records } = capture();
+    gw = await startGateway({ port: 0, operatorAuth, logger });
+    const ws = await knockProvider(gw);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "ps" },
+      }),
+    );
+    await waitFor(() =>
+      records.some((r) => r.event === "provider.auth_required"),
+    );
+    ws.send(
+      JSON.stringify({
+        id: "a",
+        op: "auth",
+        params: { code: "287082", audience: "provider" },
+      }),
+    );
+    await waitFor(() =>
+      records.some(
+        (r) => r.event === "provider.connect" && r.fields.instanceId === "ps",
+      ),
+    );
+    expect(
+      records.find(
+        (r) => r.event === "provider.connect" && r.fields.instanceId === "ps",
+      )?.fields,
+    ).toMatchObject({ via: "signin" });
+    ws.close();
+  });
+
+  it("locks out and closes the provider socket after MAX bad codes (logged)", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { logger, records } = capture();
+    gw = await startGateway({ port: 0, operatorAuth, logger });
+    const ws = await knockProvider(gw);
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        role: "provider",
+        provider: { instanceId: "pl" },
+      }),
+    );
+    await waitFor(() =>
+      records.some((r) => r.event === "provider.auth_required"),
+    );
+    // MAX_AUTH_ATTEMPTS (5) bad codes on ONE connection → the gateway closes it.
+    for (let i = 0; i < 5; i++) {
+      ws.send(
+        JSON.stringify({
+          id: `x${i}`,
+          op: "auth",
+          params: { code: "000000", audience: "provider" },
+        }),
+      );
+    }
+    await new Promise<void>((r) => ws.once("close", () => r()));
+    expect(records.some((r) => r.event === "provider.auth_lockout")).toBe(true);
+    expect(gw!.registry.all().length).toBe(0);
   });
 });
 

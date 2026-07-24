@@ -515,7 +515,10 @@ export async function activate(
           // runs `CloakCode: Sign in to Gateway` (the prompt already fired), then
           // reconnect presents the issued token. The window has no bridge until
           // then — intentional, since gateway mode was explicitly chosen.
-          log.warn("gateway.auth_required", { url: gatewayUrl });
+          log.warn("gateway.auth_required", {
+            url: gatewayUrl,
+            reason: err.reason,
+          });
           // Gateway mode (no embedded bridge): hide the operator-TOTP commands,
           // show `Sign in to Gateway`.
           void vscode.commands.executeCommand(

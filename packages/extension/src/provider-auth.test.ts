@@ -143,4 +143,129 @@ describe("connectGateway provider sign-in (integration, one socket)", () => {
     ).rejects.toBeInstanceOf(GatewayAuthRequiredError);
     expect(gw.registry.all().length).toBe(0);
   });
+
+  // --- The handshake permutation matrix (simulating the real user flow). The
+  // only thing ever shared with the "user" side (onAuthRequired) is the TOTP
+  // CODE; the provider token is obtained solely from the exchange (onToken) and
+  // reused — never injected out-of-band. ---
+
+  it("no MFA, no token: registers on the open loopback-dev gateway", async () => {
+    gw = await startGateway({ port: 0 });
+    client = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined, // no credential — an open gateway accepts it
+    );
+    expect(gw.registry.all().length).toBe(1);
+  });
+
+  it("no MFA, correct static secret: registers", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret-shared" });
+    client = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      "s3cret-shared",
+    );
+    expect(gw.registry.all().length).toBe(1);
+  });
+
+  it("no MFA, wrong static secret: rejected, never registers", async () => {
+    gw = await startGateway({ port: 0, token: "s3cret-shared" });
+    await expect(
+      connectGateway(
+        `ws://127.0.0.1:${gw.providerPort}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        1500,
+        "wrong-secret", // a bad static token can never register
+      ),
+    ).rejects.toThrow();
+    expect(gw.registry.all().length).toBe(0);
+  });
+
+  it("MFA: reuses the exchange-issued token on reconnect, no second code", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    gw = await startGateway({ port: 0, operatorAuth });
+    // First connect: the user enters a CODE (the only shared secret); capture the
+    // provider token the gateway mints.
+    let issued: string | undefined;
+    const first = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined,
+      async () => "287082",
+      (t) => {
+        issued = t;
+      },
+    );
+    expect(issued).toBeDefined();
+    first.close();
+
+    // Second connect: present the CAPTURED token (not a code). It registers with
+    // no sign-in prompt — onAuthRequired must NOT be called (a resolve means the
+    // gateway pushed gateway.info, which only happens after registration).
+    let askedAgain = false;
+    client = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      issued, // the token the FIRST exchange minted — reused, never shared as a code
+      async () => {
+        askedAgain = true;
+        return "287082";
+      },
+    );
+    expect(askedAgain).toBe(false);
+  });
+
+  it("MFA: a wrong-audience (operator) token falls through to code sign-in", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    gw = await startGateway({ port: 0, operatorAuth });
+    // An OPERATOR-scoped token (minted via a throwaway so the gateway's own replay
+    // guard is untouched) must be rejected at the provider boundary (S3); the user
+    // then signs in with a code — the token they end up with is PROVIDER-scoped.
+    const minter = new OperatorAuth({
+      secret,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { token: operatorToken } = minter.submitCode("287082", true);
+    let stored: string | undefined;
+    client = await connectGateway(
+      `ws://127.0.0.1:${gw.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      operatorToken, // wrong audience → rejected → sign-in required
+      async () => "287082", // the user enters a code (the only thing shared)
+      (t) => {
+        stored = t;
+      },
+    );
+    expect(stored).toBeDefined();
+    expect(operatorAuth.verifyToken(stored!, "provider")).toBe(true);
+    expect(operatorAuth.verifyToken(stored!, "operator")).toBe(false);
+    expect(gw.registry.all().length).toBe(1);
+  });
 });

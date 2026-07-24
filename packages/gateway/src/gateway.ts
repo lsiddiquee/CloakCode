@@ -12,6 +12,7 @@ import {
   OPERATOR_MSG_BURST,
   OPERATOR_MSG_RATE_PER_SEC,
   RateLimiter,
+  rpcErrorSchema,
   rpcRequestSchema,
   type CloakcodeHello,
   type GatewayConnectInfo,
@@ -255,11 +256,18 @@ export async function startGateway(
   // Register an AUTHENTICATED provider: create its relay-backed handle and wire
   // its frames. The caller has already verified the credential (or none is
   // required) — this is the post-auth registration only.
-  function registerProvider(instanceId: string, socket: WebSocket): void {
+  function registerProvider(
+    instanceId: string,
+    socket: WebSocket,
+    via: "credential" | "signin",
+  ): void {
     const provider = new WsProvider(instanceId, socket);
     registry.add(provider);
+    // `via` records HOW the provider authenticated (a presented token vs a code
+    // sign-in on this socket) so the connect log tells the whole story at a glance.
     logger.info("provider.connect", {
       instanceId,
+      via,
       providers: registry.all().length,
     });
     // Tell the provider the hub's phone URL so its “Show Phone Link” reflects the
@@ -294,7 +302,11 @@ export async function startGateway(
     socket.once("message", (raw) => {
       const knock = parseKnock(raw.toString());
       if (knock?.role !== "provider") {
-        logger.debug("provider.reject_non_provider");
+        // First frame isn't a provider knock (a port scanner, or a client on the
+        // wrong listener). Debug: expected noise, not a provider failing to auth.
+        logger.debug("provider.reject_non_provider", {
+          role: knock?.role ?? "none",
+        });
         socket.close(); // provider listener: only providers may connect
         return;
       }
@@ -316,6 +328,10 @@ export async function startGateway(
         const hello = parseHello(text);
         if (hello?.role === "provider") {
           pending = hello.provider;
+          // Redaction-safe triage: was a credential presented at all? A bad token
+          // and an absent one are different failures — log the BOOLEAN, never the
+          // token. This is the first thing you want from the log on a sign-in bug.
+          const credentialPresented = Boolean(hello.token);
           if (
             verifyProviderCredential(hello.token, {
               staticToken: opts.token,
@@ -327,15 +343,21 @@ export async function startGateway(
           ) {
             registered = true;
             socket.removeAllListeners("message");
-            registerProvider(hello.provider.instanceId, socket);
+            registerProvider(hello.provider.instanceId, socket, "credential");
           } else if (opts.operatorAuth) {
             // Sign-in required: keep the socket OPEN for the `auth` code exchange
             // on it (one connection). The extension prompts + sends a code next.
-            logger.info("provider.auth_required");
+            logger.info("provider.auth_required", {
+              instanceId: hello.provider.instanceId,
+              credentialPresented,
+            });
             send(socket, { type: "provider.auth_required" });
           } else {
             // No way to authenticate (no MFA + bad/absent static token) — refuse.
-            logger.warn("provider.auth_reject");
+            logger.warn("provider.auth_reject", {
+              instanceId: hello.provider.instanceId,
+              credentialPresented,
+            });
             send(socket, { type: "provider.auth_required" });
             socket.close();
           }
@@ -350,20 +372,39 @@ export async function startGateway(
           const decision = gate.check(authReq);
           if (decision.kind !== "proceed") send(socket, decision.response);
           if (decision.kind === "close") {
-            logger.warn("provider.auth_lockout");
+            // Too many bad codes on this connection — the gate asked us to close.
+            logger.warn("provider.auth_lockout", {
+              instanceId: pending?.instanceId,
+              reason: authFailureReason(decision.response),
+            });
             socket.close();
             return;
           }
           if (gate.authenticated && pending) {
             registered = true;
             socket.removeAllListeners("message");
-            registerProvider(pending.instanceId, socket);
+            registerProvider(pending.instanceId, socket, "signin");
+          } else if (!gate.authenticated) {
+            // A bad/used code that didn't (yet) trip the lockout. Log the reason
+            // ("invalid code" / "code already used" — fixed strings, never the
+            // code) so a failed sign-in is diagnosable from logs, not guessed.
+            logger.warn("provider.auth_failed", {
+              instanceId: pending?.instanceId,
+              reason:
+                decision.kind === "reply"
+                  ? authFailureReason(decision.response)
+                  : undefined,
+            });
           }
           return;
         }
 
-        logger.debug("provider.reject_non_provider");
-        socket.close(); // junk after the knock
+        // A knocked provider that then sends neither its hello nor an `auth` op —
+        // a real, misbehaving client (a pre-knock scanner never reaches here), so warn.
+        logger.warn("provider.reject_unexpected", {
+          instanceId: pending?.instanceId,
+        });
+        socket.close(); // an unexpected frame after the knock
       });
     });
   }
@@ -527,6 +568,16 @@ function parseAuthRequest(
   }
   const parsed = rpcRequestSchema.safeParse(json);
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Pull the redaction-safe failure reason from a gate reply (`error.message` — a
+ * fixed string like "invalid code" / "code already used", NEVER the submitted
+ * code or any token) so a failed provider sign-in is diagnosable from the log.
+ */
+function authFailureReason(response: unknown): string | undefined {
+  const parsed = rpcErrorSchema.safeParse(response);
+  return parsed.success ? parsed.data.error.message : undefined;
 }
 
 /** Build the gateway's minimal knock frame (its answer to a client's knock). */

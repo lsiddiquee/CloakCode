@@ -39,6 +39,8 @@ export interface GatewayClient {
  * a competing local bridge would only add a second, confusing MFA enrolment.
  */
 export class GatewayAuthRequiredError extends Error {
+  /** Redaction-safe failure reason (e.g. "invalid code"), when the gateway gave one. */
+  readonly reason?: string;
   constructor(url: string, reason?: string) {
     super(
       reason
@@ -46,6 +48,7 @@ export class GatewayAuthRequiredError extends Error {
         : `gateway ${url} requires provider sign-in`,
     );
     this.name = "GatewayAuthRequiredError";
+    if (reason) this.reason = reason;
   }
 }
 
@@ -190,6 +193,9 @@ export function connectGateway(
           void (async () => {
             const code = await onAuthRequired?.();
             if (!code) {
+              log(
+                `gateway: sign-in cancelled (no code); staying unauthenticated`,
+              );
               if (!settled) {
                 settled = true;
                 clearTimeout(firstTimer);
@@ -223,6 +229,9 @@ export function connectGateway(
             // A bad/used code is still "sign-in required", NOT unreachable — reject
             // with GatewayAuthRequiredError so the caller stays in gateway mode
             // (never falls back to a competing embedded bridge).
+            log(
+              `gateway: provider sign-in rejected (${auth.error ?? "unknown"})`,
+            );
             settled = true;
             clearTimeout(firstTimer);
             closed = true;

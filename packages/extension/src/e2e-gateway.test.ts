@@ -11,7 +11,11 @@ import {
   type Gateway,
 } from "@cloakcode/gateway";
 import type { SessionSummary } from "@cloakcode/protocol";
-import { connectGateway, type GatewayClient } from "./gateway-client.js";
+import {
+  connectGateway,
+  GatewayAuthRequiredError,
+  type GatewayClient,
+} from "./gateway-client.js";
 import { parseSessionEvents } from "./session-observer.js";
 import type { BridgeDeps } from "./bridge.js";
 
@@ -345,7 +349,11 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
   const WRONG_PIN =
     "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
 
-  async function startTlsGateway(): Promise<{
+  // RFC 6238 seed as base32; code "287082" is valid at t=59s (the shared vector
+  // used across the auth suites). The user only ever shares this CODE.
+  const SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // gitleaks:allow
+
+  async function startTlsGateway(operatorAuth?: OperatorAuth): Promise<{
     fingerprint: string;
     caPem: string;
   }> {
@@ -356,6 +364,7 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
       port: 0,
       fallbackToEphemeral: true,
       logger: silentLogger(),
+      ...(operatorAuth ? { operatorAuth } : {}),
       provider: {
         host: "127.0.0.1",
         tls: {
@@ -445,5 +454,61 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
         { fingerprint: WRONG_PIN }, // no caPem: the manual verify rejects it
       ),
     ).rejects.toThrow();
+  });
+
+  // The real-world path the operator actually runs: wss (fingerprint-pinned) +
+  // operator MFA. The provider has no token, so it signs in with a TOTP code over
+  // the SAME wss socket. Only the CODE is shared; the provider token is minted by
+  // the exchange and captured via onToken.
+  it("signs in over wss with a TOTP code (MFA) on one socket and registers", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret: SECRET,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { fingerprint } = await startTlsGateway(operatorAuth);
+    let stored: string | undefined;
+    client = await connectGateway(
+      `wss://127.0.0.1:${gateway!.providerPort}`,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined, // no stored token → sign in with a code, over wss, one socket
+      async () => "287082",
+      (t) => {
+        stored = t;
+      },
+      { fingerprint },
+    );
+    // Registered, and the issued token is PROVIDER-scoped (S3) — an operator token
+    // it is not, so it can't be replayed at the operator boundary.
+    expect(stored).toBeDefined();
+    expect(operatorAuth.verifyToken(stored!, "provider")).toBe(true);
+    expect(operatorAuth.verifyToken(stored!, "operator")).toBe(false);
+    expect(gateway!.registry.all().length).toBe(1);
+  });
+
+  it("fails closed over wss when the TOTP code is wrong (MFA), never registering", async () => {
+    const operatorAuth = new OperatorAuth({
+      secret: SECRET,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { fingerprint } = await startTlsGateway(operatorAuth);
+    await expect(
+      connectGateway(
+        `wss://127.0.0.1:${gateway!.providerPort}`,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        1500,
+        undefined,
+        async () => "000000", // a wrong code → sign-in required, no registration
+        undefined,
+        { fingerprint },
+      ),
+    ).rejects.toBeInstanceOf(GatewayAuthRequiredError);
+    expect(gateway!.registry.all().length).toBe(0);
   });
 });

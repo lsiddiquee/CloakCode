@@ -35,6 +35,10 @@ out/
 # Logs
 *.log
 
+# Gateway runtime action log (redaction-safe JSONL written to CWD) — a runtime
+# artifact, never committed.
+cloakcode-gateway*.jsonl
+
 # OS
 .DS_Store
 Thumbs.db

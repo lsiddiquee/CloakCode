@@ -213,7 +213,27 @@ Base: `~/.vscode-server/data/User/`
   gateway was down. Fix pattern: capture `errorCode(e)` and fold it into the surfaced message/reject
   (`connectHint()`), mapping known codes to an action ("set gatewayCertFingerprint / gatewayCaFile").
   "Never log secrets" bounds WHAT you log; it never licenses logging NOTHING.
-
+- **Provider↔gateway handshake: log every failure branch (redaction-safe), and test it by sharing
+  only the TOTP code (2026-07-24).** When a provider fails to register you must read WHY from the log,
+  not guess (this cost real device-debug time). Each branch in `handleProviderConnection`
+  (`packages/gateway/src/gateway.ts`) emits a distinct, primitives-only record:
+  `provider.auth_required { instanceId, credentialPresented }` — a **boolean**, so a bad token reads
+  differently from an absent one **without** ever logging the token; `provider.auth_failed { reason }`
+  and `provider.auth_lockout { reason }` — the gate's **fixed** reason string ("invalid code" /
+  "code already used", pulled with `authFailureReason()`, **never** the submitted code);
+  `provider.connect { via: "credential" | "signin" }` — how it authed; and `provider.reject_unexpected`
+  — a knocked provider that then sent junk. The extension mirrors the reason onto
+  `GatewayAuthRequiredError.reason` → `log.warn("gateway.auth_required", { reason })`. **Test the
+  handshake by simulating the real user flow — share ONLY the code.** The test's `onAuthRequired`
+  returns a TOTP code derived from the shared secret (vector `"12345678901234567890"` → `287082` at
+  `now:()=>59_000`); the provider token is obtained **solely** from the exchange (captured via
+  `onToken`) and reused on reconnect — never inject a pre-minted provider token as the credential. To
+  present a wrong-audience (operator) token as a NEGATIVE, mint it from a **throwaway** `OperatorAuth`
+  (same secret) so the gateway's own replay guard (`#lastStep`) stays fresh for the real code sign-in.
+  Matrix: `provider-auth.test.ts` (ws permutations) + `e2e-gateway.test.ts` (wss+MFA) +
+  `gateway.test.ts` (raw-ws lockout + log assertions). Lockout (5 bad codes on **one** connection) is
+  only reachable at the raw-ws level — `connectGateway` sends one code per connection, so a fresh
+  connect resets the per-connection gate.
 - **esbuild CLI shim is broken under pnpm (persistent).** pnpm's `.bin/esbuild` cmd-shim hardcodes
   `exec node <target>`, but esbuild's postinstall overwrites its own `bin/esbuild` (a Node stub in
   the tarball) with the native Go binary → `node <ELF>` `SyntaxError`. `pnpm rebuild esbuild` does
