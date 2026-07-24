@@ -92,7 +92,10 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   `chat.open {query}` targets a **specific** session. **Window-local**: foreign sessions are listed
   but not actuatable.
 - **M3c** steer / queue / stop / stop-and-send are public `workbench.action.chat.*` sequences,
-  live-confirmed; `isPartialQuery` is the steer↔send switch; none leaves an on-disk marker.
+  live-confirmed; `isPartialQuery` is the steer↔send switch; none leaves an on-disk marker. **Steer
+  submits the SHARED composer** (`steerWithMessage` reads it, no message arg), so foreign injected
+  content can merge into a `remote-operator` turn — a provenance caveat with no extension-reachable
+  fix (docs/05 Known issues).
 
 ### Turn tracking & observer liveness — [02.2](02.2-turn-tracking.md)
 
