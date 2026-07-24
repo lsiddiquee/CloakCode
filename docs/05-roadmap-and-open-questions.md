@@ -390,6 +390,22 @@ the critical path.
   `inTurn:false` on the stop-ack) masks it in the UI. The proper root fix — the observer detecting the
   cancellation itself — is deferred.
 
+- **Long assistant replies are truncated at ~5 KB in the CloakCode view — known limitation, full
+  recovery deferred (finding 2026-07-11 §4.21; tracked 2026-07-24).** VS Code caps the debug-log's
+  `agent_response.response` attr at ~5000 chars (cut mid-string + a literal `[truncated]` marker), and
+  the observer reads the **debug-log as primary** (the only source carrying the latest turn, §4.23), so
+  a long assistant reply renders **cut off past ~5 KB** on the phone. `salvageAssistantText`
+  (`session-observer.ts`) recovers the text _within_ the cap as readable markdown (instead of the raw
+  `[{"role":…}]` blob) but **cannot recover text beyond the cut** — the cap is VS Code's telemetry copy,
+  not ours. The **untruncated** text is the transcript's `assistant.message.content`, so full recovery
+  would **cross-reference the transcript** — deferred. **Catch that makes the live turn unfixable this
+  way:** the transcript is always **one reply behind** (§4.23), so a cross-reference can repair only
+  **past** turns, never the one currently streaming — and `stitchEvents` uses the debug-log (truncated)
+  for every in-range turn, so it does not repair them today either. Only **debug-log-sourced**
+  (editor-hosted) sessions are affected; a **transcript-sourced** session (the `logSource` advisory) is
+  untruncated but one turn behind. Tractable slice when scheduled: repair **past** debug-log turns from
+  the aligned transcript.
+
 - **Image / pasted-screenshot attachments are NOT mirrorable by the on-disk observer — a limitation we
   cannot handle server-side (2026-07-16).** A conversation's **file/text** attachments are fine — their
   content is **inlined** into the request and thus readable from the transcript/debug-log. But **image**
