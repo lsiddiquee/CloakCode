@@ -75,6 +75,20 @@ describe("connectGateway", () => {
     expect(client.phoneUrl()).toBeUndefined();
   });
 
+  it("sends sessions.changed up to the gateway on notifySessionsChanged (1B)", async () => {
+    const frames: unknown[] = [];
+    const port = await startFakeGateway((ws) => {
+      ws.on("message", (m) => frames.push(JSON.parse(m.toString())));
+    });
+    const url = `ws://127.0.0.1:${port}`;
+    client = await connectGateway(url, { instanceId: "i1" }, deps, () => {});
+    client.notifySessionsChanged();
+    await waitFor(() =>
+      frames.some((f) => (f as { type?: string }).type === "sessions.changed"),
+    );
+    expect(frames).toContainEqual({ type: "sessions.changed" });
+  });
+
   it("captures the gateway.info phone URL the hub pushes down", async () => {
     const phoneUrl = "https://hub-7900.euw.devtunnels.ms";
     const port = await startFakeGateway((ws) => {

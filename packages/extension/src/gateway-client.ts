@@ -28,6 +28,13 @@ export interface GatewayClient {
   readonly url: string;
   /** The hub's phone URL if the gateway has pushed one (its tunnel), else undefined. */
   phoneUrl(): string | undefined;
+  /**
+   * Send a `sessions.changed` ping UP to the gateway (1B live list) when this
+   * provider's watched workspace changes; the gateway fans it out to subscribed
+   * operators. No-op while the socket is down (a reconnect + the next change
+   * re-announces).
+   */
+  notifySessionsChanged(): void;
   close(): void;
 }
 
@@ -89,6 +96,13 @@ export function connectGateway(
     const client: GatewayClient = {
       url,
       phoneUrl: () => phoneUrl,
+      notifySessionsChanged: () => {
+        // readyState 1 === OPEN (ws); a down socket just drops the ping (the
+        // next change after reconnect re-announces).
+        if (socket && socket.readyState === 1) {
+          socket.send(JSON.stringify({ type: "sessions.changed" }));
+        }
+      },
       close: () => {
         closed = true;
         if (retry) clearTimeout(retry);

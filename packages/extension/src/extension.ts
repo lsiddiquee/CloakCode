@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DirectoryWatcher } from "./dir-watcher.js";
 import * as vscode from "vscode";
 import { startBridge, type Bridge, type BridgeDeps } from "./bridge.js";
 import { buildActuators } from "./actuators.js";
@@ -336,6 +337,29 @@ export async function activate(
       workspaceNames: names,
     });
   };
+
+  // Live list (1B): watch the active workspace(s) transcripts dir(s) and ping
+  // subscribed operators — via the embedded bridge OR the gateway link, whichever
+  // is active — so a new session (or new activity) appears on the phone WITHOUT a
+  // manual refresh. The owned hash is fixed for the window's lifetime, so one
+  // watcher per owned hash suffices; the watcher debounces + poll-falls-back.
+  const notifyListChanged = (): void => {
+    bridge?.notifySessionsChanged();
+    gatewayClient?.notifySessionsChanged();
+  };
+  const listWatchers = [...resolveOwnedHashes(context, root).hashes].map(
+    (hash) =>
+      new DirectoryWatcher(
+        path.join(root, hash, "GitHub.copilot-chat", "transcripts"),
+        notifyListChanged,
+      ),
+  );
+  for (const w of listWatchers) void w.start();
+  context.subscriptions.push({
+    dispose: () => {
+      for (const w of listWatchers) w.stop();
+    },
+  });
 
   const deps: BridgeDeps = {
     listSessions,
