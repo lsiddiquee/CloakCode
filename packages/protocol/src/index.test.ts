@@ -26,6 +26,7 @@ import {
   connectionHelloSchema,
   gatewayInfoSchema,
   providerAuthRequiredSchema,
+  sessionsChangedSchema,
   sessionIdSchema,
   isAllowedUpgrade,
   type SessionSummary,
@@ -187,6 +188,18 @@ describe("rpcRequestSchema", () => {
   it("parses a sessions.list request and defaults params", () => {
     const parsed = rpcRequestSchema.parse({ id: "1", op: "sessions.list" });
     expect(parsed).toEqual({ id: "1", op: "sessions.list", params: {} });
+  });
+
+  it("parses a sessions.subscribe request (list live-updates)", () => {
+    const parsed = rpcRequestSchema.parse({
+      id: "1",
+      op: "sessions.subscribe",
+    });
+    expect(parsed).toEqual({
+      id: "1",
+      op: "sessions.subscribe",
+      params: {},
+    });
   });
 
   it("carries an optional traceId on the envelope", () => {
@@ -858,6 +871,19 @@ describe("response schemas", () => {
   it("parses a session.stop ack", () => {
     const res = { id: "9", ok: true as const, op: "session.stop" as const };
     expect(sessionStopResponseSchema.parse(res)).toEqual(res);
+  });
+});
+
+describe("sessionsChangedSchema", () => {
+  it("parses the list-changed push frame", () => {
+    expect(sessionsChangedSchema.parse({ type: "sessions.changed" })).toEqual({
+      type: "sessions.changed",
+    });
+  });
+  it("rejects a wrong type", () => {
+    expect(sessionsChangedSchema.safeParse({ type: "nope" }).success).toBe(
+      false,
+    );
   });
 });
 

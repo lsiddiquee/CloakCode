@@ -338,6 +338,16 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
   z.object({
     id: z.string(),
     traceId: z.string().optional(),
+    op: z.literal("sessions.subscribe"),
+    // Register this connection for `sessions.changed` pings (1B live list): the
+    // client keeps the socket open on the list view and the server pings it on a
+    // debounced change in a watched workspace's transcripts dir. Payload-free —
+    // the client re-fetches `sessions.list` (reusing the normal auth/grouping).
+    params: z.object({}).default({}),
+  }),
+  z.object({
+    id: z.string(),
+    traceId: z.string().optional(),
     op: z.literal("session.subscribe"),
     params: z.object({
       sessionId: sessionIdSchema,
@@ -789,3 +799,17 @@ export const providerAuthRequiredSchema = z.object({
   instanceId: z.string().optional(),
 });
 export type ProviderAuthRequired = z.infer<typeof providerAuthRequiredSchema>;
+
+/**
+ * Server → operator control frame: the session LIST changed (a new/updated
+ * session in a watched workspace), so a client showing the list should re-fetch
+ * `sessions.list` (1B live list). A payload-free "dirty ping" — the re-fetch
+ * reuses the normal auth/grouping path, and the ping carries nothing sensitive.
+ * Reused on the provider→gateway hop too: a provider sends it up on its own
+ * dir-change and the gateway fans it out to subscribed operators. Its distinct
+ * `type` keeps it off the RPC-response path (like {@link gatewayInfoSchema}).
+ */
+export const sessionsChangedSchema = z.object({
+  type: z.literal("sessions.changed"),
+});
+export type SessionsChanged = z.infer<typeof sessionsChangedSchema>;
