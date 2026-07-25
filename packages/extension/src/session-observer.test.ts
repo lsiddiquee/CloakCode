@@ -11,6 +11,7 @@ import {
   SessionFollower,
   IncrementalTranscriptParser,
   IncrementalDebugLogParser,
+  type StreamSource,
   findTranscript,
   findSessionLog,
   parseSessionEvents,
@@ -890,7 +891,7 @@ describe("SessionFollower", () => {
   });
 });
 
-describe("SessionFollower streaming (makeParser)", () => {
+describe("SessionFollower streaming (stream source)", () => {
   // The offset-streaming path (docs/02.6 §4.32): the follower tails by BYTE
   // OFFSET through a live IncrementalParser instead of re-reading the whole file
   // each poll — fixing the >512 MiB ERR_STRING_TOO_LONG crash (§4.31). These
@@ -907,6 +908,15 @@ describe("SessionFollower streaming (makeParser)", () => {
   });
   /** Append one newline-TERMINATED record, as Copilot's writers do. */
   const rec = (obj: object): string => `${JSON.stringify(obj)}\n`;
+  /** Raw stream source (no prepend) — a lone/aligned log's common case. */
+  const txStream = (): StreamSource => ({
+    makeParser: () => new IncrementalTranscriptParser(),
+    prefix: [],
+  });
+  const dlStream = (): StreamSource => ({
+    makeParser: () => new IncrementalDebugLogParser(),
+    prefix: [],
+  });
   async function tmpFile(content: string): Promise<string> {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-stream-"));
     dirs.push(dir);
@@ -942,7 +952,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const seen: SessionEvent[] = [];
     const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await follower.start();
     follower.stop();
@@ -962,7 +972,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     });
     const fStream = new SessionFollower(file2, (e) => stream.push(e), 0, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await fWhole.start();
     await fStream.start();
@@ -982,7 +992,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const seen: SessionEvent[] = [];
     const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await follower.start();
     const before = seen.length;
@@ -1002,7 +1012,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const seen: SessionEvent[] = [];
     const follower = new SessionFollower(file, (e) => seen.push(e), 3, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await follower.start();
     follower.stop();
@@ -1017,7 +1027,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
       pollIntervalMs: 0,
       limit: 2,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await follower.start();
     follower.stop();
@@ -1030,7 +1040,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const seen: SessionEvent[] = [];
     const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await follower.start();
     const initial = seen.length;
@@ -1058,7 +1068,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const turns: boolean[] = [];
     const follower = new SessionFollower(file, () => {}, 0, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalDebugLogParser(),
+      stream: dlStream(),
       computeTurn: computeInTurnFromDebugLog,
       onTurn: (t) => turns.push(t),
     });
@@ -1077,7 +1087,7 @@ describe("SessionFollower streaming (makeParser)", () => {
     const seen: SessionEvent[] = [];
     const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
       pollIntervalMs: 0,
-      makeParser: () => new IncrementalTranscriptParser(),
+      stream: txStream(),
     });
     await follower.start();
     await fs.appendFile(
@@ -1116,8 +1126,10 @@ describe("SessionFollower streaming (makeParser)", () => {
 });
 
 describe("findSessionLog streaming resolution", () => {
-  // A log at/over the threshold resolves with a `makeParser`, so the follower
-  // tails it by byte offset instead of reading it whole (docs/02.6 §4.32).
+  // A log at/over the threshold resolves with a `stream` source, so the follower
+  // tails it by byte offset instead of reading it whole; a huge debug-log that
+  // opens partway into the session STILL gets the transcript prepend (docs/02.6
+  // §4.32).
   const dirs: string[] = [];
   afterEach(async () => {
     for (const d of dirs.splice(0))
@@ -1149,16 +1161,17 @@ describe("findSessionLog streaming resolution", () => {
     return root;
   }
 
-  it("resolves a debug-log at/over the threshold with a streaming makeParser (else whole-read)", async () => {
+  it("resolves a debug-log at/over the threshold with a stream source (else whole-read)", async () => {
     const root = await makeEnv("sessS", {
       debug: `${jsonl([{ type: "user_message", attrs: { content: "go" } }])}\n`,
     });
-    // Over the (tiny) threshold → streaming.
+    // Over the (tiny) threshold → streaming. No transcript → raw (no prepend).
     const streamed = await findSessionLog(root, "sessS", undefined, 1);
-    expect(streamed?.makeParser).toBeTypeOf("function");
-    // Under the (default) threshold → whole-read, no makeParser.
+    expect(streamed?.stream?.makeParser).toBeTypeOf("function");
+    expect(streamed?.stream?.prefix).toEqual([]);
+    // Under the (default) threshold → whole-read, no stream.
     const whole = await findSessionLog(root, "sessS");
-    expect(whole?.makeParser).toBeUndefined();
+    expect(whole?.stream).toBeUndefined();
   });
 
   it("a follower from the streamed debug-log emits the whole-read stitch, byte-identical", async () => {
@@ -1183,7 +1196,7 @@ describe("findSessionLog streaming resolution", () => {
 
     const streamLog = await findSessionLog(root, "sessE", undefined, 1);
     const wholeLog = await findSessionLog(root, "sessE"); // whole-read stitch
-    expect(streamLog?.makeParser).toBeTypeOf("function");
+    expect(streamLog?.stream?.makeParser).toBeTypeOf("function");
 
     const seen: SessionEvent[] = [];
     const follower = new SessionFollower(
@@ -1193,7 +1206,7 @@ describe("findSessionLog streaming resolution", () => {
       {
         pollIntervalMs: 0,
         parse: streamLog!.parse,
-        ...(streamLog!.makeParser ? { makeParser: streamLog!.makeParser } : {}),
+        ...(streamLog!.stream ? { stream: streamLog!.stream } : {}),
       },
     );
     await follower.start();
@@ -1203,16 +1216,76 @@ describe("findSessionLog streaming resolution", () => {
     expect(seen).toEqual(wholeLog!.parse(wholeContent));
   });
 
-  it("resolves a transcript FALLBACK at/over the threshold with a streaming makeParser", async () => {
-    // No debug-log → the transcript is the source; over the threshold it streams.
+  it("PREPENDS the transcript when a (huge) debug-log opens partway (post-recycle)", async () => {
+    // The debug-log RECYCLED: it opens at the 2nd turn (q1), missing q0 — which is
+    // still in the transcript. Size forces streaming; the head-peek seam finds
+    // boundary > 0, so the older turn is prepended (tx-) and the lead retagged dl-.
+    // This is the case the size-only gate got WRONG: huge does NOT imply raw.
+    const transcript = `${jsonl([
+      { type: "user.message", data: { content: "q0" } },
+      { type: "assistant.message", data: { content: "a0" } },
+      { type: "user.message", data: { content: "q1" } },
+      { type: "assistant.message", data: { content: "a1" } },
+    ])}\n`;
+    const debug = `${jsonl([
+      { type: "user_message", attrs: { content: "q1" } },
+      {
+        type: "agent_response",
+        attrs: {
+          response: [
+            { role: "assistant", parts: [{ type: "text", content: "a1" }] },
+          ],
+        },
+      },
+    ])}\n`;
+    const root = await makeEnv("sessP", { debug, transcript });
+
+    const streamLog = await findSessionLog(root, "sessP", undefined, 1);
+    // The seam prepends q0/a0 (tx-) and retags the debug-log lead dl-.
+    expect(streamLog?.stream?.retagTag).toBe("dl-");
+    expect(
+      streamLog?.stream?.prefix.flatMap((e) =>
+        e.type === "append" ? [e.part.id] : [],
+      ),
+    ).toEqual(["tx-user-0", "tx-msg-0"]);
+
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(
+      streamLog!.file,
+      (e) => seen.push(e),
+      0,
+      {
+        pollIntervalMs: 0,
+        parse: streamLog!.parse,
+        ...(streamLog!.stream ? { stream: streamLog!.stream } : {}),
+      },
+    );
+    await follower.start();
+    follower.stop();
+
+    // Byte-identical to the whole-read stitch (the prepend path).
+    const wholeLog = await findSessionLog(root, "sessP");
+    const wholeContent = await fs.readFile(wholeLog!.file, "utf8");
+    expect(seen).toEqual(wholeLog!.parse(wholeContent));
+    // Concretely: tx- prefix (q0/a0) then dl- lead (q1/a1), seq contiguous.
+    expect(
+      seen.flatMap((e) => (e.type === "append" ? [e.part.id] : [])),
+    ).toEqual(["tx-user-0", "tx-msg-0", "dl-user-0", "dl-msg-0"]);
+    expect(seen.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("resolves a transcript FALLBACK at/over the threshold with a stream source", async () => {
+    // No debug-log → the transcript is the source; over the threshold it streams
+    // raw (a lone transcript has no prepend).
     const root = await makeEnv("sessT", {
       transcript: `${jsonl([{ type: "user.message", data: { content: "hi" } }])}\n`,
     });
     const streamed = await findSessionLog(root, "sessT", undefined, 1);
     expect(streamed?.file).toContain("sessT.jsonl");
-    expect(streamed?.makeParser).toBeTypeOf("function");
+    expect(streamed?.stream?.makeParser).toBeTypeOf("function");
+    expect(streamed?.stream?.prefix).toEqual([]);
     const whole = await findSessionLog(root, "sessT");
-    expect(whole?.makeParser).toBeUndefined();
+    expect(whole?.stream).toBeUndefined();
   });
 });
 

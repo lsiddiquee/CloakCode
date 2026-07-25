@@ -507,21 +507,33 @@ function alignBoundary(transcript: SessionEvent[], dlTexts: string[]): number {
 }
 
 /**
- * Namespace part/target ids and renumber seq for a merged stream. Both parsers
- * restart their ids (`user-0`, `msg-0`, ...), so without a per-source tag the
- * client (which de-dupes parts by id) would drop the debug-log's turns.
+ * Namespace part/target ids and set seq for ONE event in a merged stream. Both
+ * parsers restart their ids (`user-0`, `msg-0`, …), so without a per-source tag
+ * the client (which de-dupes parts by id) would drop the debug-log's turns. The
+ * per-event primitive behind {@link retag} (whole array) and the streaming
+ * prepend (docs/02.6 §4.32), which retags each tailed event as it arrives.
  */
+function retagEvent(
+  event: SessionEvent,
+  tag: string,
+  seq: number,
+): SessionEvent {
+  if (event.type === "append")
+    return {
+      ...event,
+      seq,
+      part: { ...event.part, id: `${tag}${event.part.id}` },
+    };
+  return { ...event, seq, id: `${tag}${event.id}` }; // resolve | updateStatus
+}
+
+/** Namespace + renumber a whole event list from `base` (contiguous by index). */
 function retag(
   events: SessionEvent[],
   tag: string,
   base: number,
 ): SessionEvent[] {
-  return events.map((e, i): SessionEvent => {
-    const seq = base + i;
-    if (e.type === "append")
-      return { ...e, seq, part: { ...e.part, id: `${tag}${e.part.id}` } };
-    return { ...e, seq, id: `${tag}${e.id}` }; // resolve | updateStatus
-  });
+  return events.map((e, i) => retagEvent(e, tag, base + i));
 }
 
 /**
@@ -546,19 +558,41 @@ export function stitchEvents(
   return [...prefix, ...retag(debugLog, "dl-", prefix.length)];
 }
 
+/**
+ * The offset-streaming source for a log too big to whole-read (docs/02.6 §4.32).
+ * The follower tails `file` by byte offset through `makeParser` instead of
+ * `readFile(…,"utf8")`, so it can't hit V8's ~512 MiB string cap (§4.31). The
+ * transcript↔debug-log seam is decided ONCE, up front (a bounded head-peek of the
+ * debug-log's opening vs the transcript), so a huge debug-log that opens PARTWAY
+ * into the session after a recycle still gets its older turns:
+ *
+ * - `prefix` — the transcript turns BEFORE where the debug-log opens (already
+ *   retagged `tx-`), emitted first. Empty when the debug-log opens at the
+ *   session's start (its opening matches the transcript's) — the raw case.
+ * - `retagTag` — the namespace applied to each STREAMED event (`dl-`) so its ids
+ *   don't collide with the `tx-` prefix; its seq is offset by `prefix.length`.
+ *   Omitted ⇒ raw (no prefix; the tailed log keeps its own ids/seq).
+ *
+ * Output is byte-identical to {@link stitchEvents} fed the whole files, so `seq`
+ * stays absolute + prefix-stable. A fresh parser per subscription (discarded on
+ * unsubscribe).
+ */
+export interface StreamSource {
+  makeParser: () => IncrementalParser;
+  prefix: SessionEvent[];
+  retagTag?: string;
+}
+
 /** A resolved session log: the file to tail, its parser, and its turn detector. */
 export interface SessionLog {
   file: string;
   parse: (content: string) => SessionEvent[];
   /**
-   * When set, the follower tails `file` by BYTE OFFSET through this incremental
-   * parser instead of re-reading the whole file into one string each poll — the
-   * offset-streaming path for logs past V8's ~512 MiB string cap (docs/02.6
-   * §4.31/§4.32). A fresh parser per subscription; discarded on unsubscribe.
-   * Streamed output is byte-identical to `parse` fed the whole file, so `seq`
-   * stays absolute + prefix-stable. Omitted ⇒ the whole-read `parse` path.
+   * When set, the follower tails `file` by BYTE OFFSET (streaming) instead of the
+   * whole-read `parse` — for a log past the string cap (docs/02.6 §4.32). Carries
+   * the transcript prepend + retag decided at resolution time. Omitted ⇒ whole-read.
    */
-  makeParser?: () => IncrementalParser;
+  stream?: StreamSource;
   /**
    * Mid-turn detector for THIS log's format, so `inTurn` is derived from the
    * same file the follower tails (no divergent transcript path). The debug-log
@@ -581,11 +615,62 @@ function isSafeSessionId(id: string): boolean {
 /**
  * A log at or above this byte size is tailed by BYTE OFFSET (streaming) instead
  * of read whole into one string, so it can't hit V8's ~512 MiB string cap
- * (docs/02.6 §4.31/§4.32). Set well under the cap (headroom for multibyte UTF-8):
- * a log this large is essentially always past any recycle boundary, so streaming
- * the debug-log RAW (no transcript prefix) equals the whole-read stitch anyway.
+ * (docs/02.6 §4.31/§4.32). Set well under the cap (headroom for multibyte UTF-8).
+ * Size decides only HOW to read (stream vs whole); whether to PREPEND the
+ * transcript is decided separately by the opening-vs-opening seam ({@link
+ * resolveStreamSource}) — a huge debug-log can still be post-recycle.
  */
 export const STREAM_THRESHOLD_BYTES = 256 * 1024 * 1024; // 256 MiB
+
+/**
+ * How much of a huge debug-log's HEAD to read when deciding the transcript seam.
+ * Only the opening user-message texts are needed (to align the seam), not the
+ * whole file — a bounded, crash-safe peek. Generous enough to span several
+ * opening turns even when each carries large tool output.
+ */
+const HEAD_PEEK_BYTES = 8 * 1024 * 1024; // 8 MiB
+
+/**
+ * User-message texts from a debug-log's first `maxBytes` — its opening turns,
+ * enough to align the transcript seam without reading the whole (huge) file.
+ * Streams the head via {@link TailReader} (never `readFile`, so no string cap).
+ */
+async function peekDebugLogTexts(
+  file: string,
+  maxBytes: number,
+): Promise<string[]> {
+  const { lines } = await new TailReader(file).read(maxBytes);
+  const parser = new IncrementalDebugLogParser();
+  const events: SessionEvent[] = [];
+  for (const line of lines) events.push(...parser.push(line));
+  return userTexts(events);
+}
+
+/**
+ * Decide the streaming source for a huge debug-log: peek its opening turns and
+ * align them against the transcript `history` (the SAME seam logic as {@link
+ * stitchEvents}, but from a bounded head-peek instead of the whole file). If the
+ * debug-log opens PARTWAY into the session (a recycle — its opening doesn't match
+ * the transcript's), PREPEND the older transcript turns (`tx-`) and retag the
+ * streamed debug-log (`dl-`); otherwise stream it RAW. `makeParser` builds the
+ * per-subscription debug-log parser.
+ */
+async function resolveStreamSource(
+  debugLog: string,
+  history: SessionEvent[],
+  makeParser: () => IncrementalParser,
+): Promise<StreamSource> {
+  const dlHeadTexts = await peekDebugLogTexts(debugLog, HEAD_PEEK_BYTES);
+  const boundary = alignBoundary(history, dlHeadTexts);
+  // boundary <= 0 ⇒ the debug-log opens at the transcript's start (openings
+  // match) ⇒ stream raw. boundary > 0 ⇒ prepend the older turns + retag the lead.
+  if (boundary <= 0) return { makeParser, prefix: [] };
+  return {
+    makeParser,
+    prefix: retag(history.slice(0, boundary), "tx-", 0),
+    retagTag: "dl-",
+  };
+}
 
 /**
  * Locate the best log for a session under one environment's storage root,
@@ -594,9 +679,10 @@ export const STREAM_THRESHOLD_BYTES = 256 * 1024 * 1024; // 256 MiB
  * complete for editor-hosted sessions where the transcript does not (docs/02);
  * the transcript is the zero-config fallback when debug-logging is off.
  *
- * A log at/over `streamThresholdBytes` is resolved with a `makeParser` so the
- * follower tails it by byte offset instead of the whole-read `parse` — the
- * offset-streaming path for logs past the string cap (docs/02.6 §4.32).
+ * A log at/over `streamThresholdBytes` is resolved with a `stream` source so the
+ * follower tails it by byte offset instead of the whole-read `parse`; for a huge
+ * debug-log the transcript seam (prepend vs raw) is decided by a bounded head-peek
+ * of its opening — NOT by size (docs/02.6 §4.32).
  */
 export async function findSessionLog(
   root: string,
@@ -627,9 +713,14 @@ export async function findSessionLog(
           file: transcript,
           parse: parseSessionEvents,
           // A transcript past the string cap streams too (rare, but §4.31 hits
-          // it just the same); its incremental parser is byte-identical.
+          // it just the same). A lone transcript has no prepend — stream it raw.
           ...(txBytes >= streamThresholdBytes
-            ? { makeParser: () => new IncrementalTranscriptParser() }
+            ? {
+                stream: {
+                  makeParser: () => new IncrementalTranscriptParser(),
+                  prefix: [],
+                },
+              }
             : {}),
           computeTurn: computeInTurn,
         };
@@ -639,9 +730,9 @@ export async function findSessionLog(
     }
 
     // Debug-log LEADS (latest turns). Read the transcript once for older history
-    // and stitch it in ahead of the debug-log when the debug-log is missing it
+    // and prepend it ahead of the debug-log when the debug-log is missing it
     // after a recycle/restart (docs/05 source strategy). The debug-log's opening
-    // turn is fixed, so the stitched tail stays a stable, resume-safe sequence.
+    // turn is fixed, so the prepended tail stays a stable, resume-safe sequence.
     let history: SessionEvent[] = [];
     try {
       history = parseSessionEvents(await fs.readFile(transcript, "utf8"));
@@ -654,15 +745,23 @@ export async function findSessionLog(
         logger?.warn("stitch.transcript_read_failed", { code: errorCode(err) });
       }
     }
+    // A debug-log past the string cap is tailed by byte offset instead of read
+    // whole (docs/02.6 §4.32). Size decides ONLY that it must stream — whether to
+    // prepend the transcript is decided by a bounded head-peek of the debug-log's
+    // opening vs the transcript (a huge debug-log can still be post-recycle, so it
+    // may STILL need the prepend). Small logs keep the whole-read stitch.
+    const dlBytes = (await fileSizeOrUndefined(debugLog)) ?? 0;
     return {
       file: debugLog,
       parse: (content) => stitchEvents(history, parseDebugLogEvents(content)),
-      // A debug-log past the string cap is tailed by byte offset instead of read
-      // whole (docs/02.6 §4.32). It streams RAW — a log this large is past any
-      // recycle boundary (boundary <= 0), so `stitchEvents` would return it raw
-      // anyway; the whole-read `parse` above stays the (uninvoked) fallback.
-      ...(((await fileSizeOrUndefined(debugLog)) ?? 0) >= streamThresholdBytes
-        ? { makeParser: () => new IncrementalDebugLogParser() }
+      ...(dlBytes >= streamThresholdBytes
+        ? {
+            stream: await resolveStreamSource(
+              debugLog,
+              history,
+              () => new IncrementalDebugLogParser(),
+            ),
+          }
         : {}),
       computeTurn: computeInTurnFromDebugLog,
     };
@@ -773,12 +872,15 @@ export class SessionFollower {
   /**
    * When set, the follower tails by BYTE OFFSET through a live parser instead of
    * re-reading the whole file each poll — the offset-streaming path for logs past
-   * V8's string cap (docs/02.6 §4.32). Precedence over `parse` when both exist.
+   * V8's string cap (docs/02.6 §4.32). Carries the transcript prepend + retag
+   * (the seam decided at resolution time). Precedence over `parse`.
    */
-  private readonly makeParser: (() => IncrementalParser) | undefined;
+  private readonly stream: StreamSource | undefined;
   /** Offset reader + running parser for the streaming path (lazily created). */
   private reader: TailReader | undefined;
   private parser: IncrementalParser | undefined;
+  /** Set once the streaming prefix has been emitted (the one-shot prepend). */
+  private prefixEmitted = false;
   private readonly computeTurn: (content: string) => boolean;
   private readonly onTurn: TurnSink | undefined;
   private readonly onError: FollowerErrorSink | undefined;
@@ -801,7 +903,7 @@ export class SessionFollower {
     options: {
       pollIntervalMs?: number;
       parse?: (content: string) => SessionEvent[];
-      makeParser?: () => IncrementalParser;
+      stream?: StreamSource;
       computeTurn?: (content: string) => boolean;
       onTurn?: TurnSink;
       onError?: FollowerErrorSink;
@@ -812,7 +914,7 @@ export class SessionFollower {
     this.emitted = sinceSeq;
     this.pollIntervalMs = options.pollIntervalMs ?? 400;
     this.parse = options.parse ?? parseSessionEvents;
-    this.makeParser = options.makeParser;
+    this.stream = options.stream;
     this.computeTurn = options.computeTurn ?? computeInTurn;
     this.onTurn = options.onTurn;
     this.onError = options.onError;
@@ -848,7 +950,7 @@ export class SessionFollower {
 
   private async pump(): Promise<void> {
     if (this.stopped) return;
-    if (this.makeParser) return this.pumpStream();
+    if (this.stream) return this.pumpStream();
     let content: string;
     try {
       content = await fs.readFile(this.filePath, "utf8");
@@ -894,9 +996,9 @@ export class SessionFollower {
    * `parse` path (proven by the equivalence tests).
    */
   private async pumpStream(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || !this.stream) return;
     if (!this.reader) this.reader = new TailReader(this.filePath);
-    if (!this.parser) this.parser = this.makeParser!();
+    if (!this.parser) this.parser = this.stream.makeParser();
     let result: TailReadResult;
     try {
       result = await this.reader.read();
@@ -913,18 +1015,34 @@ export class SessionFollower {
     this.clear("read");
     if (result.reset) {
       // Truncation / rotation (the 581→85 MB recycle, §4.32): the parser's ids +
-      // seq restart, so rebuild it and re-stream from 0. `result.lines` is already
-      // the fresh read from the start; the client cache de-dupes by part id, so a
-      // same-session re-stream is idempotent.
-      this.parser = this.makeParser!();
+      // seq restart, so rebuild it and re-stream from 0 — prefix included. The
+      // client cache de-dupes by part id, so a same-session re-stream is idempotent.
+      this.parser = this.stream.makeParser();
       this.emitted = 0;
       this.firstPump = true;
+      this.prefixEmitted = false;
     }
-    const events: SessionEvent[] = [];
+    // Retag each tailed event as it arrives when the debug-log is prepended (it
+    // opened partway into the session): seq offset by the prefix, id namespaced
+    // `dl-`. Raw (no prefix) ⇒ the log keeps its own ids/seq (docs/02.6 §4.32).
+    const { prefix, retagTag } = this.stream;
+    const base = prefix.length;
+    const streamed: SessionEvent[] = [];
     for (const line of result.lines) {
-      for (const event of this.parser.push(line)) events.push(event);
+      for (const raw of this.parser.push(line)) {
+        streamed.push(
+          retagTag ? retagEvent(raw, retagTag, base + raw.seq) : raw,
+        );
+      }
     }
+    // The transcript PREPEND (older turns the debug-log is missing after a recycle)
+    // leads the stream, emitted ONCE before the first tailed events.
+    const events =
+      !this.prefixEmitted && prefix.length > 0
+        ? [...prefix, ...streamed]
+        : streamed;
     if (events.length > 0) {
+      this.prefixEmitted = true;
       const total = events[events.length - 1]!.seq + 1;
       // On the FIRST drain, skip everything before BOTH the resume point
       // (`sinceSeq`) and the tail window (`total - limit`) — seq is absolute, so

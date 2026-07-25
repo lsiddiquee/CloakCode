@@ -181,10 +181,13 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   **count**, not a byte offset) because the JSONL parsers are whole-file pure (positional ids +
   retroactive resolves) → **O(n²) live**. **Fix SHIPPED (2026-07-25, branch):** **offset tail**
   (`TailReader`: advance to last `\n`, reset on truncation) + **resumable** `IncrementalParser`s +
-  a `makeParser`-gated `SessionFollower.pumpStream`; `findSessionLog` streams any log ≥256 MiB. Huge
-  ⇒ past any recycle boundary ⇒ stream the debug-log **raw** (no stitch), so §4.33's two-pass seam is
-  deferred; small logs keep the whole-read stitch. Real logs are `\n`-**terminated** (last byte
-  `0x0a`), so the complete-lines-only tail emits every record; equivalence-tested byte-identical.
+  a `stream`-gated `SessionFollower.pumpStream`; `findSessionLog` streams any log ≥256 MiB. **Size
+  decides streaming; the debug-log's opening-vs-transcript decides the PREPEND (orthogonal):** a
+  bounded 8 MiB head-peek + `alignBoundary` — a huge debug-log can still be post-recycle
+  (`boundary > 0`), so it prepends the older transcript turns (`tx-`) and retags the lead (`dl-`);
+  `boundary ≤ 0` ⇒ raw. Byte-identical to `stitchEvents` (equivalence-tested, incl. the prepend).
+  Real logs are `\n`-**terminated** (last byte `0x0a`), so the complete-lines-only tail emits every
+  record. §4.33's fully-streaming seam stays deferred (only if the transcript itself exceeds the cap).
 - **§4.33** Cross-file join key (transcript ↔ debug-log): **user-message text matches exactly**
   (top-level `content` in both — the stitch anchor); **`toolCallId` does not** — its base (`toolu_…`,
   minus the transcript's `__vscode-<ts>` suffix) appears only **embedded in the debug-log's

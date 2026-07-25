@@ -473,7 +473,7 @@ export async function handleMessage(
           request.params.sinceSeq,
           {
             parse: log.parse,
-            ...(log.makeParser ? { makeParser: log.makeParser } : {}),
+            ...(log.stream ? { stream: log.stream } : {}),
             computeTurn: log.computeTurn,
             onTurn: (inTurn) => {
               socket.send(
