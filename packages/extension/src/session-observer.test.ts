@@ -1430,6 +1430,37 @@ describe("SessionFollower usage aggregation", () => {
     expect(last.requests).toBe(1);
   });
 
+  it("flags partial on the WHOLE-READ stitched path too (small prepended debug-log)", async () => {
+    // A small debug-log that opens partway (q1) → the whole-read `parse` closure
+    // stitches the transcript's older turn (q0) as a `tx-` prefix. accrueUsage
+    // must see the `tx-` id and flag the total partial — same as the streaming
+    // path, but via the OTHER pump (docs/02.6 §4.32).
+    const history = parseSessionEvents(
+      jsonl([
+        { type: "user.message", data: { content: "q0" } },
+        { type: "assistant.message", data: { content: "a0" } },
+        { type: "user.message", data: { content: "q1" } },
+      ]),
+    );
+    const file = await tmpFile(
+      jsonl([
+        { type: "user_message", attrs: { content: "q1" } },
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+      ]),
+    );
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: (c) => stitchEvents(history, parseDebugLogEvents(c)),
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    follower.stop();
+    const last = totals.at(-1)!;
+    expect(last.partial).toBe(true); // tx- prefix seen on the whole-read path
+    expect(last.requests).toBe(1);
+  });
+
   it("does not emit usage for a session with no telemetry", async () => {
     const file = await tmpFile(
       jsonl([{ type: "user_message", attrs: { content: "go" } }]),
