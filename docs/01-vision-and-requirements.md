@@ -20,11 +20,14 @@ Three core objectives:
 
 The motivation is everyday developer flow, not a single deployment constraint:
 
-- **Remote for the VS Code Copilot chat — which has none.** VS Code's Copilot chat is the
-  interactive session many prefer (select code or text to discuss, point at specific things,
-  attach files or screenshots from the repo or outside it), but it can't be reached remotely.
-  CloakCode adds that remote, so you don't have to switch to a CLI or web mode that drops the
-  interactive UI — and you can't always: Copilot CLI has no remote either.
+- **A self-owned remote for the VS Code Copilot chat.** VS Code's Copilot chat is the interactive
+  session many prefer (select code or text to discuss, point at specific things, attach files or
+  screenshots from the repo or outside it). GitHub now ships native remote control for CLI and VS
+  Code sessions (GA 2026-05-18) — but it **streams your session up to GitHub** (the transcript syncs
+  to your GitHub account, an org/enterprise policy must enable it, and it surfaces on github.com /
+  mobile, not back in the IDE). CloakCode gives you that remote over **your own tunnel with nothing
+  synced to GitHub**, needs nothing enabled, and keeps you in the **actual VS Code GUI session**
+  (your models, extensions, interactive selection) rather than a separate CLI session to reconcile.
 - **Long runs shouldn't sit idle waiting for you.** A long agent workflow stalls on a
   confirmation, a multiple-choice question, or a tool-call approval; get pinged and answer it from
   your phone so it **keeps moving**, instead of waiting hours for you to come back to a one-word
@@ -33,8 +36,9 @@ The motivation is everyday developer flow, not a single deployment constraint:
   autopilot reply with a templated "user is away — choose the best option" default.
 - **Fluid and two-way.** Move between your phone and the desktop chat at will — no one-way handoff
   to a CLI or mode you can't switch back from.
-- **Covers the gaps.** Works when your repo isn't on GitHub and when you'd rather bring your own
-  models — all while your code stays on your machine.
+- **Nothing to enable, nothing synced.** No org/enterprise policy to switch on and no cloud session
+  storage; the session stays on your machine and you can bring your own models — all while your code
+  stays local.
 
 ## How the requirements evolved (important context)
 

@@ -21,8 +21,9 @@ at specific things, and attach files or screenshots — which has no remote of i
 one, and you switch fluidly between the desktop and your phone. When a long agent run **stalls on a
 blocker** — a confirmation, a multiple-choice question, or a tool-call approval — you get pinged and
 **answer it remotely** so the run keeps moving, instead of walking back hours later to find it waiting
-on a one-word answer. It's the tool for the cases the web and CLI don't cover: your repo isn't on
-GitHub, you want to bring your own models, or you just prefer the VS Code Copilot UI.
+on a one-word answer. GitHub now ships native remote for Copilot too, but it streams your session up
+to GitHub and needs cloud session storage enabled by policy; CloakCode keeps the session on your
+machine with nothing synced and nothing to enable, in the VS Code Copilot UI with your own models.
 
 > **Status — M0 (dev experience + design).** The read/observe half (list sessions, live mirror,
 > blocker detection) is proven, and the answer/steer/stop actuator is wired end-to-end. The remaining

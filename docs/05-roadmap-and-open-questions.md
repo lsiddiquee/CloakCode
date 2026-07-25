@@ -6,6 +6,33 @@
   multiple-choice richly. All server-side, no proposed API, works for stock sessions.
 - **Left (write half):** answer/steer a session remotely — the actuator.
 
+## Competitive landscape — GitHub's own remote control (verified 2026-07-25)
+
+GitHub shipped **native remote control** for Copilot sessions — `copilot --remote` / `/remote on`
+for the **CLI**, plus **VS Code** and JetBrains — **GA 2026-05-18** (public preview 2026-04-13). It
+monitors + steers a running session from **github.com or GitHub Mobile**. So the "no remote for the
+CLI / VS Code chat" framing is **stale**; the honest differentiation is the **mechanism**, not the
+capability:
+
+- **Their relay is GitHub.** Session events (messages, tool executions, permission requests) are
+  **streamed from your machine to GitHub**; the remote device talks to GitHub and the CLI **polls
+  GitHub** for commands. CLI sessions are **synced to your GitHub account by default** (view-only
+  even before remote is enabled). CloakCode's mirror + relay cross **only your localhost bridge and
+  your own tunnel** — no session data to GitHub ("no home").
+- **Gated + conditional.** Remote requires an org/enterprise **"Store local sessions in the Cloud" →
+  "View and control"** policy (off by default), an **interactive** session, and the machine to stay
+  **online + awake** (`/keep-alive`). CloakCode needs none of that enabled.
+- **Surface continuity.** The controllable remote surfaces are **web + mobile**; a CLI session
+  resumes in the terminal (`copilot --resume`) but does not cleanly rehydrate as a native VS Code
+  GUI chat. CloakCode drives the **actual VS Code session**, so desk↔phone is the same session.
+- **Repo scope is in-flux.** Preview + the current how-to docs require a **GitHub.com-hosted repo**
+  (`"Remote session disabled: not in a GitHub repository"`); the GA blog claims **any repo or none** —
+  so don't hang positioning on "non-GitHub repos."
+
+Sources: [about remote control](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-remote-control),
+[steer remotely](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/steer-remotely),
+[GA blog](https://github.blog/news-insights/product-news/take-your-local-github-sessions-anywhere/).
+
 ## Open questions
 
 | #   | Question                                                                                                                                                                                                                  | Why it matters                                                                                                                                                                                                                                                                                                     | How to answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
