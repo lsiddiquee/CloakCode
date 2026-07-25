@@ -15,6 +15,7 @@ import {
   RateLimiter,
   rpcErrorSchema,
   rpcRequestSchema,
+  sessionsChangedSchema,
   type CloakcodeHello,
   type GatewayConnectInfo,
   type GatewayInfo,
@@ -255,6 +256,10 @@ export async function startGateway(
 
   const relay = new Relay();
 
+  // Operator sockets that sent `sessions.subscribe` (1B live list): a provider's
+  // `sessions.changed` is fanned out to these. Cleared on operator disconnect.
+  const listSubscribers = new Set<WebSocket>();
+
   // Register an AUTHENTICATED provider: create its relay-backed handle and wire
   // its frames. The caller has already verified the credential (or none is
   // required) — this is the post-auth registration only.
@@ -277,6 +282,15 @@ export async function startGateway(
     send(socket, gatewayInfo(phoneUrl));
     socket.on("message", (m) => {
       const frame = m.toString();
+      // A provider announces its session list changed (1B) → fan out a ping to
+      // subscribed operators. It carries no `id`, so it is not a relay reply.
+      if (isSessionsChangedFrame(frame)) {
+        const ping = JSON.stringify({ type: "sessions.changed" });
+        for (const s of listSubscribers) {
+          if (s.readyState === s.OPEN) s.send(ping);
+        }
+        return;
+      }
       // A provider frame is either a relayed reply for an operator, or a response
       // to a gateway-initiated request (e.g. sessions.list).
       if (!relay.routeProviderFrame(frame, provider))
@@ -452,6 +466,7 @@ export async function startGateway(
           frame,
           logger,
           gate,
+          listSubscribers,
           opts.instanceId,
           connectInfo,
         );
@@ -459,6 +474,7 @@ export async function startGateway(
       socket.on("message", (m) => onOperatorFrame(m.toString()));
       socket.on("close", () => {
         relay.dropOperator(socket);
+        listSubscribers.delete(socket);
         logger.info("operator.disconnect");
       });
       if (knock?.role === "operator") {
@@ -598,6 +614,15 @@ function cloakcodeHello(role: CloakcodeHello["role"]): CloakcodeHello {
  * `sessionId` (learned from the aggregated list), with its frames piped back
  * through {@link Relay}.
  */
+/** True when a provider frame is the `sessions.changed` list ping (1B). */
+function isSessionsChangedFrame(text: string): boolean {
+  try {
+    return sessionsChangedSchema.safeParse(JSON.parse(text)).success;
+  } catch {
+    return false;
+  }
+}
+
 async function handleOperator(
   socket: WebSocket,
   registry: ProviderRegistry,
@@ -605,6 +630,7 @@ async function handleOperator(
   text: string,
   logger: Logger,
   gate: OperatorGate,
+  listSubscribers: Set<WebSocket>,
   instanceId?: string,
   connectInfo?: GatewayConnectInfo,
 ): Promise<void> {
@@ -644,6 +670,12 @@ async function handleOperator(
     return;
   }
   const { id, op } = req.data;
+  if (op === "sessions.subscribe") {
+    // Register this operator for `sessions.changed` pings (1B live list): the
+    // gateway fans a provider's change out to these subscribers. No relay/ack.
+    listSubscribers.add(socket);
+    return;
+  }
   if (op === "sessions.list") {
     let result: SessionSummary[];
     try {

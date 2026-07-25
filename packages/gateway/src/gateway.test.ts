@@ -138,6 +138,38 @@ describe("startGateway", () => {
     operator.close();
   });
 
+  it("fans out a provider's sessions.changed to subscribed operators (1B)", async () => {
+    gw = await startGateway({ port: 0 });
+    const url = `ws://127.0.0.1:${gw.port}`;
+
+    const provider = await openProvider(gw, "i1");
+    await waitFor(() => gw!.registry.all().length === 1); // handler wired
+
+    const subscriber = await open(url);
+    const bystander = await open(url);
+    const pings: Record<string, unknown>[] = [];
+    const bystanderFrames: Record<string, unknown>[] = [];
+    subscriber.on("message", (m) => pings.push(JSON.parse(m.toString())));
+    bystander.on("message", (m) =>
+      bystanderFrames.push(JSON.parse(m.toString())),
+    );
+
+    subscriber.send(
+      JSON.stringify({ id: "s", op: "sessions.subscribe", params: {} }),
+    );
+    await new Promise((r) => setTimeout(r, 50)); // let the subscribe register
+
+    provider.send(JSON.stringify({ type: "sessions.changed" }));
+    await waitFor(() => pings.some((p) => p["type"] === "sessions.changed"));
+
+    expect(pings).toContainEqual({ type: "sessions.changed" });
+    expect(bystanderFrames).toEqual([]); // never subscribed → no ping
+
+    provider.close();
+    subscriber.close();
+    bystander.close();
+  });
+
   it("returns the gateway instance id to the operator when set", async () => {
     gw = await startGateway({ port: 0, instanceId: "office" });
     const url = `ws://127.0.0.1:${gw.port}`;
