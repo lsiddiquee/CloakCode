@@ -2,6 +2,7 @@ import {
   rpcErrorSchema,
   newTraceId,
   sessionSubscribeEventSchema,
+  sessionsChangedSchema,
   sessionsListResponseSchema,
   sessionHistoryResponseSchema,
   sessionRespondResponseSchema,
@@ -390,6 +391,69 @@ export function subscribeSession(
         return;
       }
       onStatus("reconnecting");
+      const delay = Math.min(30_000, 500 * 2 ** attempt) + Math.random() * 250;
+      attempt += 1;
+      reconnectTimer = setTimeout(connect, delay);
+    });
+  };
+
+  connect();
+
+  return () => {
+    stopped = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    ws?.close();
+  };
+}
+
+/**
+ * Keep a socket open on the LIST view and invoke `onChange` on each
+ * `sessions.changed` ping (1B live list) — so a new session appears without a
+ * manual refresh. Sends the auth prelude + `sessions.subscribe`, then reconnects
+ * with capped backoff on drops. A `needsAuth` refusal STOPS it (the App's
+ * ready-gated effect re-subscribes after re-auth, so it never storm-loops while
+ * unauthenticated). Returns an unsubscribe fn.
+ */
+export function subscribeSessionsChanges(
+  onChange: () => void,
+  url: string = bridgeUrl(),
+): () => void {
+  let ws: WebSocket | null = null;
+  let stopped = false;
+  let attempt = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const connect = (): void => {
+    if (stopped) return;
+    const socket = new WebSocket(url);
+    ws = socket;
+    socket.addEventListener("open", () => {
+      attempt = 0;
+      sendAuthPrelude(socket);
+      socket.send(
+        JSON.stringify({
+          id: crypto.randomUUID(),
+          op: "sessions.subscribe",
+          traceId: newTraceId(),
+        }),
+      );
+    });
+    socket.addEventListener("message", (ev) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(String(ev.data));
+      } catch {
+        return;
+      }
+      if (authKind(raw) === "needs") {
+        stopped = true; // stay unsubscribed; the App re-subscribes after re-auth
+        socket.close();
+        return;
+      }
+      if (sessionsChangedSchema.safeParse(raw).success) onChange();
+    });
+    socket.addEventListener("close", () => {
+      if (stopped) return;
       const delay = Math.min(30_000, 500 * 2 ** attempt) + Math.random() * 250;
       attempt += 1;
       reconnectTimer = setTimeout(connect, delay);

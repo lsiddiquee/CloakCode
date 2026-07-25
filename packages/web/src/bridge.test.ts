@@ -12,6 +12,7 @@ import {
   steerSession,
   stopSession,
   subscribeSession,
+  subscribeSessionsChanges,
 } from "./bridge";
 import { clearStoredToken, onNeedsAuth, storeToken } from "./auth";
 
@@ -282,6 +283,47 @@ describe("bridgeUrl", () => {
   it("honours the VITE_BRIDGE_URL override", () => {
     vi.stubEnv("VITE_BRIDGE_URL", "wss://phone.example/bridge");
     expect(bridgeUrl()).toBe("wss://phone.example/bridge");
+  });
+});
+
+describe("subscribeSessionsChanges", () => {
+  it("subscribes and invokes onChange on each sessions.changed ping", () => {
+    let changes = 0;
+    const unsub = subscribeSessionsChanges(
+      () => (changes += 1),
+      "ws://test/bridge",
+    );
+    socket(0).open();
+    expect(JSON.parse(socket(0).sent.at(-1)!).op).toBe("sessions.subscribe");
+    socket(0).message({ type: "sessions.changed" });
+    socket(0).message({ type: "sessions.changed" });
+    expect(changes).toBe(2);
+    socket(0).message({ id: "x", ok: true }); // a non-ping frame is ignored
+    expect(changes).toBe(2);
+    unsub();
+  });
+
+  it("stops on a needsAuth refusal (no reconnect storm)", () => {
+    let changes = 0;
+    subscribeSessionsChanges(() => (changes += 1), "ws://test/bridge");
+    socket(0).open();
+    socket(0).message({
+      id: "x",
+      ok: false,
+      needsAuth: true,
+      error: { message: "auth" },
+    });
+    vi.advanceTimersByTime(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1); // did not reconnect
+    expect(changes).toBe(0);
+  });
+
+  it("reconnects with backoff on an unexpected drop", () => {
+    subscribeSessionsChanges(() => {}, "ws://test/bridge");
+    socket(0).open();
+    socket(0).close();
+    vi.advanceTimersByTime(800); // 500 * 2**0 + <=250 jitter
+    expect(MockWebSocket.instances).toHaveLength(2);
   });
 });
 

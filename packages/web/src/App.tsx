@@ -1,6 +1,11 @@
 import { useEffect, useState, type JSX } from "react";
 import type { SessionSummary } from "@cloakcode/protocol";
-import { bridgeUrl, fetchSessions, isBridgeInsecure } from "./bridge";
+import {
+  bridgeUrl,
+  fetchSessions,
+  isBridgeInsecure,
+  subscribeSessionsChanges,
+} from "./bridge";
 import { onEnrolmentRequired, onNeedsAuth } from "./auth";
 import { AuthPrompt } from "./AuthPrompt";
 import { EnrolView } from "./EnrolView";
@@ -80,6 +85,15 @@ export function App(): JSX.Element {
       window.removeEventListener("focus", refresh);
     };
   }, []);
+
+  // Live list (1B): while the list is showing (authed → ready), keep a socket
+  // open and silently refresh on each `sessions.changed` ping, so a new session
+  // appears without a manual refresh. Ready-gated so it never runs pre-auth.
+  const listReady = state.kind === "ready";
+  useEffect(() => {
+    if (!listReady) return;
+    return subscribeSessionsChanges(() => void load({ silent: true }));
+  }, [listReady]);
 
   // A socket refused with `needsAuth` raises the TOTP prompt; `enrolmentRequired`
   // raises first-run pairing (docs/04, F2a). The refusal's instance-id hint (if

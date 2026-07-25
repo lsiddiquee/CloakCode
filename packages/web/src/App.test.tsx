@@ -10,6 +10,7 @@ vi.mock("./bridge", () => ({
   fetchSessions: fetchSessionsMock,
   bridgeUrl: () => "ws://test/bridge",
   isBridgeInsecure: () => false,
+  subscribeSessionsChanges: () => () => {},
 }));
 // Keep the App test focused on the list — stub the heavy SessionView.
 vi.mock("./SessionView", () => ({
