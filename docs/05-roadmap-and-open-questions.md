@@ -679,24 +679,22 @@ the critical path.
   → 0 `tx-` parts, and no `partial` flag). Now it aligns on the debug-log's **opening** message
   (longest-prefix among repeats, still F7-safe) — same session → 10,935 `tx-` parts restored,
   `partial=true` (docs/02.5 §4.14).
-- **Large-session read cliff — stream the tail, don't `readFile` whole (2026-07-21 — documented, UNBUILT).**
-  The observer reads each log **whole** as a UTF-8 string (`fs.readFile(file, "utf8")`), so once the
-  **debug-log crosses ~512 MiB** it throws `ERR_STRING_TOO_LONG` (V8 `MAX_STRING_LENGTH`) and — because
-  `pump()` swallows it in a bare `catch` with no logger — the session loads **blank** while the spool
-  tool-cards still show, silently (proven on a 581 MB `main.jsonl`; §4.31). It also re-reads the whole
-  file on **every** change (O(n²) live; §4.32). **Remediation (unbuilt):** an **offset-incremental,
-  streaming** tail (`createReadStream({start})` + `readline`, advance to the last `\n`, reset on
-  truncation) feeding a **resumable** parser state machine — and **initial load must stream too**, or
-  the cap just moves from tailing to open. The transcript↔debug-log **stitch** stays keyed on
-  **user-message text** via `alignBoundary` sequence-matching (**tool-call ids don't cross-match** —
-  §4.33; the debug-log's structured spans use OTel `spanId`); the **sequence** match disambiguates a
-  repeated short opening (`continue`), so we ship that **now** and keep the **tool-name-sequence**
-  enrichment as a deferred hardening lever. The **observability fix ships in two halves: the logging
-  half SHIPPED 2026-07-21** — the follower takes a `sessionId`-bound child logger and logs deduped
-  read/turn/watch failures (with the file size), `findSessionLog` surfaces a non-ENOENT transcript
-  read failure, and the bridge logs `rpc.failed` / `rpc.invalid`. The client-facing `kind:"error"`
-  subscribe frame **also SHIPPED** — the follower emits it (redaction-safe `code` + `bytes`) and the
-  web client shows a reason ("too large to load") instead of a silent blank. Full design:
+- **Large-session read cliff — stream the tail, don't `readFile` whole (SHIPPED 2026-07-25 on
+  `feat/2b-offset-streaming-parser`).** The observer read each log **whole** as a UTF-8 string
+  (`fs.readFile(file, "utf8")`), so once the **debug-log crossed ~512 MiB** it threw
+  `ERR_STRING_TOO_LONG` (V8 `MAX_STRING_LENGTH`) and — because `pump()` swallowed it in a bare `catch`
+  with no logger — the session loaded **blank** while the spool tool-cards still showed, silently
+  (proven on a 581 MB `main.jsonl`; §4.31). It also re-read the whole file on **every** change (O(n²)
+  live; §4.32). **Fix SHIPPED:** an **offset-incremental** tail (`TailReader`:
+  `createReadStream({start})` + `StringDecoder`, advance to the last `\n`, reset on truncation) feeding
+  a **resumable** `IncrementalParser`; `findSessionLog` streams any log **≥256 MiB** and decides the
+  transcript **prepend** by a bounded **8 MiB head-peek** + `alignBoundary` (a huge debug-log can still
+  be post-recycle, so size ≠ raw — §4.32). Byte-identical to the whole-read stitch (equivalence-tested).
+  The **usage total** moved server-side in the same effort so the tail window can't undercount it (the
+  `usage` subscribe frame; §4.14). The **observability halves** shipped earlier (2026-07-21): the
+  deduped `sessionId`-bound logger + the client-facing `kind:"error"` frame ("too large to load").
+  **Deferred:** the §4.33 _fully-streaming transcript seam_ (only if the **transcript itself** exceeds
+  the cap) and a rotation `reset` frame. Full design + outcome:
   [docs/02.6](02.6-large-session-tailing.md).
 - **Token-live monitoring needs a disclaimer (reminder, 2026-07-12).** The token-live "monitoring"
   mode (#13 — own the `vscode.lm` loop / token streaming) must carry a **disclaimer**: the observed
