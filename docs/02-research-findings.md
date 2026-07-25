@@ -179,8 +179,12 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   Proven on a 581 MB `main.jsonl`. Data crossed a latent limit — **not** a code regression.
 - **§4.32** The follower re-reads + re-parses the **whole** file per change (keeps an emitted-event
   **count**, not a byte offset) because the JSONL parsers are whole-file pure (positional ids +
-  retroactive resolves) → **O(n²) live**. Fix (unbuilt): **offset tail** (advance to last `\n`,
-  reset on truncation) + a **resumable** parser state machine; JSONL keeps `JSON.parse(line)` as-is.
+  retroactive resolves) → **O(n²) live**. **Fix SHIPPED (2026-07-25, branch):** **offset tail**
+  (`TailReader`: advance to last `\n`, reset on truncation) + **resumable** `IncrementalParser`s +
+  a `makeParser`-gated `SessionFollower.pumpStream`; `findSessionLog` streams any log ≥256 MiB. Huge
+  ⇒ past any recycle boundary ⇒ stream the debug-log **raw** (no stitch), so §4.33's two-pass seam is
+  deferred; small logs keep the whole-read stitch. Real logs are `\n`-**terminated** (last byte
+  `0x0a`), so the complete-lines-only tail emits every record; equivalence-tested byte-identical.
 - **§4.33** Cross-file join key (transcript ↔ debug-log): **user-message text matches exactly**
   (top-level `content` in both — the stitch anchor); **`toolCallId` does not** — its base (`toolu_…`,
   minus the transcript's `__vscode-<ts>` suffix) appears only **embedded in the debug-log's
