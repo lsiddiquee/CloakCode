@@ -60,6 +60,17 @@ Flow: `PreToolUse` → hook appends a `pending` line to a local spool file (loca
 spool, keyed by `session_id` (= observer sessionId), and pushes a `pending` snapshot. On
 `PostToolUse` it drops the entry and re-pushes.
 
+**Live session list (1B).** Separate from the per-session stream above — the LIST itself is
+push-live. An operator on the list view holds a `sessions.subscribe` socket; the extension runs
+a debounced `DirectoryWatcher` on the **active (owned) workspace's** `transcripts/` dir and, on
+a change, emits `sessions.changed` — the embedded bridge broadcasts it to its list-subscribers,
+and in the gateway topology the provider sends it up and the gateway fans it out to subscribed
+operators. The ping is a **payload-free "dirty" signal**: the client re-fetches `sessions.list`
+(reusing the normal auth/grouping), so a new session appears on the phone without a manual
+refresh. Only the window's **own** workspace is watched (each provider is live for its own; the
+gateway unions them); foreign read-only workspaces have no live provider here and fall back to
+the focus/visibility refresh (1A).
+
 **Dedup is automatic** via the base `toolCallId` — the hook's `tool_use_id` with its
 `__vscode-<n>` suffix stripped equals the transcript's `toolCallId`. A finished call leaves the
 overlay when the hook's `PostToolUse` **deletes** its spool file (primary), with a later-turn
