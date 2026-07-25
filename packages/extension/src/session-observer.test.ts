@@ -1399,6 +1399,37 @@ describe("SessionFollower usage aggregation", () => {
     expect(totals.at(-1)!.requests).toBe(2);
   });
 
+  it("re-folds the total from scratch when the whole-read log is truncated/recycled", async () => {
+    // Keep-adding must not linger or double-count across a shrink: two requests →
+    // start (total 2) → the log recycles to ONE request → the total re-folds to 1,
+    // not stays 2 or doubles to 3 (docs/02.6 §4.32).
+    const file = await tmpFile(
+      jsonl([
+        { type: "user_message", attrs: { content: "go" } },
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+      ]),
+    );
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: parseDebugLogEvents,
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    expect(totals.at(-1)!.requests).toBe(2);
+    await fs.writeFile(
+      file,
+      jsonl([
+        { type: "user_message", attrs: { content: "fresh" } },
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+      ]),
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(totals.at(-1)!.requests).toBe(1); // re-folded, not 2 or 3
+  });
+
   it("flags the total partial when transcript history is prepended (streaming tx- prefix)", async () => {
     const file = await tmpFile(
       `${jsonl([

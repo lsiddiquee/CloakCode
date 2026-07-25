@@ -897,13 +897,20 @@ export class SessionFollower {
   private readonly onError: FollowerErrorSink | undefined;
   private readonly logger: Logger | undefined;
   /**
-   * Server-side usage aggregation (docs/02.6 §4.32): every `usage` part seen
-   * across the WHOLE log (deduped by id, so a whole-read re-parse never
-   * double-counts), plus whether prepended transcript history is present — so
-   * the total is authoritative regardless of the client's tail window.
+   * Server-side usage aggregation (docs/02.6 §4.32): a running list of every
+   * `usage` part folded so far (append-only — each pump folds only the events it
+   * hasn't seen yet, never re-scanning from the top), plus whether prepended
+   * transcript history is present — so the total is authoritative regardless of
+   * the client's tail window.
    */
   private readonly onUsage: UsageSink | undefined;
-  private readonly usageParts = new Map<string, UsagePart>();
+  private readonly usageList: UsagePart[] = [];
+  /**
+   * Count of parsed events already folded into the usage total. The whole-read
+   * pump advances it and folds only `events[usageScanned…]`; the streaming pump
+   * passes only its NEW events, so it never reads this.
+   */
+  private usageScanned = 0;
   private sawPrefix = false;
   /**
    * Max events to emit on the INITIAL load (the tail window) — the client's
@@ -1005,7 +1012,19 @@ export class SessionFollower {
       if (event) this.sink(event);
     }
     if (events.length > this.emitted) this.emitted = events.length;
-    this.accrueUsage(events);
+    // Fold only the events not yet counted — never re-scan from the top. A
+    // SHORTER re-parse ⇒ the log was truncated/recycled, so re-fold from scratch
+    // (the server-computed total is re-sent; the client's PARTS reset is the
+    // deferred rotation frame, docs/02.6 §4.32).
+    if (this.onUsage) {
+      if (events.length < this.usageScanned) {
+        this.usageList.length = 0;
+        this.sawPrefix = false;
+        this.usageScanned = 0;
+      }
+      this.accrueUsage(events.slice(this.usageScanned));
+      this.usageScanned = events.length;
+    }
     this.pumpTurn(content);
   }
 
@@ -1044,7 +1063,8 @@ export class SessionFollower {
       this.emitted = 0;
       this.firstPump = true;
       this.prefixEmitted = false;
-      this.usageParts.clear();
+      this.usageList.length = 0;
+      this.usageScanned = 0;
       this.sawPrefix = false;
     }
     // Retag each tailed event as it arrives when the debug-log is prepended (it
@@ -1093,17 +1113,17 @@ export class SessionFollower {
   }
 
   /**
-   * Fold the just-parsed events into the running session usage total (deduped by
-   * part id, so a whole-read re-parse never double-counts) + note any prepended
-   * transcript history, and emit the total when it changes. Aggregating over
-   * EVERY parsed event (not just the emitted tail slice) is what keeps the total
-   * authoritative under the client's tail window (docs/02.6 §4.32) — a
+   * Fold ONLY the newly-parsed events into the running usage total (the callers
+   * pass just the events not yet counted, so this never re-scans from the top) +
+   * note any prepended transcript history, and emit the total when it changes.
+   * Counting over the WHOLE log (not just the emitted tail slice) is what keeps
+   * the total authoritative under the client's tail window (docs/02.6 §4.32) — a
    * client-side sum over only the loaded parts would undercount.
    */
-  private accrueUsage(events: SessionEvent[]): void {
+  private accrueUsage(newEvents: SessionEvent[]): void {
     if (!this.onUsage) return;
     let changed = false;
-    for (const e of events) {
+    for (const e of newEvents) {
       const id = e.type === "append" ? e.part.id : e.id;
       // A `tx-` id ⇒ prepended transcript history (no telemetry) ⇒ the total is
       // partial. The observer owns this marker, so it decides `partial` here —
@@ -1112,20 +1132,13 @@ export class SessionFollower {
         this.sawPrefix = true;
         changed = true;
       }
-      if (
-        e.type === "append" &&
-        e.part.kind === "usage" &&
-        !this.usageParts.has(e.part.id)
-      ) {
-        this.usageParts.set(e.part.id, e.part);
+      if (e.type === "append" && e.part.kind === "usage") {
+        this.usageList.push(e.part);
         changed = true;
       }
     }
     if (!changed) return;
-    const summary = summarizeUsage(
-      [...this.usageParts.values()],
-      this.sawPrefix,
-    );
+    const summary = summarizeUsage(this.usageList, this.sawPrefix);
     if (summary) this.onUsage(summary);
   }
 
