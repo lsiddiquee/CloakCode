@@ -278,6 +278,30 @@ describe("subscribeSession", () => {
     expect(usages[0]).toMatchObject({ requests: 2, aiu: 2, partial: true });
   });
 
+  it("fires onReset on a kind:reset frame (source changed → re-subscribe)", () => {
+    let resets = 0;
+    subscribeSession(
+      { sessionId: "s1" },
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      "ws://test/bridge",
+      () => {},
+      () => {},
+      () => {
+        resets += 1;
+      },
+    );
+    socket(0).open();
+    socket(0).message({
+      id: "srv",
+      op: "session.subscribe",
+      kind: "reset",
+    });
+    expect(resets).toBe(1);
+  });
+
   it("surfaces a kind:error frame via onError with a friendly reason", () => {
     const errors: string[] = [];
     subscribeSession(

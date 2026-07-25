@@ -307,6 +307,7 @@ export function subscribeSession(
   url: string = bridgeUrl(),
   onTurn: (inTurn: boolean) => void = () => {},
   onUsage: (usage: UsageSummary) => void = () => {},
+  onReset: () => void = () => {},
 ): () => void {
   let ws: WebSocket | null = null;
   let lastSeq = params.sinceSeq ?? 0;
@@ -379,6 +380,12 @@ export function subscribeSession(
           // Session usage TOTAL, aggregated server-side over the whole log so
           // the tail window can't undercount it (docs/02.6 §4.32).
           onUsage(frame.data.usage);
+        } else if (frame.data.kind === "reset") {
+          // The tailed SOURCE changed under the follower (rotation, or the
+          // debug-log appeared post-rehydration — docs/02.6 §4.32, §4.22/§4.23).
+          // Resume from scratch so a reconnect can't replay onto the old source.
+          lastSeq = 0;
+          onReset();
         } else {
           // kind === "error": the session couldn't be read (e.g. too large to
           // read in one pass, docs/02.6 §4.31) — show a reason, not a blank.

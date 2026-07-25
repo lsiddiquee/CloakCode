@@ -1288,6 +1288,27 @@ describe("findSessionLog streaming resolution", () => {
     const whole = await findSessionLog(root, "sessT");
     expect(whole?.stream).toBeUndefined();
   });
+
+  it("marks a transcript fallback with an upgradeWatch pointing at the awaited debug-log", async () => {
+    // No debug-log yet → tail the transcript but WATCH the debug-log path so the
+    // follower can upgrade when the first post-rehydration turn creates it
+    // (§4.22/§4.23).
+    const root = await makeEnv("sessU", {
+      transcript: `${jsonl([{ type: "user.message", data: { content: "hi" } }])}\n`,
+    });
+    const log = await findSessionLog(root, "sessU");
+    expect(log?.file).toContain("sessU.jsonl");
+    expect(log?.upgradeWatch).toContain(
+      path.join("debug-logs", "sessU", "main.jsonl"),
+    );
+    // A debug-log source has nothing to upgrade TO → no upgradeWatch.
+    const withDebug = await makeEnv("sessV", {
+      debug: `${jsonl([{ type: "user_message", attrs: { content: "hi" } }])}\n`,
+    });
+    expect(
+      (await findSessionLog(withDebug, "sessV"))?.upgradeWatch,
+    ).toBeUndefined();
+  });
 });
 
 describe("SessionFollower usage aggregation", () => {
@@ -1505,6 +1526,148 @@ describe("SessionFollower usage aggregation", () => {
     await follower.start();
     follower.stop();
     expect(totals).toHaveLength(0);
+  });
+});
+
+describe("SessionFollower source-change reset", () => {
+  // The tailed SOURCE can change under the follower: it rotates/truncates (a
+  // recycle) OR the debug-log appears after the first post-rehydration turn
+  // (§4.22/§4.23). Either fires onReset ONCE → the follower goes inert and the
+  // client re-subscribes so the server re-resolves the source (docs/02.6 §4.32).
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
+  });
+  async function tmpDir(): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-reset-"));
+    dirs.push(dir);
+    return dir;
+  }
+
+  it("fires onReset once when the STREAMED log rotates/shrinks, then goes inert", async () => {
+    const dir = await tmpDir();
+    const file = path.join(dir, "s.jsonl");
+    await fs.writeFile(
+      file,
+      `${jsonl([
+        { type: "user_message", attrs: { content: "a" } },
+        { type: "user_message", attrs: { content: "b" } },
+      ])}\n`,
+    );
+    const seen: SessionEvent[] = [];
+    let resets = 0;
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      stream: { makeParser: () => new IncrementalDebugLogParser(), prefix: [] },
+      onReset: () => {
+        resets += 1;
+      },
+    });
+    await follower.start();
+    const before = seen.length;
+    // Recycle to a SHORTER file → TailReader detects the shrink.
+    await fs.writeFile(
+      file,
+      `${jsonl([{ type: "user_message", attrs: { content: "fresh" } }])}\n`,
+    );
+    await follower.refresh();
+    await follower.refresh(); // idempotent: onReset fires ONCE
+    follower.stop();
+    expect(resets).toBe(1);
+    expect(seen.length).toBe(before); // inert — no re-stream (client re-subscribes)
+  });
+
+  it("fires onReset when the WHOLE-READ log rotates/shrinks", async () => {
+    const dir = await tmpDir();
+    const file = path.join(dir, "s.jsonl");
+    await fs.writeFile(
+      file,
+      jsonl([
+        { type: "user_message", attrs: { content: "a" } },
+        { type: "user_message", attrs: { content: "b" } },
+      ]),
+    );
+    let resets = 0;
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: parseDebugLogEvents,
+      onReset: () => {
+        resets += 1;
+      },
+    });
+    await follower.start();
+    await fs.writeFile(
+      file,
+      jsonl([{ type: "user_message", attrs: { content: "fresh" } }]),
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(resets).toBe(1);
+  });
+
+  it("fires onReset when the awaited debug-log APPEARS (transcript→debug-log upgrade)", async () => {
+    const dir = await tmpDir();
+    const file = path.join(dir, "transcript.jsonl");
+    await fs.writeFile(
+      file,
+      jsonl([{ type: "user.message", data: { content: "hi" } }]),
+    );
+    const debugLog = path.join(dir, "main.jsonl"); // not created yet
+    let resets = 0;
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: parseSessionEvents,
+      upgradeWatch: debugLog,
+      onReset: () => {
+        resets += 1;
+      },
+    });
+    await follower.start();
+    expect(resets).toBe(0); // not there yet → keep tailing the transcript
+    // The first post-rehydration turn creates the debug-log.
+    await fs.writeFile(
+      debugLog,
+      jsonl([{ type: "user_message", attrs: { content: "hi" } }]),
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(resets).toBe(1);
+  });
+
+  it("ignores the appearing debug-log with NO reset sink (keeps tailing the transcript)", async () => {
+    const dir = await tmpDir();
+    const file = path.join(dir, "transcript.jsonl");
+    await fs.writeFile(
+      file,
+      jsonl([{ type: "user.message", data: { content: "hi" } }]),
+    );
+    const debugLog = path.join(dir, "main.jsonl");
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      parse: parseSessionEvents,
+      upgradeWatch: debugLog, // but no onReset
+    });
+    await follower.start();
+    await fs.writeFile(
+      debugLog,
+      jsonl([{ type: "user_message", attrs: { content: "hi" } }]),
+    );
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify({ type: "user.message", data: { content: "more" } })}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    // No sink to notify → the upgrade is skipped and the transcript keeps tailing.
+    expect(
+      seen.flatMap((e) =>
+        e.type === "append" && e.part.kind === "userMessage"
+          ? [e.part.text]
+          : [],
+      ),
+    ).toEqual(["hi", "more"]);
   });
 });
 

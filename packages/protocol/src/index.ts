@@ -796,6 +796,16 @@ export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
     // The offending file's size, when the failure is a size cap (docs/02.6 §4.31).
     bytes: z.number().optional(),
   }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.subscribe"),
+    kind: z.literal("reset"),
+    // The tailed SOURCE changed under the follower — it rotated/truncated (a
+    // recycle, docs/02.6 §4.32) OR a better source appeared (the debug-log shows
+    // up after the first post-rehydration turn, §4.22/§4.23). The client clears
+    // its window + cache and re-subscribes from scratch, so the server re-resolves
+    // the source (picks up the now-present debug-log + its prepend). No payload.
+  }),
 ]);
 export type SessionSubscribeEvent = z.infer<typeof sessionSubscribeEventSchema>;
 

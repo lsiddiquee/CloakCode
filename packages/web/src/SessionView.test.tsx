@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   emitTurn: (_inTurn: boolean) => {},
   emitEvent: (_e: unknown) => {},
   emitUsage: (_u: unknown) => {},
+  emitReset: () => {},
   respond: vi.fn(async (_params: unknown) => {}),
   steer: vi.fn(async (_params: unknown) => {}),
   stop: vi.fn(async (_params: unknown) => {}),
@@ -36,12 +37,14 @@ vi.mock("./bridge", () => ({
     _url?: unknown,
     onTurn: (inTurn: boolean) => void = () => {},
     onUsage: (u: unknown) => void = () => {},
+    onReset: () => void = () => {},
   ) => {
     onStatus(h.status);
     onPending(h.pending);
     h.emitTurn = onTurn;
     h.emitEvent = _onEvent as (e: unknown) => void;
     h.emitUsage = onUsage;
+    h.emitReset = onReset;
     return () => {};
   },
   respondSession: h.respond,
@@ -59,6 +62,7 @@ beforeEach(() => {
   h.emitTurn = () => {};
   h.emitEvent = () => {};
   h.emitUsage = () => {};
+  h.emitReset = () => {};
   h.respond.mockClear();
   h.steer.mockClear();
   h.stop.mockClear();
@@ -532,6 +536,22 @@ describe("PendingCard answer submit", () => {
     await screen.findByText("ⓘ");
     expect(document.querySelector(".usage-info")).toBeTruthy();
     expect(document.querySelector(".usage-partial")).toBeNull(); // not stitched
+  });
+
+  it("clears the view on a reset frame (the tailed source changed)", async () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    act(() => {
+      h.emitEvent({
+        type: "append",
+        seq: 0,
+        part: { kind: "markdown", id: "m0", text: "old content" },
+      });
+    });
+    await screen.findByText("old content");
+    // The debug-log appeared / the log rotated → the server sends `reset`; the
+    // client drops the stale window and re-subscribes fresh underneath.
+    act(() => h.emitReset());
+    expect(screen.queryByText("old content")).toBeNull();
   });
 
   it("pages in older messages on 'Load older' and keeps them ahead of the tail", async () => {

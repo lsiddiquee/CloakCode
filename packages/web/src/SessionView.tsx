@@ -82,7 +82,8 @@ type ViewAction =
   | { type: "error"; message: string }
   | { type: "pending"; blockers: PendingBlocker[] }
   | { type: "turn"; inTurn: boolean }
-  | { type: "usage"; usage: UsageSummary };
+  | { type: "usage"; usage: UsageSummary }
+  | { type: "reset" };
 
 /**
  * Fold a batch of session events into the view state in one pass. Opening a long
@@ -197,6 +198,19 @@ function reducer(state: ViewState, action: ViewAction): ViewState {
       ? state
       : { ...state, inTurn: action.inTurn, lastActivityAt: Date.now() };
   if (action.type === "usage") return { ...state, usage: action.usage };
+  if (action.type === "reset")
+    // The tailed SOURCE changed (rotation, or the debug-log appeared post-
+    // rehydration — docs/02.6 §4.32, §4.22/§4.23). Drop the loaded window; the
+    // subscribe effect re-runs (nonce) and re-resolves the source from scratch.
+    return {
+      ...state,
+      parts: [],
+      resolved: new Set<string>(),
+      pending: [],
+      lowSeq: Number.POSITIVE_INFINITY,
+      highSeq: 0,
+      usage: null,
+    };
   if (action.type === "prepend") return prependEvents(state, action.events);
   return applyEvents(state, action.events);
 }
@@ -251,6 +265,10 @@ export function SessionView({
   const [state, dispatch] = useReducer(reducer, session, initialState);
   const [conn, setConn] = useState<ConnState>("connecting");
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Bumped on a `reset` frame (the tailed source changed) to RE-RUN the subscribe
+  // effect below — which drops the cache + re-subscribes from scratch, so the
+  // server re-resolves the source (docs/02.6 §4.32, §4.22/§4.23).
+  const [resetNonce, setResetNonce] = useState(0);
   const prependAnchorRef = useRef<number | null>(null);
 
   // Coalesce the event stream. A long transcript replays as many discrete
@@ -281,12 +299,19 @@ export function SessionView({
       undefined,
       (inTurn) => dispatch({ type: "turn", inTurn }),
       (usage) => dispatch({ type: "usage", usage }),
+      () => {
+        // Source changed: drop the stale window cache so the re-run below
+        // re-subscribes fresh (with `limit`), and clear the view.
+        sessionCache.delete(session.sessionId);
+        dispatch({ type: "reset" });
+        setResetNonce((n) => n + 1);
+      },
     );
     return () => {
       unsubscribe();
       if (raf !== null) cancelAnimationFrame(raf);
     };
-  }, [session.sessionId]);
+  }, [session.sessionId, resetNonce]);
 
   // Persist the loaded window per session (wire-bandwidth #5) so back→re-select
   // restores it and the subscribe above resumes from `highSeq` instead of

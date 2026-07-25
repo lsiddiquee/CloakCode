@@ -506,6 +506,19 @@ export async function handleMessage(
                 }),
               );
             },
+            onReset: () => {
+              // The tailed source changed (rotation, or the debug-log appeared
+              // after the first post-rehydration turn — docs/02.6 §4.32,
+              // §4.22/§4.23). Tell the client to re-subscribe so we re-resolve it.
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  op: "session.subscribe",
+                  kind: "reset",
+                }),
+              );
+            },
+            ...(log.upgradeWatch ? { upgradeWatch: log.upgradeWatch } : {}),
             ...(deps.logger
               ? {
                   logger: deps.logger.child({

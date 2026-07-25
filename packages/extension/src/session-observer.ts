@@ -597,6 +597,15 @@ export interface SessionLog {
    */
   stream?: StreamSource;
   /**
+   * When this log is the TRANSCRIPT fallback (no debug-log yet), the debug-log
+   * path we're waiting for. The debug-log has no replay path (§4.22) and holds
+   * the latest turn the transcript lags (§4.23), so the follower watches this
+   * path and, when it appears (after the first post-rehydration turn), fires a
+   * `reset` so the client re-subscribes and upgrades to it. Absent when the
+   * debug-log is already the source.
+   */
+  upgradeWatch?: string;
+  /**
    * Mid-turn detector for THIS log's format, so `inTurn` is derived from the
    * same file the follower tails (no divergent transcript path). The debug-log
    * has clean `turn_start`/`turn_end` spans; the transcript needs the
@@ -715,6 +724,9 @@ export async function findSessionLog(
         return {
           file: transcript,
           parse: parseSessionEvents,
+          // Watch for the debug-log to appear (the first post-rehydration turn
+          // creates it, §4.22/§4.23) → the follower fires a `reset` to upgrade.
+          upgradeWatch: debugLog,
           // A transcript past the string cap streams too (rare, but §4.31 hits
           // it just the same). A lone transcript has no prepend — stream it raw.
           ...(txBytes >= streamThresholdBytes
@@ -806,6 +818,15 @@ export type SessionEventSink = (event: SessionEvent) => void;
 
 /** Sink for live mid-turn transitions (only fired on change). */
 export type TurnSink = (inTurn: boolean) => void;
+
+/**
+ * Sink fired ONCE when the tailed source changes under the follower — it
+ * rotated/truncated (a recycle, docs/02.6 §4.32) or a better source appeared
+ * (the debug-log shows up after the first post-rehydration turn, §4.22/§4.23).
+ * The follower then goes inert; the bridge sends a `reset` frame so the client
+ * re-subscribes and the server re-resolves the source.
+ */
+export type ResetSink = () => void;
 
 /**
  * Sink for the session usage TOTAL, aggregated server-side over the WHOLE log
@@ -913,6 +934,15 @@ export class SessionFollower {
   private usageScanned = 0;
   private sawPrefix = false;
   /**
+   * Fired once when the tailed source changes (rotation OR the debug-log
+   * appearing while on the transcript fallback, §4.22/§4.32). After it fires the
+   * follower goes inert (`resetFired`) — the client re-subscribes and the server
+   * re-resolves the source.
+   */
+  private readonly onReset: ResetSink | undefined;
+  private readonly upgradeWatch: string | undefined;
+  private resetFired = false;
+  /**
    * Max events to emit on the INITIAL load (the tail window) — the client's
    * `limit`. Undefined = emit everything from `sinceSeq` (unchanged default).
    * Bounds only the first emit; live events after are never dropped (docs/02.6).
@@ -937,6 +967,8 @@ export class SessionFollower {
       logger?: Logger;
       limit?: number;
       onUsage?: UsageSink;
+      onReset?: ResetSink;
+      upgradeWatch?: string;
     } = {},
   ) {
     this.emitted = sinceSeq;
@@ -949,6 +981,8 @@ export class SessionFollower {
     this.logger = options.logger;
     this.tailLimit = options.limit;
     this.onUsage = options.onUsage;
+    this.onReset = options.onReset;
+    this.upgradeWatch = options.upgradeWatch;
   }
 
   async start(): Promise<void> {
@@ -978,7 +1012,10 @@ export class SessionFollower {
   }
 
   private async pump(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || this.resetFired) return;
+    // A better source appeared (the debug-log after the first post-rehydration
+    // turn, §4.22/§4.23) → fire a reset so the client re-subscribes onto it.
+    if (this.upgradeWatch && (await this.detectUpgrade())) return;
     if (this.stream) return this.pumpStream();
     let content: string;
     try {
@@ -998,6 +1035,18 @@ export class SessionFollower {
     }
     this.clear("read");
     const events = this.parse(content);
+    // A SHORTER re-parse ⇒ the log rotated/truncated (a recycle, §4.32). Prefer a
+    // reset (the client re-subscribes onto the re-resolved source); with no reset
+    // sink, recover locally so emit + usage don't stall/stale.
+    if (events.length < this.emitted) {
+      this.fireReset();
+      if (this.resetFired) return;
+      this.emitted = 0;
+      this.firstPump = true;
+      this.usageList.length = 0;
+      this.sawPrefix = false;
+      this.usageScanned = 0;
+    }
     // Tail window: on the FIRST successful parse, skip everything before the last
     // `limit` events so a huge session opens light (the client pages older via
     // session.history). seq stays absolute ⇒ prefix-stable; live events after are
@@ -1012,16 +1061,9 @@ export class SessionFollower {
       if (event) this.sink(event);
     }
     if (events.length > this.emitted) this.emitted = events.length;
-    // Fold only the events not yet counted — never re-scan from the top. A
-    // SHORTER re-parse ⇒ the log was truncated/recycled, so re-fold from scratch
-    // (the server-computed total is re-sent; the client's PARTS reset is the
-    // deferred rotation frame, docs/02.6 §4.32).
+    // Fold only the events not yet counted — never re-scan from the top (the
+    // streaming pump passes only-new events; the whole-read pump slices here).
     if (this.onUsage) {
-      if (events.length < this.usageScanned) {
-        this.usageList.length = 0;
-        this.sawPrefix = false;
-        this.usageScanned = 0;
-      }
       this.accrueUsage(events.slice(this.usageScanned));
       this.usageScanned = events.length;
     }
@@ -1056,9 +1098,12 @@ export class SessionFollower {
     }
     this.clear("read");
     if (result.reset) {
-      // Truncation / rotation (the 581→85 MB recycle, §4.32): the parser's ids +
-      // seq restart, so rebuild it and re-stream from 0 — prefix included. The
-      // client cache de-dupes by part id, so a same-session re-stream is idempotent.
+      // Truncation / rotation (the 581→85 MB recycle, §4.32) → fire a reset so
+      // the client re-subscribes onto the re-resolved source (the recycled file is
+      // now likely small enough to whole-read with a fresh transcript stitch).
+      // With no reset sink, re-stream locally from 0 (rebuild parser + state).
+      this.fireReset();
+      if (this.resetFired) return;
       this.parser = this.stream.makeParser();
       this.emitted = 0;
       this.firstPump = true;
@@ -1140,6 +1185,34 @@ export class SessionFollower {
     if (!changed) return;
     const summary = summarizeUsage(this.usageList, this.sawPrefix);
     if (summary) this.onUsage(summary);
+  }
+
+  /**
+   * Fire the one-shot source-change signal (rotation OR the transcript→debug-log
+   * upgrade), then go inert: the client re-subscribes and the bridge stops this
+   * follower. A no-op without an `onReset` sink, so the caller recovers locally
+   * and a follower with no reset consumer never stalls.
+   */
+  private fireReset(): void {
+    if (this.resetFired || !this.onReset) return;
+    this.resetFired = true;
+    this.onReset();
+  }
+
+  /**
+   * True once the awaited debug-log appears while we tail the transcript fallback
+   * (§4.22/§4.23) — fires a reset so the client re-subscribes and the server
+   * upgrades the source to the now-present debug-log + its prepend.
+   */
+  private async detectUpgrade(): Promise<boolean> {
+    if (!this.onReset) return false; // nobody to tell → keep tailing the transcript
+    try {
+      await fs.access(this.upgradeWatch!);
+    } catch {
+      return false; // not there yet
+    }
+    this.fireReset();
+    return true;
   }
 
   /**

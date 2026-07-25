@@ -187,7 +187,11 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   (`boundary > 0`), so it prepends the older transcript turns (`tx-`) and retags the lead (`dl-`);
   `boundary ≤ 0` ⇒ raw. Byte-identical to `stitchEvents` (equivalence-tested, incl. the prepend).
   Real logs are `\n`-**terminated** (last byte `0x0a`), so the complete-lines-only tail emits every
-  record. §4.33's fully-streaming seam stays deferred (only if the transcript itself exceeds the cap).
+  record. The usage TOTAL is aggregated **server-side** (a `usage` frame, §4.14). A **`reset`**
+  subscribe frame handles a source change under the follower — rotation/truncation OR the
+  transcript→debug-log **upgrade** when the debug-log appears post-rehydration (§4.22/§4.23): the
+  client re-subscribes and the server re-resolves. §4.33's fully-streaming seam stays deferred (only
+  if the transcript itself exceeds the cap).
 - **§4.33** Cross-file join key (transcript ↔ debug-log): **user-message text matches exactly**
   (top-level `content` in both — the stitch anchor); **`toolCallId` does not** — its base (`toolu_…`,
   minus the transcript's `__vscode-<ts>` suffix) appears only **embedded in the debug-log's
