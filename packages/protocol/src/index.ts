@@ -232,10 +232,12 @@ export const sessionPartSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     // Per-`llm_request` telemetry from the debug-log (docs/02 §4.14): model +
-    // token counts + timing + billing. A **metadata** part — the client
-    // aggregates these into a session total (not rendered inline). Only the
-    // debug-log carries it, so a stitched session's transcript-sourced history
-    // (`tx-` ids) has none → the client shows a "partial totals" disclaimer.
+    // token counts + timing + billing. A **metadata** part — the OBSERVER
+    // aggregates these into the session total over the WHOLE log and pushes it as
+    // the `usage` subscribe frame (docs/02.6 §4.32), so the tail window can't
+    // undercount it; the per-turn badge stays a client-side sum of the turn's
+    // parts. A recycled session's prepended transcript history carries none, so
+    // the total is flagged `partial`.
     kind: z.literal("usage"),
     id: z.string(),
     model: z.string(),
@@ -278,6 +280,80 @@ export const sessionEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
+
+/** One `usage` metadata part — per-`llm_request` telemetry (docs/02 §4.14). */
+export type UsagePart = Extract<SessionPart, { kind: "usage" }>;
+
+/** Aggregated `usage` telemetry across a set of requests (a session/turn total). */
+export const usageTotalsSchema = z.object({
+  /** Number of `llm_request` spans aggregated. */
+  requests: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  cachedTokens: z.number(),
+  /** Total AI Units (`copilotUsageNanoAiu` summed ÷ 1e9); absent if none reported. */
+  aiu: z.number().optional(),
+  /** Total credits (Windows store); absent if none reported. */
+  credits: z.number().optional(),
+  /** Distinct models used, in first-seen order. */
+  models: z.array(z.string()),
+});
+export type UsageTotals = z.infer<typeof usageTotalsSchema>;
+
+/** A session usage total plus whether telemetry is incomplete. */
+export const usageSummarySchema = usageTotalsSchema.extend({
+  /**
+   * True when the session carries prepended transcript history (a recycled
+   * debug-log, docs/02.6 §4.32) whose older turns have NO telemetry — so the
+   * totals cover the recent (debug-log) turns only, and the view shows a
+   * "partial" disclaimer. Computed **server-side** (the observer owns the
+   * prepend), so the client no longer inspects part ids to derive it.
+   */
+  partial: z.boolean(),
+});
+export type UsageSummary = z.infer<typeof usageSummarySchema>;
+
+/** Sum a set of `usage` parts (shared by the session total + the per-turn badge). */
+export function sumUsage(usage: UsagePart[]): UsageTotals {
+  const models: string[] = [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedTokens = 0;
+  let nanoAiu = 0;
+  let credits = 0;
+  for (const u of usage) {
+    inputTokens += u.inputTokens;
+    outputTokens += u.outputTokens;
+    cachedTokens += u.cachedTokens;
+    if (u.nanoAiu !== undefined) nanoAiu += u.nanoAiu;
+    if (u.credits !== undefined) credits += u.credits;
+    if (!models.includes(u.model)) models.push(u.model);
+  }
+  // Only surface a cost when genuinely reported (> 0). Custom / BYO models leave
+  // `copilotUsageNanoAiu` absent/null/0 — never show a misleading "0 AIU".
+  return {
+    requests: usage.length,
+    inputTokens,
+    outputTokens,
+    cachedTokens,
+    ...(nanoAiu > 0 ? { aiu: nanoAiu / 1e9 } : {}),
+    ...(credits > 0 ? { credits } : {}),
+    models,
+  };
+}
+
+/**
+ * Aggregate `usage` parts into a session total with the `partial` flag. Returns
+ * `null` when there's no telemetry (a pure-transcript session), so the view can
+ * say "unavailable" rather than show a misleading zero.
+ */
+export function summarizeUsage(
+  usage: UsagePart[],
+  partial: boolean,
+): UsageSummary | null {
+  if (usage.length === 0) return null;
+  return { ...sumUsage(usage), partial };
+}
 
 /**
  * A live, still-pending blocker sourced from the Copilot hook (not the
@@ -702,6 +778,14 @@ export const sessionSubscribeEventSchema = z.discriminatedUnion("kind", [
     op: z.literal("session.subscribe"),
     kind: z.literal("turn"),
     inTurn: z.boolean(),
+  }),
+  z.object({
+    id: z.string(),
+    op: z.literal("session.subscribe"),
+    kind: z.literal("usage"),
+    // Session usage TOTAL, aggregated server-side over the WHOLE log (not the
+    // tail window), so partial loading can't undercount it (docs/02.6 §4.32).
+    usage: usageSummarySchema,
   }),
   z.object({
     id: z.string(),

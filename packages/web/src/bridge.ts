@@ -17,6 +17,7 @@ import {
   type QuestionAnswer,
   type SessionEvent,
   type SessionSummary,
+  type UsageSummary,
 } from "@cloakcode/protocol";
 import {
   authKind,
@@ -305,6 +306,7 @@ export function subscribeSession(
   onStatus: (status: ConnState) => void = () => {},
   url: string = bridgeUrl(),
   onTurn: (inTurn: boolean) => void = () => {},
+  onUsage: (usage: UsageSummary) => void = () => {},
 ): () => void {
   let ws: WebSocket | null = null;
   let lastSeq = params.sinceSeq ?? 0;
@@ -373,6 +375,10 @@ export function subscribeSession(
           onPending(frame.data.blockers);
         } else if (frame.data.kind === "turn") {
           onTurn(frame.data.inTurn);
+        } else if (frame.data.kind === "usage") {
+          // Session usage TOTAL, aggregated server-side over the whole log so
+          // the tail window can't undercount it (docs/02.6 §4.32).
+          onUsage(frame.data.usage);
         } else {
           // kind === "error": the session couldn't be read (e.g. too large to
           // read in one pass, docs/02.6 §4.31) — show a reason, not a blank.

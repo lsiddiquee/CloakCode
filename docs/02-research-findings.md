@@ -163,7 +163,7 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   (aligned with zero-code-sync).
 - **§4.13** The session title is **LLM-generated** (`customTitle`); server-side only via the
   debug-log title child-session.
-- **§4.14** Debug-log telemetry: model, tokens, `ttft`, `copilotUsageNanoAiu` (billing) — **SHIPPED** as the session `usage` bar (partial for stitched history).
+- **§4.14** Debug-log telemetry: model, tokens, `ttft`, `copilotUsageNanoAiu` (billing) — **SHIPPED** as the session `usage` bar. Aggregated **server-side** over the whole log + pushed as a `usage` subscribe frame (docs/02.6 §4.32), so the tail window can't undercount it; `partial` when prepended transcript history has no telemetry.
 - **§4.27** A **forked** conversation gets no transcript of its own → invisible as a distinct row
   (platform behaviour, not a scanner bug).
 - **§4.29** File/text attachments are **inlined & recoverable**; **image bytes are not persisted**

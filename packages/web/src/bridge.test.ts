@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionEvent } from "@cloakcode/protocol";
+import type { SessionEvent, UsageSummary } from "@cloakcode/protocol";
 import {
   answerSession,
   bridgeUrl,
@@ -245,6 +245,37 @@ describe("subscribeSession", () => {
       inTurn: false,
     });
     expect(turns).toEqual([true, false]);
+  });
+
+  it("reports the server-computed usage total via onUsage", () => {
+    const usages: UsageSummary[] = [];
+    subscribeSession(
+      { sessionId: "s1" },
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      "ws://test/bridge",
+      () => {},
+      (u) => usages.push(u),
+    );
+    socket(0).open();
+    socket(0).message({
+      id: "srv",
+      op: "session.subscribe",
+      kind: "usage",
+      usage: {
+        requests: 2,
+        inputTokens: 300,
+        outputTokens: 50,
+        cachedTokens: 80,
+        aiu: 2,
+        models: ["gpt-4o"],
+        partial: true,
+      },
+    });
+    expect(usages).toHaveLength(1);
+    expect(usages[0]).toMatchObject({ requests: 2, aiu: 2, partial: true });
   });
 
   it("surfaces a kind:error frame via onError with a friendly reason", () => {

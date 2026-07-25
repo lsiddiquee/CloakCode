@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import type { PendingBlocker, SessionSummary } from "@cloakcode/protocol";
 import { SessionView, clearSessionCache } from "./SessionView";
 
@@ -9,6 +15,7 @@ const h = vi.hoisted(() => ({
   pending: [] as PendingBlocker[],
   emitTurn: (_inTurn: boolean) => {},
   emitEvent: (_e: unknown) => {},
+  emitUsage: (_u: unknown) => {},
   respond: vi.fn(async (_params: unknown) => {}),
   steer: vi.fn(async (_params: unknown) => {}),
   stop: vi.fn(async (_params: unknown) => {}),
@@ -28,11 +35,13 @@ vi.mock("./bridge", () => ({
     onStatus: (s: string) => void = () => {},
     _url?: unknown,
     onTurn: (inTurn: boolean) => void = () => {},
+    onUsage: (u: unknown) => void = () => {},
   ) => {
     onStatus(h.status);
     onPending(h.pending);
     h.emitTurn = onTurn;
     h.emitEvent = _onEvent as (e: unknown) => void;
+    h.emitUsage = onUsage;
     return () => {};
   },
   respondSession: h.respond,
@@ -49,6 +58,7 @@ beforeEach(() => {
   h.pending = [];
   h.emitTurn = () => {};
   h.emitEvent = () => {};
+  h.emitUsage = () => {};
   h.respond.mockClear();
   h.steer.mockClear();
   h.stop.mockClear();
@@ -461,14 +471,10 @@ describe("PendingCard answer submit", () => {
     });
   });
 
-  it("renders the telemetry bar from usage events, with a partial note when stitched", async () => {
+  it("renders the telemetry bar from the server usage frame, with a partial note", async () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     act(() => {
-      h.emitEvent({
-        type: "append",
-        seq: 0,
-        part: { kind: "markdown", id: "tx-msg-0", text: "old history" },
-      });
+      // A per-turn usage EVENT drives the turn badge (still client-side)…
       h.emitEvent({
         type: "append",
         seq: 1,
@@ -482,35 +488,45 @@ describe("PendingCard answer submit", () => {
           nanoAiu: 5_000_000_000,
         },
       });
+      // …and the server-computed session TOTAL drives the bar + its partial flag,
+      // correct even under the tail window (docs/02.6 §4.32).
+      h.emitUsage({
+        requests: 1,
+        inputTokens: 1000,
+        outputTokens: 100,
+        cachedTokens: 900,
+        aiu: 5,
+        models: ["claude-opus-4.8"],
+        partial: true,
+      });
     });
-    // Events flush on the next animation frame — wait for the bar to render.
+    // The bar renders from the frame (synchronous); the badge flushes with the
+    // buffered event on the next frame.
     await screen.findByText("partial");
+    await waitFor(() =>
+      expect(document.querySelector(".turn-usage")?.textContent).toContain(
+        "5.00 AIU",
+      ),
+    );
     const bar = document.querySelector(".usage-bar");
     expect(bar?.textContent).toContain("1.0K in");
     expect(bar?.textContent).toContain("5.00 AIU");
     expect(bar?.textContent).toContain("claude-opus-4.8");
-    // A per-turn badge is also placed at the end of the (debug-log) turn.
-    const badge = document.querySelector(".turn-usage");
-    expect(badge?.textContent).toContain("5.00 AIU");
   });
 
   it("always shows the ⓘ info marker; no partial chip when history is not stitched", async () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     act(() => {
-      // Only a debug-log usage part, no `tx-` stitched history → no firm partial,
-      // but the ⓘ marker (counts are debug-log-based) is always present.
-      h.emitEvent({
-        type: "append",
-        seq: 0,
-        part: {
-          kind: "usage",
-          id: "dl-usage-0",
-          model: "claude-opus-4.8",
-          inputTokens: 1000,
-          outputTokens: 100,
-          cachedTokens: 900,
-          nanoAiu: 5_000_000_000,
-        },
+      // A debug-log-only session (server reports partial: false) → the ⓘ marker
+      // (counts are debug-log-based) is always present, but no partial chip.
+      h.emitUsage({
+        requests: 1,
+        inputTokens: 1000,
+        outputTokens: 100,
+        cachedTokens: 900,
+        aiu: 5,
+        models: ["claude-opus-4.8"],
+        partial: false,
       });
     });
     await screen.findByText("ⓘ");

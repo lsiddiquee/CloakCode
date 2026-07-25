@@ -496,6 +496,16 @@ export async function handleMessage(
                 }),
               );
             },
+            onUsage: (usage) => {
+              socket.send(
+                JSON.stringify({
+                  id: request.id,
+                  op: "session.subscribe",
+                  kind: "usage",
+                  usage,
+                }),
+              );
+            },
             ...(deps.logger
               ? {
                   logger: deps.logger.child({

@@ -8,7 +8,10 @@ import type {
   SessionEvent,
   SessionPart,
   ToolStatus,
+  UsagePart,
+  UsageSummary,
 } from "@cloakcode/protocol";
+import { summarizeUsage } from "@cloakcode/protocol";
 import {
   INTERACTIVE_TOOL_HINTS,
   computeInTurn,
@@ -804,6 +807,14 @@ export type SessionEventSink = (event: SessionEvent) => void;
 /** Sink for live mid-turn transitions (only fired on change). */
 export type TurnSink = (inTurn: boolean) => void;
 
+/**
+ * Sink for the session usage TOTAL, aggregated server-side over the WHOLE log
+ * (docs/02.6 §4.32). Fired only when the total changes. Sending it over the wire
+ * lets the client show correct tokens/AIU/req even under the tail window, which
+ * would otherwise undercount a client-side sum over only the loaded parts.
+ */
+export type UsageSink = (usage: UsageSummary) => void;
+
 /** Sink for a terminal read failure surfaced to the client (docs/02.6 §4.31). */
 export type FollowerErrorSink = (info: {
   code: string;
@@ -886,6 +897,15 @@ export class SessionFollower {
   private readonly onError: FollowerErrorSink | undefined;
   private readonly logger: Logger | undefined;
   /**
+   * Server-side usage aggregation (docs/02.6 §4.32): every `usage` part seen
+   * across the WHOLE log (deduped by id, so a whole-read re-parse never
+   * double-counts), plus whether prepended transcript history is present — so
+   * the total is authoritative regardless of the client's tail window.
+   */
+  private readonly onUsage: UsageSink | undefined;
+  private readonly usageParts = new Map<string, UsagePart>();
+  private sawPrefix = false;
+  /**
    * Max events to emit on the INITIAL load (the tail window) — the client's
    * `limit`. Undefined = emit everything from `sinceSeq` (unchanged default).
    * Bounds only the first emit; live events after are never dropped (docs/02.6).
@@ -909,6 +929,7 @@ export class SessionFollower {
       onError?: FollowerErrorSink;
       logger?: Logger;
       limit?: number;
+      onUsage?: UsageSink;
     } = {},
   ) {
     this.emitted = sinceSeq;
@@ -920,6 +941,7 @@ export class SessionFollower {
     this.onError = options.onError;
     this.logger = options.logger;
     this.tailLimit = options.limit;
+    this.onUsage = options.onUsage;
   }
 
   async start(): Promise<void> {
@@ -983,6 +1005,7 @@ export class SessionFollower {
       if (event) this.sink(event);
     }
     if (events.length > this.emitted) this.emitted = events.length;
+    this.accrueUsage(events);
     this.pumpTurn(content);
   }
 
@@ -1021,6 +1044,8 @@ export class SessionFollower {
       this.emitted = 0;
       this.firstPump = true;
       this.prefixEmitted = false;
+      this.usageParts.clear();
+      this.sawPrefix = false;
     }
     // Retag each tailed event as it arrives when the debug-log is prepended (it
     // opened partway into the session): seq offset by the prefix, id namespaced
@@ -1062,8 +1087,46 @@ export class SessionFollower {
       }
       this.emitted = total;
     }
+    this.accrueUsage(events);
     this.firstPump = false;
     await this.pumpTurnStream();
+  }
+
+  /**
+   * Fold the just-parsed events into the running session usage total (deduped by
+   * part id, so a whole-read re-parse never double-counts) + note any prepended
+   * transcript history, and emit the total when it changes. Aggregating over
+   * EVERY parsed event (not just the emitted tail slice) is what keeps the total
+   * authoritative under the client's tail window (docs/02.6 §4.32) — a
+   * client-side sum over only the loaded parts would undercount.
+   */
+  private accrueUsage(events: SessionEvent[]): void {
+    if (!this.onUsage) return;
+    let changed = false;
+    for (const e of events) {
+      const id = e.type === "append" ? e.part.id : e.id;
+      // A `tx-` id ⇒ prepended transcript history (no telemetry) ⇒ the total is
+      // partial. The observer owns this marker, so it decides `partial` here —
+      // the client never inspects ids.
+      if (!this.sawPrefix && id.startsWith("tx-")) {
+        this.sawPrefix = true;
+        changed = true;
+      }
+      if (
+        e.type === "append" &&
+        e.part.kind === "usage" &&
+        !this.usageParts.has(e.part.id)
+      ) {
+        this.usageParts.set(e.part.id, e.part);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const summary = summarizeUsage(
+      [...this.usageParts.values()],
+      this.sawPrefix,
+    );
+    if (summary) this.onUsage(summary);
   }
 
   /**

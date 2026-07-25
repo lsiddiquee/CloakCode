@@ -11,6 +11,7 @@ const empty = {
   lastActivityAt: 0,
   lowSeq: Number.POSITIVE_INFINITY,
   highSeq: 0,
+  usage: null,
 };
 
 const md = (id: string, seq: number): SessionEvent => ({

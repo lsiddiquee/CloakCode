@@ -6,6 +6,7 @@ import {
   createLogger,
   type LogRecord,
   type SessionEvent,
+  type UsageSummary,
 } from "@cloakcode/protocol";
 import {
   SessionFollower,
@@ -1286,6 +1287,162 @@ describe("findSessionLog streaming resolution", () => {
     expect(streamed?.stream?.prefix).toEqual([]);
     const whole = await findSessionLog(root, "sessT");
     expect(whole?.stream).toBeUndefined();
+  });
+});
+
+describe("SessionFollower usage aggregation", () => {
+  // The session usage TOTAL is computed SERVER-SIDE over the WHOLE log and sent
+  // via onUsage (docs/02.6 §4.32) — so the client shows correct tokens/AIU/req
+  // even under the tail window, which a client-side sum would undercount.
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
+  });
+  async function tmpFile(content: string): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-usage-"));
+    dirs.push(dir);
+    const file = path.join(dir, "s.jsonl");
+    await fs.writeFile(file, content);
+    return file;
+  }
+  /** A debug-log `llm_request` span (the source of a `usage` part). */
+  const req = (over: Record<string, unknown>): object => ({
+    type: "llm_request",
+    dur: 1000,
+    attrs: {
+      model: "gpt-4o",
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedTokens: 0,
+      ...over,
+    },
+  });
+
+  it("emits the session usage TOTAL over the whole log via onUsage", async () => {
+    const file = await tmpFile(
+      jsonl([
+        { type: "user_message", attrs: { content: "go" } },
+        req({ copilotUsageNanoAiu: 1_500_000_000 }),
+        req({
+          model: "gpt-5",
+          inputTokens: 200,
+          copilotUsageNanoAiu: 500_000_000,
+        }),
+      ]),
+    );
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: parseDebugLogEvents,
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    follower.stop();
+    const last = totals.at(-1)!;
+    expect(last.requests).toBe(2);
+    expect(last.inputTokens).toBe(300);
+    expect(last.outputTokens).toBe(40);
+    expect(last.aiu).toBeCloseTo(2, 5);
+    expect(last.models).toEqual(["gpt-4o", "gpt-5"]);
+    expect(last.partial).toBe(false);
+  });
+
+  it("counts the WHOLE log even when the tail `limit` clamps what is emitted (the fix)", async () => {
+    // Two requests; limit=1 emits only the last event, but the total must still
+    // cover BOTH — the client-side sum used to undercount here (docs/02.6 §4.32).
+    const file = await tmpFile(
+      jsonl([
+        { type: "user_message", attrs: { content: "go" } },
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+      ]),
+    );
+    const seen: SessionEvent[] = [];
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      limit: 1,
+      parse: parseDebugLogEvents,
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    follower.stop();
+    // The emitted tail is clamped small…
+    expect(seen.length).toBeLessThan(4);
+    // …but the usage total counts BOTH requests.
+    expect(totals.at(-1)!.requests).toBe(2);
+    expect(totals.at(-1)!.aiu).toBeCloseTo(2, 5);
+  });
+
+  it("re-emits the updated total when a new request arrives (live)", async () => {
+    const file = await tmpFile(
+      jsonl([
+        { type: "user_message", attrs: { content: "go" } },
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+      ]),
+    );
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: parseDebugLogEvents,
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    expect(totals.at(-1)!.requests).toBe(1);
+    await fs.appendFile(
+      file,
+      `\n${JSON.stringify(req({ copilotUsageNanoAiu: 1_000_000_000 }))}`,
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(totals.at(-1)!.requests).toBe(2);
+  });
+
+  it("flags the total partial when transcript history is prepended (streaming tx- prefix)", async () => {
+    const file = await tmpFile(
+      `${jsonl([
+        { type: "user_message", attrs: { content: "q1" } },
+        req({ copilotUsageNanoAiu: 1_000_000_000 }),
+      ])}\n`,
+    );
+    const prefix: SessionEvent[] = [
+      {
+        type: "append",
+        seq: 0,
+        part: { kind: "userMessage", id: "tx-user-0", text: "q0" },
+      },
+    ];
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      stream: {
+        makeParser: () => new IncrementalDebugLogParser(),
+        prefix,
+        retagTag: "dl-",
+      },
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    follower.stop();
+    const last = totals.at(-1)!;
+    expect(last.partial).toBe(true);
+    expect(last.requests).toBe(1);
+  });
+
+  it("does not emit usage for a session with no telemetry", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user_message", attrs: { content: "go" } }]),
+    );
+    const totals: UsageSummary[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      parse: parseDebugLogEvents,
+      onUsage: (u) => totals.push(u),
+    });
+    await follower.start();
+    follower.stop();
+    expect(totals).toHaveLength(0);
   });
 });
 

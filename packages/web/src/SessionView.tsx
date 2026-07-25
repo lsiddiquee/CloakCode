@@ -17,6 +17,8 @@ import type {
   SessionStatus,
   SessionSummary,
   ToolStatus,
+  UsageSummary,
+  UsageTotals,
 } from "@cloakcode/protocol";
 import {
   answerSession,
@@ -36,14 +38,7 @@ import {
 } from "./format";
 import { Markdown } from "./Markdown";
 import { nextScrollAction, readScroll, writeScroll } from "./scroll";
-import {
-  compactTokens,
-  formatAiu,
-  interleaveTurnUsage,
-  summarizeUsage,
-  type UsageSummary,
-  type UsageTotals,
-} from "./telemetry";
+import { compactTokens, formatAiu, interleaveTurnUsage } from "./telemetry";
 
 /**
  * Idle-age (seconds) under which a followed session reads "active" — matches the
@@ -72,6 +67,13 @@ interface ViewState {
    */
   lowSeq: number;
   highSeq: number;
+  /**
+   * Session usage TOTAL, computed SERVER-SIDE over the whole log and pushed via
+   * the `usage` subscribe frame (docs/02.6 §4.32) — so it's correct even though
+   * the client holds only the tail window. `null` until the first frame / when
+   * the session has no telemetry.
+   */
+  usage: UsageSummary | null;
 }
 
 type ViewAction =
@@ -79,7 +81,8 @@ type ViewAction =
   | { type: "prepend"; events: SessionEvent[] }
   | { type: "error"; message: string }
   | { type: "pending"; blockers: PendingBlocker[] }
-  | { type: "turn"; inTurn: boolean };
+  | { type: "turn"; inTurn: boolean }
+  | { type: "usage"; usage: UsageSummary };
 
 /**
  * Fold a batch of session events into the view state in one pass. Opening a long
@@ -193,6 +196,7 @@ function reducer(state: ViewState, action: ViewAction): ViewState {
     return action.inTurn === state.inTurn
       ? state
       : { ...state, inTurn: action.inTurn, lastActivityAt: Date.now() };
+  if (action.type === "usage") return { ...state, usage: action.usage };
   if (action.type === "prepend") return prependEvents(state, action.events);
   return applyEvents(state, action.events);
 }
@@ -206,6 +210,7 @@ interface CachedSession {
   resolved: Set<string>;
   lowSeq: number;
   highSeq: number;
+  usage: UsageSummary | null;
 }
 
 /**
@@ -232,6 +237,7 @@ function initialState(session: SessionSummary): ViewState {
     lastActivityAt: Date.now() - session.idleSeconds * 1000,
     lowSeq: cached?.lowSeq ?? Number.POSITIVE_INFINITY,
     highSeq: cached?.highSeq ?? 0,
+    usage: cached?.usage ?? null,
   };
 }
 
@@ -274,6 +280,7 @@ export function SessionView({
       setConn,
       undefined,
       (inTurn) => dispatch({ type: "turn", inTurn }),
+      (usage) => dispatch({ type: "usage", usage }),
     );
     return () => {
       unsubscribe();
@@ -290,6 +297,7 @@ export function SessionView({
       resolved: state.resolved,
       lowSeq: state.lowSeq,
       highSeq: state.highSeq,
+      usage: state.usage,
     });
   }, [
     session.sessionId,
@@ -297,6 +305,7 @@ export function SessionView({
     state.resolved,
     state.lowSeq,
     state.highSeq,
+    state.usage,
   ]);
 
   // Stick-to-bottom: follow the latest message unless the user scrolled up.
@@ -450,9 +459,12 @@ export function SessionView({
   // gated in the UI; a receiving-side guard lands with the gateway (docs/03).
   const readOnly = !session.owned;
 
-  // Session telemetry (docs/02 §4.14): aggregate the debug-log `usage` parts.
-  const usage = useMemo(() => summarizeUsage(state.parts), [state.parts]);
-  // Interleave a per-turn usage badge into the transcript rows.
+  // Session telemetry (docs/02 §4.14): the TOTAL is computed server-side over the
+  // whole log and pushed via the `usage` frame, so it's correct under the tail
+  // window (docs/02.6 §4.32) — the client no longer sums its partial parts.
+  const usage = state.usage;
+  // Interleave a per-turn usage badge into the transcript rows (turn-local, so a
+  // client-side sum stays correct for the turns actually loaded).
   const rows = useMemo(() => interleaveTurnUsage(state.parts), [state.parts]);
 
   return (

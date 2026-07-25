@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionPart } from "@cloakcode/protocol";
-import {
-  compactTokens,
-  formatAiu,
-  interleaveTurnUsage,
-  summarizeUsage,
-} from "./telemetry";
+import { compactTokens, formatAiu, interleaveTurnUsage } from "./telemetry";
 
 const usage = (over: Partial<Extract<SessionPart, { kind: "usage" }>>) =>
   ({
@@ -23,62 +18,6 @@ const user = (id: string): SessionPart => ({
   kind: "userMessage",
   id,
   text: "go",
-});
-
-describe("summarizeUsage", () => {
-  it("returns null when there is no telemetry", () => {
-    expect(summarizeUsage([md("m0")])).toBeNull();
-  });
-
-  it("sums tokens, AIU, requests, and collects distinct models", () => {
-    const s = summarizeUsage([
-      usage({
-        id: "usage-0",
-        inputTokens: 100,
-        outputTokens: 20,
-        cachedTokens: 80,
-        nanoAiu: 1_500_000_000,
-      }),
-      usage({
-        id: "usage-1",
-        model: "gpt-5",
-        inputTokens: 200,
-        outputTokens: 30,
-        cachedTokens: 0,
-        nanoAiu: 500_000_000,
-      }),
-    ])!;
-    expect(s.requests).toBe(2);
-    expect(s.inputTokens).toBe(300);
-    expect(s.outputTokens).toBe(50);
-    expect(s.cachedTokens).toBe(80);
-    expect(s.aiu).toBeCloseTo(2, 5);
-    expect(s.models).toEqual(["claude-opus-4.8", "gpt-5"]);
-    expect(s.partial).toBe(false);
-  });
-
-  it("omits aiu/credits when none reported", () => {
-    const s = summarizeUsage([usage({})])!;
-    expect(s.aiu).toBeUndefined();
-    expect(s.credits).toBeUndefined();
-  });
-
-  it("treats a 0 cost (custom / BYO model) as unavailable — no misleading 0 AIU", () => {
-    const s = summarizeUsage([
-      usage({ id: "usage-0", nanoAiu: 0 }),
-      usage({ id: "usage-1" }), // no nanoAiu at all
-    ])!;
-    expect(s.aiu).toBeUndefined();
-    expect(s.inputTokens).toBe(200); // token counts still aggregate
-  });
-
-  it("marks partial when transcript-stitched history is present (tx- ids)", () => {
-    const s = summarizeUsage([
-      md("tx-msg-0"), // stitched transcript history — no telemetry
-      usage({ id: "dl-usage-0" }),
-    ])!;
-    expect(s.partial).toBe(true);
-  });
 });
 
 describe("compactTokens", () => {
