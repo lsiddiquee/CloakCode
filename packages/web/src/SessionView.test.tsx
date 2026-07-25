@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { PendingBlocker, SessionSummary } from "@cloakcode/protocol";
-import { SessionView } from "./SessionView";
+import { SessionView, clearSessionCache } from "./SessionView";
 
 // Controls the connection status + pending blockers the stubbed bridge reports.
 const h = vi.hoisted(() => ({
@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   stop: vi.fn(async (_params: unknown) => {}),
   decide: vi.fn(async (_params: unknown) => {}),
   answer: vi.fn(async (_params: unknown) => {}),
+  fetchHistory: vi.fn(async (_params: unknown) => [] as unknown[]),
 }));
 
 // Stub the bridge so mounting SessionView never opens a real WebSocket and the
@@ -39,9 +40,11 @@ vi.mock("./bridge", () => ({
   stopSession: h.stop,
   decideSession: h.decide,
   answerSession: h.answer,
+  fetchHistory: h.fetchHistory,
 }));
 
 beforeEach(() => {
+  clearSessionCache();
   h.status = "open";
   h.pending = [];
   h.emitTurn = () => {};
@@ -51,6 +54,7 @@ beforeEach(() => {
   h.stop.mockClear();
   h.decide.mockClear();
   h.answer.mockClear();
+  h.fetchHistory.mockClear();
 });
 
 function session(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -512,6 +516,42 @@ describe("PendingCard answer submit", () => {
     await screen.findByText("ⓘ");
     expect(document.querySelector(".usage-info")).toBeTruthy();
     expect(document.querySelector(".usage-partial")).toBeNull(); // not stitched
+  });
+
+  it("pages in older messages on 'Load older' and keeps them ahead of the tail", async () => {
+    h.fetchHistory.mockResolvedValueOnce([
+      {
+        type: "append",
+        seq: 3,
+        part: { kind: "markdown", id: "m3", text: "older msg" },
+      },
+      {
+        type: "append",
+        seq: 4,
+        part: { kind: "markdown", id: "m4", text: "older too" },
+      },
+    ]);
+    render(<SessionView session={session()} onBack={() => {}} />);
+    // The tail opens at seq 5 (> 0), so there is older history to page in.
+    act(() => {
+      h.emitEvent({
+        type: "append",
+        seq: 5,
+        part: { kind: "markdown", id: "m5", text: "newest" },
+      });
+    });
+    await screen.findByText("newest");
+    const button = await screen.findByText("Load older messages");
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    // Asked for the window strictly BELOW the lowest held seq (5).
+    expect(h.fetchHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "sess-1", beforeSeq: 5 }),
+    );
+    expect(await screen.findByText("older msg")).toBeTruthy();
+    expect(screen.getByText("older too")).toBeTruthy();
   });
 
   it("shows a jump-to-latest button when parked above the bottom, and returns on click", () => {

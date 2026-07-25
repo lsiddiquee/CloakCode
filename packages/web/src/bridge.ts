@@ -3,6 +3,7 @@ import {
   newTraceId,
   sessionSubscribeEventSchema,
   sessionsListResponseSchema,
+  sessionHistoryResponseSchema,
   sessionRespondResponseSchema,
   sessionDecideResponseSchema,
   sessionAnswerResponseSchema,
@@ -139,6 +140,72 @@ export function fetchSessions(
 }
 
 /**
+ * One-shot `session.history` backward page for scroll-up lazy-loading — the
+ * seq'd events with index in `[beforeSeq - limit, beforeSeq)` (older than what
+ * the client holds). An empty array means the client has reached the top. The
+ * live tail keeps arriving on the separate {@link subscribeSession} stream.
+ * Validated with the shared protocol schema so nothing untyped reaches the UI.
+ */
+export function fetchHistory(
+  params: { sessionId: string; beforeSeq: number; limit: number },
+  url: string = bridgeUrl(),
+): Promise<SessionEvent[]> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const id = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("bridge timed out"));
+    }, 5000);
+
+    ws.addEventListener("open", () => {
+      sendAuthPrelude(ws);
+      ws.send(JSON.stringify({ id, op: "session.history", params }));
+    });
+
+    ws.addEventListener("message", (ev) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(String(ev.data));
+      } catch (e) {
+        clearTimeout(timer);
+        ws.close();
+        reject(e instanceof Error ? e : new Error(String(e)));
+        return;
+      }
+      const kind = authKind(raw);
+      if (kind === "ack") return; // resume ack precedes the real reply
+      clearTimeout(timer);
+      ws.close();
+      if (kind === "needs") {
+        emitNeedsAuth(authInstanceId(raw));
+        reject(new Error("authentication required"));
+        return;
+      }
+      if (kind === "enrol") {
+        emitEnrolmentRequired(authInstanceId(raw));
+        reject(new Error("enrolment required"));
+        return;
+      }
+      const ok = sessionHistoryResponseSchema.safeParse(raw);
+      if (ok.success) {
+        resolve(ok.data.result.events);
+        return;
+      }
+      const err = rpcErrorSchema.safeParse(raw);
+      reject(
+        new Error(err.success ? err.data.error.message : "unexpected response"),
+      );
+    });
+
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("cannot reach the bridge"));
+    });
+  });
+}
+
+/**
  * One-shot `gateway.connectInfo` fetch (C4): how to pair an EXTENSION with the
  * gateway's `wss://` provider listener — the reachable URLs, the SHA-256
  * fingerprint pin, and the cert PEM (all public; the key is never sent). Refused
@@ -230,7 +297,7 @@ export type ConnState = "connecting" | "open" | "reconnecting" | "closed";
  * that stops reconnecting and closes the socket.
  */
 export function subscribeSession(
-  params: { sessionId: string; sinceSeq?: number },
+  params: { sessionId: string; sinceSeq?: number; limit?: number },
   onEvent: (event: SessionEvent) => void,
   onPending: (blockers: PendingBlocker[]) => void = () => {},
   onError: (message: string) => void = () => {},
@@ -263,6 +330,11 @@ export function subscribeSession(
           params: {
             sessionId: params.sessionId,
             sinceSeq: lastSeq,
+            // Tail-window the INITIAL load only (a fresh open, lastSeq 0). On a
+            // reconnect-resume send NO limit so every missed event still replays.
+            ...(params.limit !== undefined && lastSeq === 0
+              ? { limit: params.limit }
+              : {}),
           },
         }),
       );

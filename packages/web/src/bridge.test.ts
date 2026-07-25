@@ -6,6 +6,7 @@ import {
   type ConnState,
   decideSession,
   fetchConnectInfo,
+  fetchHistory,
   fetchSessions,
   respondSession,
   steerSession,
@@ -143,6 +144,35 @@ describe("subscribeSession", () => {
 
     socket(1).open();
     expect(socket(1).lastParams().sinceSeq).toBe(6); // resume past seq 5
+  });
+
+  it("sends the tail limit on the initial open but omits it on a reconnect-resume", () => {
+    subscribeSession(
+      { sessionId: "s1", limit: 50 },
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      "ws://test/bridge",
+    );
+    socket(0).open();
+    // Fresh open (lastSeq 0) carries the tail window.
+    expect(JSON.parse(socket(0).sent.at(-1)!).params).toEqual({
+      sessionId: "s1",
+      sinceSeq: 0,
+      limit: 50,
+    });
+
+    // Advance, drop, reconnect — resume from lastSeq WITHOUT a limit so every
+    // missed event replays (not just a tail).
+    socket(0).message(appendFrame(5));
+    socket(0).close();
+    vi.advanceTimersByTime(500);
+    socket(1).open();
+    expect(JSON.parse(socket(1).sent.at(-1)!).params).toEqual({
+      sessionId: "s1",
+      sinceSeq: 6,
+    });
   });
 
   it("backs off exponentially while reconnects keep failing", () => {
@@ -308,6 +338,58 @@ describe("fetchSessions", () => {
     const p = fetchSessions("ws://test/bridge");
     vi.advanceTimersByTime(5000);
     await expect(p).rejects.toThrow("timed out");
+  });
+});
+
+describe("fetchHistory", () => {
+  const ev = (seq: number): SessionEvent => ({
+    type: "append",
+    seq,
+    part: { kind: "markdown", id: `m${seq}`, text: "old" },
+  });
+
+  it("sends session.history and resolves the validated backward page", async () => {
+    const p = fetchHistory(
+      { sessionId: "s1", beforeSeq: 10, limit: 5 },
+      "ws://test/bridge",
+    );
+    socket(0).open();
+    expect(JSON.parse(socket(0).sent[0]!)).toMatchObject({
+      op: "session.history",
+      params: { sessionId: "s1", beforeSeq: 10, limit: 5 },
+    });
+    socket(0).message({
+      id: "x",
+      ok: true,
+      op: "session.history",
+      result: { events: [ev(7), ev(8)] },
+    });
+    await expect(p).resolves.toEqual([ev(7), ev(8)]);
+  });
+
+  it("resolves an empty page when the client is at the top", async () => {
+    const p = fetchHistory(
+      { sessionId: "s1", beforeSeq: 0, limit: 5 },
+      "ws://test/bridge",
+    );
+    socket(0).open();
+    socket(0).message({
+      id: "x",
+      ok: true,
+      op: "session.history",
+      result: { events: [] },
+    });
+    await expect(p).resolves.toEqual([]);
+  });
+
+  it("rejects with the server error message", async () => {
+    const p = fetchHistory(
+      { sessionId: "s1", beforeSeq: 10, limit: 5 },
+      "ws://test/bridge",
+    );
+    socket(0).open();
+    socket(0).message({ id: "x", ok: false, error: { message: "boom" } });
+    await expect(p).rejects.toThrow("boom");
   });
 });
 

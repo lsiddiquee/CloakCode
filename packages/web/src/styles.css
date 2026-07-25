@@ -1145,3 +1145,8 @@ code.wrap {
   font-size: 12px;
   border-radius: 8px;
 }
+/* "Load older messages" — centered at the top of the transcript (scroll-up page). */
+.load-older {
+  align-self: center;
+  margin: 4px 0 10px;
+}

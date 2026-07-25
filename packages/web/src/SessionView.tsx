@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -20,6 +21,7 @@ import type {
 import {
   answerSession,
   decideSession,
+  fetchHistory,
   respondSession,
   steerSession,
   stopSession,
@@ -61,10 +63,20 @@ interface ViewState {
    * `session` prop is a frozen open-time snapshot (App never refreshes it).
    */
   lastActivityAt: number;
+  /**
+   * Windowing watermarks (docs/02.6 "wire windowing"): `lowSeq` = the lowest
+   * event seq held — page older via `session.history` while it is finite and
+   * `> 0`; `highSeq` = the next expected seq (the resume point, cached so
+   * back→re-select resumes instead of refetching from 0). `lowSeq` starts at
+   * +Infinity (nothing held yet).
+   */
+  lowSeq: number;
+  highSeq: number;
 }
 
 type ViewAction =
   | { type: "batch"; events: SessionEvent[] }
+  | { type: "prepend"; events: SessionEvent[] }
   | { type: "error"; message: string }
   | { type: "pending"; blockers: PendingBlocker[] }
   | { type: "turn"; inTurn: boolean };
@@ -87,8 +99,12 @@ export function applyEvents(
   let appended: SessionPart[] | null = null;
   let resolved: Set<string> | null = null;
   let statusUpdates: Map<string, ToolStatus> | null = null;
+  let lowSeq = state.lowSeq;
+  let highSeq = state.highSeq;
 
   for (const e of events) {
+    if (e.seq < lowSeq) lowSeq = e.seq;
+    if (e.seq + 1 > highSeq) highSeq = e.seq + 1;
     if (e.type === "append") {
       if (seen.has(e.part.id)) continue;
       seen.add(e.part.id);
@@ -109,8 +125,65 @@ export function applyEvents(
       return next ? { ...p, status: next } : p;
     });
   }
-  if (parts === state.parts && !resolved) return state;
-  return { ...state, parts, resolved: resolved ?? state.resolved };
+  if (
+    parts === state.parts &&
+    !resolved &&
+    lowSeq === state.lowSeq &&
+    highSeq === state.highSeq
+  )
+    return state;
+  return {
+    ...state,
+    parts,
+    resolved: resolved ?? state.resolved,
+    lowSeq,
+    highSeq,
+  };
+}
+
+/**
+ * Prepend an OLDER page (from `session.history`) ahead of the held parts — the
+ * scroll-up lazy-load. The page is ascending-seq and entirely older than
+ * `state.lowSeq`, so `[...older, ...parts]` keeps global order; only `lowSeq`
+ * moves (the `highSeq` ceiling is unchanged). Dedupes by id and folds any
+ * resolve/status the page carries. Same-ref when nothing changed.
+ */
+export function prependEvents(
+  state: ViewState,
+  events: SessionEvent[],
+): ViewState {
+  if (events.length === 0) return state;
+  const seen = new Set(state.parts.map((p) => p.id));
+  const older: SessionPart[] = [];
+  let resolved: Set<string> | null = null;
+  let statusUpdates: Map<string, ToolStatus> | null = null;
+  let lowSeq = state.lowSeq;
+
+  for (const e of events) {
+    if (e.seq < lowSeq) lowSeq = e.seq;
+    if (e.type === "append") {
+      if (seen.has(e.part.id)) continue;
+      seen.add(e.part.id);
+      older.push(e.part);
+    } else if (e.type === "resolve") {
+      (resolved ??= new Set(state.resolved)).add(e.id);
+    } else {
+      (statusUpdates ??= new Map()).set(e.id, e.status);
+    }
+  }
+
+  let parts = older.length ? [...older, ...state.parts] : state.parts;
+  if (statusUpdates) {
+    const updates = statusUpdates;
+    parts = parts.map((p) => {
+      if (p.kind !== "toolCall") return p;
+      const next = updates.get(p.id);
+      return next ? { ...p, status: next } : p;
+    });
+  }
+  if (parts === state.parts && !resolved && lowSeq === state.lowSeq)
+    return state;
+  return { ...state, parts, resolved: resolved ?? state.resolved, lowSeq };
 }
 
 function reducer(state: ViewState, action: ViewAction): ViewState {
@@ -120,7 +193,46 @@ function reducer(state: ViewState, action: ViewAction): ViewState {
     return action.inTurn === state.inTurn
       ? state
       : { ...state, inTurn: action.inTurn, lastActivityAt: Date.now() };
+  if (action.type === "prepend") return prependEvents(state, action.events);
   return applyEvents(state, action.events);
+}
+
+/** Events requested on a fresh open (the tail window) and per "Load older" page. */
+const INITIAL_WINDOW = 150;
+const HISTORY_PAGE = 100;
+
+interface CachedSession {
+  parts: SessionPart[];
+  resolved: Set<string>;
+  lowSeq: number;
+  highSeq: number;
+}
+
+/**
+ * In-memory per-session window cache (wire-bandwidth #5). Module-scoped so it
+ * SURVIVES SessionView unmount — back→re-select restores the parts already
+ * loaded and the subscribe resumes from `highSeq` instead of refetching from
+ * seq 0. Cleared on a full page reload (then a small `limit` tail re-fetch).
+ */
+const sessionCache = new Map<string, CachedSession>();
+
+/** Test-only: drop the in-memory window cache so specs start from a clean slate. */
+export function clearSessionCache(): void {
+  sessionCache.clear();
+}
+
+function initialState(session: SessionSummary): ViewState {
+  const cached = sessionCache.get(session.sessionId);
+  return {
+    parts: cached?.parts ?? [],
+    resolved: cached?.resolved ?? new Set<string>(),
+    pending: [],
+    error: null,
+    inTurn: session.inTurn,
+    lastActivityAt: Date.now() - session.idleSeconds * 1000,
+    lowSeq: cached?.lowSeq ?? Number.POSITIVE_INFINITY,
+    highSeq: cached?.highSeq ?? 0,
+  };
 }
 
 export function SessionView({
@@ -130,15 +242,10 @@ export function SessionView({
   session: SessionSummary;
   onBack: () => void;
 }): JSX.Element {
-  const [state, dispatch] = useReducer(reducer, {
-    parts: [],
-    resolved: new Set<string>(),
-    pending: [],
-    error: null,
-    inTurn: session.inTurn,
-    lastActivityAt: Date.now() - session.idleSeconds * 1000,
-  });
+  const [state, dispatch] = useReducer(reducer, session, initialState);
   const [conn, setConn] = useState<ConnState>("connecting");
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const prependAnchorRef = useRef<number | null>(null);
 
   // Coalesce the event stream. A long transcript replays as many discrete
   // events; buffering them and applying one batch per animation frame turns N
@@ -153,8 +260,11 @@ export function SessionView({
       if (buffer.length > 0)
         dispatch({ type: "batch", events: buffer.splice(0) });
     };
+    const cached = sessionCache.get(session.sessionId);
     const unsubscribe = subscribeSession(
-      { sessionId: session.sessionId },
+      cached
+        ? { sessionId: session.sessionId, sinceSeq: cached.highSeq }
+        : { sessionId: session.sessionId, limit: INITIAL_WINDOW },
       (event) => {
         buffer.push(event);
         if (raf === null) raf = requestAnimationFrame(flush);
@@ -170,6 +280,24 @@ export function SessionView({
       if (raf !== null) cancelAnimationFrame(raf);
     };
   }, [session.sessionId]);
+
+  // Persist the loaded window per session (wire-bandwidth #5) so back→re-select
+  // restores it and the subscribe above resumes from `highSeq` instead of
+  // refetching from 0.
+  useEffect(() => {
+    sessionCache.set(session.sessionId, {
+      parts: state.parts,
+      resolved: state.resolved,
+      lowSeq: state.lowSeq,
+      highSeq: state.highSeq,
+    });
+  }, [
+    session.sessionId,
+    state.parts,
+    state.resolved,
+    state.lowSeq,
+    state.highSeq,
+  ]);
 
   // Stick-to-bottom: follow the latest message unless the user scrolled up.
   // A ResizeObserver on the inner content re-pins on any growth — including the
@@ -209,6 +337,42 @@ export function SessionView({
     el.scrollTop = el.scrollHeight;
     setShowJump(false);
   };
+
+  // Older history remains to page in while the lowest held seq is finite and
+  // above 0 (the tail window didn't reach the session start).
+  const showLoadOlder = Number.isFinite(state.lowSeq) && state.lowSeq > 0;
+
+  const loadOlder = async (): Promise<void> => {
+    if (loadingOlder || !showLoadOlder) return;
+    setLoadingOlder(true);
+    try {
+      const older = await fetchHistory({
+        sessionId: session.sessionId,
+        beforeSeq: state.lowSeq,
+        limit: HISTORY_PAGE,
+      });
+      // Capture distance-from-bottom BEFORE the prepend; the layout effect below
+      // restores it so the viewport stays put as content grows above the fold.
+      const el = scrollRef.current;
+      if (el) prependAnchorRef.current = el.scrollHeight - el.scrollTop;
+      dispatch({ type: "prepend", events: older });
+    } catch {
+      // transient — leave the view as-is; the button stays for a retry.
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
+  // Keep the viewport steady when older messages are prepended: restore the
+  // pre-prepend distance-from-bottom (a prepend grows content above the fold).
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = prependAnchorRef.current;
+    if (el && anchor !== null) {
+      el.scrollTop = el.scrollHeight - anchor;
+      prependAnchorRef.current = null;
+    }
+  }, [state.parts]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -344,6 +508,15 @@ export function SessionView({
       >
         <div className="transcript-inner" ref={innerRef}>
           {state.error && <p className="hint dim">stream: {state.error}</p>}
+          {showLoadOlder && (
+            <button
+              className="btn small load-older"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+            >
+              {loadingOlder ? "Loading…" : "Load older messages"}
+            </button>
+          )}
           {state.parts.length === 0 && !state.error && (
             <p className="hint">Loading transcript…</p>
           )}

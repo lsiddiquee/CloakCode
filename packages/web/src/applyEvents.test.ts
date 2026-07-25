@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent, SessionPart } from "@cloakcode/protocol";
-import { applyEvents } from "./SessionView";
+import { applyEvents, prependEvents } from "./SessionView";
 
 const empty = {
   parts: [] as SessionPart[],
@@ -9,6 +9,8 @@ const empty = {
   error: null,
   inTurn: false,
   lastActivityAt: 0,
+  lowSeq: Number.POSITIVE_INFINITY,
+  highSeq: 0,
 };
 
 const md = (id: string, seq: number): SessionEvent => ({
@@ -69,5 +71,34 @@ describe("applyEvents", () => {
     const t = s.parts[1];
     expect(t && t.kind === "toolCall" && t.status).toBe("done");
     expect(s.resolved.has("m")).toBe(true);
+  });
+
+  it("tracks lowSeq (page floor) and highSeq (resume point) across a batch", () => {
+    const s = applyEvents(empty, [md("a", 5), md("b", 6), md("c", 7)]);
+    expect(s.lowSeq).toBe(5);
+    expect(s.highSeq).toBe(8); // next expected seq
+  });
+});
+
+describe("prependEvents", () => {
+  it("prepends an older page ahead of held parts and lowers lowSeq", () => {
+    const base = applyEvents(empty, [md("c", 5), md("d", 6)]);
+    expect(base.lowSeq).toBe(5);
+    const s = prependEvents(base, [md("a", 3), md("b", 4)]);
+    expect(s.parts.map((p) => p.id)).toEqual(["a", "b", "c", "d"]);
+    expect(s.lowSeq).toBe(3);
+    expect(s.highSeq).toBe(base.highSeq); // the ceiling is unchanged by a prepend
+  });
+
+  it("dedupes an overlapping older page by id", () => {
+    const base = applyEvents(empty, [md("b", 4), md("c", 5)]);
+    const s = prependEvents(base, [md("a", 3), md("b", 4)]);
+    expect(s.parts.map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(s.lowSeq).toBe(3);
+  });
+
+  it("returns the same reference for an empty page", () => {
+    const base = applyEvents(empty, [md("a", 0)]);
+    expect(prependEvents(base, [])).toBe(base);
   });
 });
