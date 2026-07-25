@@ -9,6 +9,8 @@ import {
 } from "@cloakcode/protocol";
 import {
   SessionFollower,
+  IncrementalTranscriptParser,
+  IncrementalDebugLogParser,
   findTranscript,
   findSessionLog,
   parseSessionEvents,
@@ -884,6 +886,231 @@ describe("SessionFollower", () => {
     expect(seen[2]).toMatchObject({
       type: "append",
       part: { kind: "userMessage", text: "three" },
+    });
+  });
+});
+
+describe("SessionFollower streaming (makeParser)", () => {
+  // The offset-streaming path (docs/02.6 §4.32): the follower tails by BYTE
+  // OFFSET through a live IncrementalParser instead of re-reading the whole file
+  // each poll — fixing the >512 MiB ERR_STRING_TOO_LONG crash (§4.31). These
+  // tests prove the streamed output is BYTE-IDENTICAL to the whole-read `parse`
+  // path (the 0-regression gate), so `seq === index` stays prefix-stable. Real
+  // Copilot logs are newline-TERMINATED (verified: last byte 0x0a) and the byte
+  // tail emits only COMPLETE lines, so every fixture terminates too — matching
+  // production, where a half-written trailing record is (correctly) not emitted
+  // until its newline lands.
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
+  });
+  /** Append one newline-TERMINATED record, as Copilot's writers do. */
+  const rec = (obj: object): string => `${JSON.stringify(obj)}\n`;
+  async function tmpFile(content: string): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-stream-"));
+    dirs.push(dir);
+    const file = path.join(dir, "s.jsonl");
+    // Terminate the fixture so the tail emits its last record (production format).
+    await fs.writeFile(
+      file,
+      content && !content.endsWith("\n") ? `${content}\n` : content,
+    );
+    return file;
+  }
+
+  const sample = jsonl([
+    { type: "session.start", data: {} },
+    { type: "user.message", data: { content: "one" } },
+    {
+      type: "assistant.message",
+      data: { reasoningText: "plan", content: "hi" },
+    },
+    {
+      type: "tool.execution_start",
+      data: { toolCallId: "t1", toolName: "read_file", arguments: { p: "x" } },
+    },
+    {
+      type: "tool.execution_complete",
+      data: { toolCallId: "t1", success: true },
+    },
+    { type: "user.message", data: { content: "two" } },
+  ]);
+
+  it("initial load: streamed events are byte-identical to a whole-file parse", async () => {
+    const file = await tmpFile(sample);
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await follower.start();
+    follower.stop();
+    expect(seen).toEqual(parseSessionEvents(sample));
+  });
+
+  it("streamed output equals the whole-read follower's, event for event", async () => {
+    // Strongest 0-regression proof: same content + same append, two follower
+    // modes, identical emitted stream (values AND seq).
+    const file1 = await tmpFile(sample);
+    const file2 = await tmpFile(sample);
+    const whole: SessionEvent[] = [];
+    const stream: SessionEvent[] = [];
+    const fWhole = new SessionFollower(file1, (e) => whole.push(e), 0, {
+      pollIntervalMs: 0,
+      parse: parseSessionEvents,
+    });
+    const fStream = new SessionFollower(file2, (e) => stream.push(e), 0, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await fWhole.start();
+    await fStream.start();
+    const append = rec({ type: "user.message", data: { content: "three" } });
+    await fs.appendFile(file1, append);
+    await fs.appendFile(file2, append);
+    await fWhole.refresh();
+    await fStream.refresh();
+    fWhole.stop();
+    fStream.stop();
+    expect(stream).toEqual(whole);
+    expect(stream.map((e) => e.seq)).toEqual(whole.map((e) => e.seq));
+  });
+
+  it("append across a refresh keeps seq contiguous (matches whole parse of the grown file)", async () => {
+    const file = await tmpFile(sample);
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await follower.start();
+    const before = seen.length;
+    await fs.appendFile(
+      file,
+      rec({ type: "user.message", data: { content: "three" } }),
+    );
+    await follower.refresh();
+    follower.stop();
+    expect(seen.length).toBeGreaterThan(before);
+    expect(seen).toEqual(parseSessionEvents(await fs.readFile(file, "utf8")));
+  });
+
+  it("resumes from sinceSeq (skips already-seen events)", async () => {
+    const file = await tmpFile(sample);
+    const all = parseSessionEvents(sample);
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 3, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await follower.start();
+    follower.stop();
+    expect(seen).toEqual(all.slice(3));
+    expect(seen[0]!.seq).toBe(3);
+  });
+
+  it("tail window: emits only the last `limit` events on initial load, seq absolute", async () => {
+    const file = await tmpFile(sample);
+    const all = parseSessionEvents(sample);
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      limit: 2,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await follower.start();
+    follower.stop();
+    expect(seen).toEqual(all.slice(all.length - 2));
+    expect(seen.map((e) => e.seq)).toEqual([all.length - 2, all.length - 1]);
+  });
+
+  it("re-streams from the start after a shrink/rotation (reset)", async () => {
+    const file = await tmpFile(sample);
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await follower.start();
+    const initial = seen.length;
+    // The 581→85 MB recycle: replace with a SHORTER file. The offset now points
+    // past EOF → TailReader resets → the parser rebuilds and re-streams from 0.
+    const recycled = jsonl([
+      { type: "user.message", data: { content: "fresh" } },
+    ]);
+    await fs.writeFile(file, `${recycled}\n`);
+    await follower.refresh();
+    follower.stop();
+    expect(seen.slice(initial)).toEqual(parseSessionEvents(recycled));
+    expect(seen[initial]!.seq).toBe(0);
+  });
+
+  it("derives inTurn from a tailed debug-log's turn spans (bounded tail-read)", async () => {
+    const span = (type: string, n: number): string =>
+      JSON.stringify({
+        ts: 1,
+        type,
+        name: `${type}:${n}`,
+        spanId: `${type}-s-${n}`,
+      });
+    const file = await tmpFile(span("turn_start", 0));
+    const turns: boolean[] = [];
+    const follower = new SessionFollower(file, () => {}, 0, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalDebugLogParser(),
+      computeTurn: computeInTurnFromDebugLog,
+      onTurn: (t) => turns.push(t),
+    });
+    await follower.start();
+    expect(turns).toEqual([true]); // an open turn_start
+    await fs.appendFile(file, `${span("turn_end", 0)}\n`);
+    await follower.refresh();
+    follower.stop();
+    expect(turns).toEqual([true, false]); // closed cleanly
+  });
+
+  it("streams an interactive blocker: confirmation append, then resolve across a refresh", async () => {
+    const file = await tmpFile(
+      jsonl([{ type: "user.message", data: { content: "go" } }]),
+    );
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(file, (e) => seen.push(e), 0, {
+      pollIntervalMs: 0,
+      makeParser: () => new IncrementalTranscriptParser(),
+    });
+    await follower.start();
+    await fs.appendFile(
+      file,
+      rec({
+        type: "tool.execution_start",
+        data: {
+          toolCallId: "q1",
+          toolName: "vscode_askQuestions",
+          arguments: {
+            questions: [{ question: "Proceed?", options: [{ label: "Yes" }] }],
+          },
+        },
+      }),
+    );
+    await follower.refresh();
+    await fs.appendFile(
+      file,
+      rec({
+        type: "tool.execution_complete",
+        data: { toolCallId: "q1", success: true },
+      }),
+    );
+    await follower.refresh();
+    follower.stop();
+    // Interactive state (the open toolCallId → confirmation ids) is carried
+    // across refreshes by the ONE parser, so the resolve matches.
+    expect(
+      seen.map((e) => (e.type === "append" ? e.part.kind : e.type)),
+    ).toEqual(["userMessage", "confirmation", "resolve"]);
+    expect(seen[seen.length - 1]).toMatchObject({
+      type: "resolve",
+      id: "conf-q1-0",
     });
   });
 });

@@ -15,6 +15,7 @@ import {
   computeInTurnFromDebugLog,
 } from "./scanner.js";
 import { errorCode } from "./errors.js";
+import { TailReader, type TailReadResult } from "./tail-reader.js";
 
 /**
  * Port of `research/inspect_session.py`, mapping the on-disk event stream onto
@@ -131,6 +132,16 @@ export function toConfirmations(
       ...(multi(a) ? { multiSelect: true } : {}),
     },
   ];
+}
+
+/**
+ * The streaming unit shared by both incremental parsers: feed one COMPLETE JSONL
+ * line, get back the events it produces. A {@link SessionFollower} in streaming
+ * mode holds one across the whole tail so `seq` stays absolute + contiguous
+ * (docs/02.6 §4.32).
+ */
+export interface IncrementalParser {
+  push(line: string): SessionEvent[];
 }
 
 /**
@@ -540,6 +551,15 @@ export interface SessionLog {
   file: string;
   parse: (content: string) => SessionEvent[];
   /**
+   * When set, the follower tails `file` by BYTE OFFSET through this incremental
+   * parser instead of re-reading the whole file into one string each poll — the
+   * offset-streaming path for logs past V8's ~512 MiB string cap (docs/02.6
+   * §4.31/§4.32). A fresh parser per subscription; discarded on unsubscribe.
+   * Streamed output is byte-identical to `parse` fed the whole file, so `seq`
+   * stays absolute + prefix-stable. Omitted ⇒ the whole-read `parse` path.
+   */
+  makeParser?: () => IncrementalParser;
+  /**
    * Mid-turn detector for THIS log's format, so `inTurn` is derived from the
    * same file the follower tails (no divergent transcript path). The debug-log
    * has clean `turn_start`/`turn_end` spans; the transcript needs the
@@ -674,6 +694,33 @@ async function fileSizeOrUndefined(file: string): Promise<number | undefined> {
 }
 
 /**
+ * Tail window for the streaming turn detector (docs/02.6 §4.32). `computeTurn`
+ * depends only on the LAST `turn_start`/`turn_end` span, so a bounded tail suffices
+ * and never rebuilds a giant string. 4 MiB dwarfs any real turn's final span yet
+ * stays far under V8's ~512 MiB cap.
+ */
+const TURN_TAIL_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Read the LAST `maxBytes` of a file as UTF-8 via a bounded stream (never the
+ * whole file), so the streaming turn detector can't hit the string cap. A
+ * multibyte char split at the START boundary only ever corrupts the first,
+ * already-partial line — which the turn parser skips (bad JSON) — so it's safe.
+ */
+async function readTail(file: string, maxBytes: number): Promise<string> {
+  const size = (await fs.stat(file)).size;
+  if (size === 0) return "";
+  const start = Math.max(0, size - maxBytes);
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const stream = fsSync.createReadStream(file, { start, end: size - 1 });
+    stream.on("data", (chunk) => chunks.push(chunk as Buffer));
+    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    stream.on("error", reject);
+  });
+}
+
+/**
  * Tails a single transcript file: emits every event past `sinceSeq` on start,
  * then re-emits the growing tail on each change. Uses BOTH `fs.watch` (for
  * immediacy) AND a short poll fallback — in dev containers the vscode-server
@@ -696,6 +743,15 @@ export class SessionFollower {
   private lastInTurn: boolean | undefined;
   private readonly pollIntervalMs: number;
   private readonly parse: (content: string) => SessionEvent[];
+  /**
+   * When set, the follower tails by BYTE OFFSET through a live parser instead of
+   * re-reading the whole file each poll — the offset-streaming path for logs past
+   * V8's string cap (docs/02.6 §4.32). Precedence over `parse` when both exist.
+   */
+  private readonly makeParser: (() => IncrementalParser) | undefined;
+  /** Offset reader + running parser for the streaming path (lazily created). */
+  private reader: TailReader | undefined;
+  private parser: IncrementalParser | undefined;
   private readonly computeTurn: (content: string) => boolean;
   private readonly onTurn: TurnSink | undefined;
   private readonly onError: FollowerErrorSink | undefined;
@@ -718,6 +774,7 @@ export class SessionFollower {
     options: {
       pollIntervalMs?: number;
       parse?: (content: string) => SessionEvent[];
+      makeParser?: () => IncrementalParser;
       computeTurn?: (content: string) => boolean;
       onTurn?: TurnSink;
       onError?: FollowerErrorSink;
@@ -728,6 +785,7 @@ export class SessionFollower {
     this.emitted = sinceSeq;
     this.pollIntervalMs = options.pollIntervalMs ?? 400;
     this.parse = options.parse ?? parseSessionEvents;
+    this.makeParser = options.makeParser;
     this.computeTurn = options.computeTurn ?? computeInTurn;
     this.onTurn = options.onTurn;
     this.onError = options.onError;
@@ -763,6 +821,7 @@ export class SessionFollower {
 
   private async pump(): Promise<void> {
     if (this.stopped) return;
+    if (this.makeParser) return this.pumpStream();
     let content: string;
     try {
       content = await fs.readFile(this.filePath, "utf8");
@@ -799,6 +858,70 @@ export class SessionFollower {
   }
 
   /**
+   * Streaming pump (docs/02.6 §4.32): tail the file by BYTE OFFSET through a
+   * running incremental parser instead of re-reading the whole file into one
+   * string — so a log past V8's ~512 MiB string cap (§4.31) streams in bounded
+   * chunks and never throws ERR_STRING_TOO_LONG. `TailReader.read()` drains
+   * `[offset, EOF)` and yields only COMPLETE lines; the parser carries `seq`
+   * across calls, so the emitted stream is byte-identical to the whole-read
+   * `parse` path (proven by the equivalence tests).
+   */
+  private async pumpStream(): Promise<void> {
+    if (this.stopped) return;
+    if (!this.reader) this.reader = new TailReader(this.filePath);
+    if (!this.parser) this.parser = this.makeParser!();
+    let result: TailReadResult;
+    try {
+      result = await this.reader.read();
+    } catch (err) {
+      const bytes = await fileSizeOrUndefined(this.filePath);
+      this.report(
+        "read",
+        "warn",
+        err,
+        bytes !== undefined ? { bytes } : undefined,
+      );
+      return; // a later change re-triggers; a good read clears the dedup.
+    }
+    this.clear("read");
+    if (result.reset) {
+      // Truncation / rotation (the 581→85 MB recycle, §4.32): the parser's ids +
+      // seq restart, so rebuild it and re-stream from 0. `result.lines` is already
+      // the fresh read from the start; the client cache de-dupes by part id, so a
+      // same-session re-stream is idempotent.
+      this.parser = this.makeParser!();
+      this.emitted = 0;
+      this.firstPump = true;
+    }
+    const events: SessionEvent[] = [];
+    for (const line of result.lines) {
+      for (const event of this.parser.push(line)) events.push(event);
+    }
+    if (events.length > 0) {
+      const total = events[events.length - 1]!.seq + 1;
+      // On the FIRST drain, skip everything before BOTH the resume point
+      // (`sinceSeq`) and the tail window (`total - limit`) — seq is absolute, so
+      // the skipped prefix stays client-pageable. Later drains carry only new
+      // events (the parser's seq keeps climbing), so emit them all.
+      let i = 0;
+      if (this.firstPump) {
+        let clamp = this.emitted;
+        if (this.tailLimit !== undefined) {
+          clamp = Math.max(clamp, total - this.tailLimit);
+        }
+        while (i < events.length && events[i]!.seq < clamp) i += 1;
+      }
+      for (; i < events.length; i += 1) {
+        if (this.stopped) return;
+        this.sink(events[i]!);
+      }
+      this.emitted = total;
+    }
+    this.firstPump = false;
+    await this.pumpTurnStream();
+  }
+
+  /**
    * Derive the mid-turn flag from the just-read content (the one authoritative
    * source, via the injected `computeTurn`) and fire `onTurn` on a transition.
    * Emits only on change, so it is idempotent under watch + poll.
@@ -806,6 +929,27 @@ export class SessionFollower {
   private pumpTurn(content: string): void {
     if (!this.onTurn || this.stopped) return;
     const inTurn = this.computeTurn(content);
+    if (inTurn !== this.lastInTurn) {
+      this.lastInTurn = inTurn;
+      this.onTurn(inTurn);
+    }
+  }
+
+  /**
+   * Streaming turn detector: `computeTurn` needs only the LAST `turn_start`/
+   * `turn_end` span, so tail a bounded window rather than rebuild a giant string.
+   * A single turn dumping more than the window before its close reads idle until
+   * the next span arrives — rare + self-correcting (docs/02.6 §4.32).
+   */
+  private async pumpTurnStream(): Promise<void> {
+    if (!this.onTurn || this.stopped) return;
+    let tail: string;
+    try {
+      tail = await readTail(this.filePath, TURN_TAIL_BYTES);
+    } catch {
+      return; // transient; a later pump retries
+    }
+    const inTurn = this.computeTurn(tail);
     if (inTurn !== this.lastInTurn) {
       this.lastInTurn = inTurn;
       this.onTurn(inTurn);
