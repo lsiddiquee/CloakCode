@@ -115,6 +115,8 @@ export function connectGateway(
         // The gateway authenticates the operator before relaying; the provider
         // link is machine-authed by the provider token, so its gate is open.
         gate: new OperatorGate(undefined),
+        // The provider link never subscribes to the operator-facing list ping.
+        isListSubscriber: false,
       };
       socket = s;
       conn = c;

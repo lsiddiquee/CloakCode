@@ -1036,6 +1036,39 @@ describe("session.history (backward paging for scroll-up)", () => {
   });
 });
 
+describe("sessions.subscribe + notifySessionsChanged (1B live list)", () => {
+  it("pings only the connections that subscribed to the list", async () => {
+    const bridge = await startBridge(deps(), { port: 0 });
+    const open = (ws: WebSocket): Promise<void> =>
+      new Promise((resolve, reject) => {
+        ws.on("open", () => resolve());
+        ws.on("error", reject);
+      });
+    const wsA = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+    const wsB = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+    const framesA: unknown[] = [];
+    const framesB: unknown[] = [];
+    wsA.on("message", (d) => framesA.push(JSON.parse(d.toString())));
+    wsB.on("message", (d) => framesB.push(JSON.parse(d.toString())));
+    try {
+      await Promise.all([open(wsA), open(wsB)]);
+      // Only A subscribes to the list.
+      wsA.send(JSON.stringify({ id: "s", op: "sessions.subscribe" }));
+      await new Promise((r) => setTimeout(r, 60)); // let the subscribe register
+
+      bridge.notifySessionsChanged();
+      await new Promise((r) => setTimeout(r, 60)); // let the ping arrive
+
+      expect(framesA).toContainEqual({ type: "sessions.changed" });
+      expect(framesB).toEqual([]); // B never subscribed → no ping
+    } finally {
+      wsA.close();
+      wsB.close();
+      await bridge.close();
+    }
+  });
+});
+
 describe("startBridge compression (permessage-deflate)", () => {
   it("offers permessage-deflate on the operator handshake (wire-bandwidth)", async () => {
     const bridge = await startBridge(deps(), { port: 0 });

@@ -167,6 +167,12 @@ export interface BridgeOptions {
 export interface Bridge {
   readonly port: number;
   close: () => Promise<void>;
+  /**
+   * Push a `sessions.changed` ping to every connection that sent
+   * `sessions.subscribe` (1B live list). Called by the active-workspace
+   * transcripts watcher wired in extension.ts. No-op when nobody is subscribed.
+   */
+  notifySessionsChanged: () => void;
 }
 
 export interface Connection {
@@ -177,6 +183,8 @@ export interface Connection {
   spoolFollowers: Map<string, SpoolFollower>;
   /** Per-connection operator auth gate (F2a); open when auth is disabled. */
   gate: OperatorGate;
+  /** Set once this connection sent `sessions.subscribe` (wants list pings, 1B). */
+  isListSubscriber: boolean;
 }
 
 /** Stop + clear a connection's followers (subscription teardown). */
@@ -263,6 +271,7 @@ export async function startBridge(
       followers: new Map(),
       spoolFollowers: new Map(),
       gate: new OperatorGate(opts.operatorAuth),
+      isListSubscriber: false,
     };
     connections.set(socket, conn);
     // Per-connection rate limit: bound a flood of operator frames (F2b).
@@ -305,6 +314,15 @@ export async function startBridge(
 
   return {
     port: boundPort,
+    notifySessionsChanged: () => {
+      const frame = JSON.stringify({ type: "sessions.changed" });
+      for (const [socket, conn] of connections) {
+        // readyState 1 === OPEN (ws); skip half-open sockets mid-teardown.
+        if (conn.isListSubscriber && socket.readyState === 1) {
+          socket.send(frame);
+        }
+      }
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
         clearInterval(heartbeat);
@@ -410,6 +428,14 @@ export async function handleMessage(
             result,
           }),
         );
+        break;
+      }
+      case "sessions.subscribe": {
+        // Register for `sessions.changed` pings (1B live list). The
+        // active-workspace transcripts watcher (extension.ts) drives
+        // notifySessionsChanged() → broadcast to these subscribers. No ack: the
+        // client keeps the socket open and re-fetches on each ping.
+        conn.isListSubscriber = true;
         break;
       }
       case "session.subscribe": {
