@@ -133,32 +133,38 @@ export function toConfirmations(
   ];
 }
 
-/** Convert a transcript's JSONL body into the ordered session event log. */
-export function parseSessionEvents(content: string): SessionEvent[] {
-  const events: SessionEvent[] = [];
-  const append = (part: SessionPart): void => {
-    events.push({ type: "append", seq: events.length, part });
-  };
-  const updateStatus = (id: string, status: ToolStatus): void => {
-    events.push({ type: "updateStatus", seq: events.length, id, status });
-  };
-  const resolve = (id: string): void => {
-    events.push({ type: "resolve", seq: events.length, id });
-  };
+/**
+ * Incremental transcript parser: feed one COMPLETE JSONL line at a time (the
+ * byte-offset tail's unit) and it returns the events that line produces, carrying
+ * id/seq/interactive state across calls — so a streamed tail yields the SAME
+ * events + `seq` as a whole-file parse (docs/02.6 §4.32; 2c/2d/#5 depend on
+ * `seq === index`, prefix-stable). {@link parseSessionEvents} is this fed all lines.
+ */
+export class IncrementalTranscriptParser {
+  private seq = 0;
+  private userIdx = 0;
+  private msgIdx = 0;
   /** toolCallId -> the confirmation part ids emitted for it (interactive). */
-  const interactiveIds = new Map<string, string[]>();
+  private readonly interactiveIds = new Map<string, string[]>();
 
-  let userIdx = 0;
-  let msgIdx = 0;
-
-  for (const line of content.split("\n")) {
+  push(line: string): SessionEvent[] {
+    const out: SessionEvent[] = [];
+    const append = (part: SessionPart): void => {
+      out.push({ type: "append", seq: this.seq++, part });
+    };
+    const updateStatus = (id: string, status: ToolStatus): void => {
+      out.push({ type: "updateStatus", seq: this.seq++, id, status });
+    };
+    const resolve = (id: string): void => {
+      out.push({ type: "resolve", seq: this.seq++, id });
+    };
     const trimmed = line.trim();
-    if (!trimmed) continue;
+    if (!trimmed) return out;
     let raw: RawEvent;
     try {
       raw = JSON.parse(trimmed);
     } catch {
-      continue;
+      return out;
     }
     const data = raw.data ?? {};
 
@@ -166,7 +172,7 @@ export function parseSessionEvents(content: string): SessionEvent[] {
       case "user.message": {
         append({
           kind: "userMessage",
-          id: `user-${userIdx++}`,
+          id: `user-${this.userIdx++}`,
           text: String(data.content ?? ""),
         });
         break;
@@ -174,20 +180,24 @@ export function parseSessionEvents(content: string): SessionEvent[] {
       case "assistant.message": {
         const reasoning = String(data.reasoningText ?? "").trim();
         if (reasoning) {
-          append({ kind: "thinking", id: `think-${msgIdx}`, text: reasoning });
+          append({
+            kind: "thinking",
+            id: `think-${this.msgIdx}`,
+            text: reasoning,
+          });
         }
         const text = String(data.content ?? "").trim();
         if (text) {
-          append({ kind: "markdown", id: `msg-${msgIdx}`, text });
+          append({ kind: "markdown", id: `msg-${this.msgIdx}`, text });
         }
-        msgIdx += 1;
+        this.msgIdx += 1;
         break;
       }
       case "tool.execution_start": {
         const cid = String(data.toolCallId);
         if (isInteractiveTool(data.toolName)) {
           const confs = toConfirmations(confPartId(cid), data.arguments);
-          interactiveIds.set(
+          this.interactiveIds.set(
             cid,
             confs.map((c) => c.id),
           );
@@ -205,7 +215,7 @@ export function parseSessionEvents(content: string): SessionEvent[] {
       }
       case "tool.execution_complete": {
         const cid = String(data.toolCallId);
-        const confIds = interactiveIds.get(cid);
+        const confIds = this.interactiveIds.get(cid);
         if (confIds) {
           for (const id of confIds) resolve(id);
         } else {
@@ -219,8 +229,15 @@ export function parseSessionEvents(content: string): SessionEvent[] {
       default:
         break;
     }
+    return out;
   }
+}
 
+/** Convert a transcript's JSONL body into the ordered session event log. */
+export function parseSessionEvents(content: string): SessionEvent[] {
+  const parser = new IncrementalTranscriptParser();
+  const events: SessionEvent[] = [];
+  for (const line of content.split("\n")) events.push(...parser.push(line));
   return events;
 }
 
@@ -316,26 +333,27 @@ function assistantText(response: unknown): string {
  * (llm_request telemetry, hook, discovery, turn_*, child_session_ref) are not
  * conversation parts here.
  */
-export function parseDebugLogEvents(content: string): SessionEvent[] {
-  const events: SessionEvent[] = [];
-  const append = (part: SessionPart): void => {
-    events.push({ type: "append", seq: events.length, part });
-  };
-  const resolve = (id: string): void => {
-    events.push({ type: "resolve", seq: events.length, id });
-  };
-  let userIdx = 0;
-  let msgIdx = 0;
-  let usageIdx = 0;
+export class IncrementalDebugLogParser {
+  private seq = 0;
+  private userIdx = 0;
+  private msgIdx = 0;
+  private usageIdx = 0;
 
-  for (const line of content.split("\n")) {
+  push(line: string): SessionEvent[] {
+    const out: SessionEvent[] = [];
+    const append = (part: SessionPart): void => {
+      out.push({ type: "append", seq: this.seq++, part });
+    };
+    const resolve = (id: string): void => {
+      out.push({ type: "resolve", seq: this.seq++, id });
+    };
     const trimmed = line.trim();
-    if (!trimmed) continue;
+    if (!trimmed) return out;
     let raw: RawSpan;
     try {
       raw = JSON.parse(trimmed);
     } catch {
-      continue;
+      return out;
     }
     const attrs = (
       typeof raw.attrs === "object" && raw.attrs ? raw.attrs : {}
@@ -345,7 +363,7 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
       case "user_message": {
         append({
           kind: "userMessage",
-          id: `user-${userIdx++}`,
+          id: `user-${this.userIdx++}`,
           text: String(attrs["content"] ?? ""),
         });
         break;
@@ -353,17 +371,21 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
       case "agent_response": {
         const reasoning = String(attrs["reasoning"] ?? "").trim();
         if (reasoning) {
-          append({ kind: "thinking", id: `think-${msgIdx}`, text: reasoning });
+          append({
+            kind: "thinking",
+            id: `think-${this.msgIdx}`,
+            text: reasoning,
+          });
         }
         const text = assistantText(attrs["response"]);
         if (text) {
-          append({ kind: "markdown", id: `msg-${msgIdx}`, text });
+          append({ kind: "markdown", id: `msg-${this.msgIdx}`, text });
         }
-        msgIdx += 1;
+        this.msgIdx += 1;
         break;
       }
       case "tool_call": {
-        const cid = String(raw.spanId ?? `span-${events.length}`);
+        const cid = String(raw.spanId ?? `span-${this.seq}`);
         const toolName = String(raw.name ?? "");
         if (isInteractiveTool(toolName)) {
           const confs = toConfirmations(
@@ -394,7 +416,7 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
         const credits = numAttr(attrs["copilotCredits"]);
         append({
           kind: "usage",
-          id: `usage-${usageIdx++}`,
+          id: `usage-${this.usageIdx++}`,
           model,
           inputTokens: numAttr(attrs["inputTokens"]) ?? 0,
           outputTokens: numAttr(attrs["outputTokens"]) ?? 0,
@@ -409,8 +431,14 @@ export function parseDebugLogEvents(content: string): SessionEvent[] {
       default:
         break;
     }
+    return out;
   }
+}
 
+export function parseDebugLogEvents(content: string): SessionEvent[] {
+  const parser = new IncrementalDebugLogParser();
+  const events: SessionEvent[] = [];
+  for (const line of content.split("\n")) events.push(...parser.push(line));
   return events;
 }
 
