@@ -579,16 +579,30 @@ function isSafeSessionId(id: string): boolean {
 }
 
 /**
+ * A log at or above this byte size is tailed by BYTE OFFSET (streaming) instead
+ * of read whole into one string, so it can't hit V8's ~512 MiB string cap
+ * (docs/02.6 §4.31/§4.32). Set well under the cap (headroom for multibyte UTF-8):
+ * a log this large is essentially always past any recycle boundary, so streaming
+ * the debug-log RAW (no transcript prefix) equals the whole-read stitch anyway.
+ */
+export const STREAM_THRESHOLD_BYTES = 256 * 1024 * 1024; // 256 MiB
+
+/**
  * Locate the best log for a session under one environment's storage root,
  * PREFERRING the complete debug-log (`debug-logs/<id>/main.jsonl`) and falling
  * back to the transcript (`transcripts/<id>.jsonl`). The debug-log stays
  * complete for editor-hosted sessions where the transcript does not (docs/02);
  * the transcript is the zero-config fallback when debug-logging is off.
+ *
+ * A log at/over `streamThresholdBytes` is resolved with a `makeParser` so the
+ * follower tails it by byte offset instead of the whole-read `parse` — the
+ * offset-streaming path for logs past the string cap (docs/02.6 §4.32).
  */
 export async function findSessionLog(
   root: string,
   sessionId: string,
   logger?: Logger,
+  streamThresholdBytes = STREAM_THRESHOLD_BYTES,
 ): Promise<SessionLog | undefined> {
   if (!isSafeSessionId(sessionId)) return undefined;
   let hashDirs: string[];
@@ -608,9 +622,15 @@ export async function findSessionLog(
       // No debug-log here; fall back to the transcript (zero-config) if present.
       try {
         await fs.access(transcript);
+        const txBytes = (await fileSizeOrUndefined(transcript)) ?? 0;
         return {
           file: transcript,
           parse: parseSessionEvents,
+          // A transcript past the string cap streams too (rare, but §4.31 hits
+          // it just the same); its incremental parser is byte-identical.
+          ...(txBytes >= streamThresholdBytes
+            ? { makeParser: () => new IncrementalTranscriptParser() }
+            : {}),
           computeTurn: computeInTurn,
         };
       } catch {
@@ -637,6 +657,13 @@ export async function findSessionLog(
     return {
       file: debugLog,
       parse: (content) => stitchEvents(history, parseDebugLogEvents(content)),
+      // A debug-log past the string cap is tailed by byte offset instead of read
+      // whole (docs/02.6 §4.32). It streams RAW — a log this large is past any
+      // recycle boundary (boundary <= 0), so `stitchEvents` would return it raw
+      // anyway; the whole-read `parse` above stays the (uninvoked) fallback.
+      ...(((await fileSizeOrUndefined(debugLog)) ?? 0) >= streamThresholdBytes
+        ? { makeParser: () => new IncrementalDebugLogParser() }
+        : {}),
       computeTurn: computeInTurnFromDebugLog,
     };
   }

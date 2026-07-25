@@ -1115,6 +1115,107 @@ describe("SessionFollower streaming (makeParser)", () => {
   });
 });
 
+describe("findSessionLog streaming resolution", () => {
+  // A log at/over the threshold resolves with a `makeParser`, so the follower
+  // tails it by byte offset instead of reading it whole (docs/02.6 §4.32).
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0))
+      await fs.rm(d, { recursive: true, force: true });
+  });
+  async function makeEnv(
+    sessionId: string,
+    files: { debug?: string; transcript?: string },
+  ): Promise<string> {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cc-resolve-"));
+    dirs.push(root);
+    const base = path.join(root, "H", "GitHub.copilot-chat");
+    if (files.debug !== undefined) {
+      await fs.mkdir(path.join(base, "debug-logs", sessionId), {
+        recursive: true,
+      });
+      await fs.writeFile(
+        path.join(base, "debug-logs", sessionId, "main.jsonl"),
+        files.debug,
+      );
+    }
+    if (files.transcript !== undefined) {
+      await fs.mkdir(path.join(base, "transcripts"), { recursive: true });
+      await fs.writeFile(
+        path.join(base, "transcripts", `${sessionId}.jsonl`),
+        files.transcript,
+      );
+    }
+    return root;
+  }
+
+  it("resolves a debug-log at/over the threshold with a streaming makeParser (else whole-read)", async () => {
+    const root = await makeEnv("sessS", {
+      debug: `${jsonl([{ type: "user_message", attrs: { content: "go" } }])}\n`,
+    });
+    // Over the (tiny) threshold → streaming.
+    const streamed = await findSessionLog(root, "sessS", undefined, 1);
+    expect(streamed?.makeParser).toBeTypeOf("function");
+    // Under the (default) threshold → whole-read, no makeParser.
+    const whole = await findSessionLog(root, "sessS");
+    expect(whole?.makeParser).toBeUndefined();
+  });
+
+  it("a follower from the streamed debug-log emits the whole-read stitch, byte-identical", async () => {
+    // The debug-log opens at the transcript's start → boundary 0 → the stitch
+    // returns it RAW, which is exactly what the raw stream emits.
+    const transcript = `${jsonl([
+      { type: "user.message", data: { content: "q0" } },
+      { type: "assistant.message", data: { content: "a0" } },
+    ])}\n`;
+    const debug = `${jsonl([
+      { type: "user_message", attrs: { content: "q0" } },
+      {
+        type: "agent_response",
+        attrs: {
+          response: [
+            { role: "assistant", parts: [{ type: "text", content: "a0" }] },
+          ],
+        },
+      },
+    ])}\n`;
+    const root = await makeEnv("sessE", { debug, transcript });
+
+    const streamLog = await findSessionLog(root, "sessE", undefined, 1);
+    const wholeLog = await findSessionLog(root, "sessE"); // whole-read stitch
+    expect(streamLog?.makeParser).toBeTypeOf("function");
+
+    const seen: SessionEvent[] = [];
+    const follower = new SessionFollower(
+      streamLog!.file,
+      (e) => seen.push(e),
+      0,
+      {
+        pollIntervalMs: 0,
+        parse: streamLog!.parse,
+        ...(streamLog!.makeParser ? { makeParser: streamLog!.makeParser } : {}),
+      },
+    );
+    await follower.start();
+    follower.stop();
+
+    const wholeContent = await fs.readFile(wholeLog!.file, "utf8");
+    expect(seen).toEqual(wholeLog!.parse(wholeContent));
+  });
+
+  it("resolves a transcript FALLBACK at/over the threshold with a streaming makeParser", async () => {
+    // No debug-log → the transcript is the source; over the threshold it streams.
+    const root = await makeEnv("sessT", {
+      transcript: `${jsonl([{ type: "user.message", data: { content: "hi" } }])}\n`,
+    });
+    const streamed = await findSessionLog(root, "sessT", undefined, 1);
+    expect(streamed?.file).toContain("sessT.jsonl");
+    expect(streamed?.makeParser).toBeTypeOf("function");
+    const whole = await findSessionLog(root, "sessT");
+    expect(whole?.makeParser).toBeUndefined();
+  });
+});
+
 describe("findTranscript", () => {
   const dirs: string[] = [];
   afterEach(async () => {
