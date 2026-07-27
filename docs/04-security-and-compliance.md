@@ -306,7 +306,12 @@ only a derived token.
     **stays in gateway mode without falling back to the embedded bridge** — an unreachable hub falls
     back, but a reachable-yet-auth-blocked one must not start a competing bridge (which would add a
     second, confusing operator-MFA enrolment). Once the user enters a code it registers **in place on
-    the same socket**, no reconnect.
+    the same socket**, no reconnect. A code that is **refused** (they expire in ~60s) raises the same
+    error with a `reason`, and the extension re-offers the prompt — a rejection that only reached the
+    log looked like nothing had happened. **CloakCode: Sign out of Gateway** clears the stored token
+    (`clearProviderToken`) so the next connection asks for a code again: without it a stored token is
+    unreachable state — sign-in silently never prompts because the credential is presented instead,
+    and a fresh sign-in cannot be reproduced.
   - **Static shared secret (demoted escape hatch).** `CLOAKCODE_GATEWAY_TOKEN` / `cloakcode.gatewayToken`
     still works, verified **timing-safe** (`verifyGatewayToken`) — for headless / automation /
     bootstrap setups where interactive sign-in isn't practical. The `cloakcode.gatewayUrl` /

@@ -41,3 +41,18 @@ export function storeProviderToken(
 ): Thenable<void> {
   return secrets.store(providerTokenKey(gatewayUrl), token);
 }
+
+/**
+ * Forget this gateway's issued token so the next connection asks for a code
+ * again (`CloakCode: Sign out of Gateway`). Without it a stored token is
+ * unreachable state: sign-in silently never prompts, and a fresh-install test is
+ * impossible. Clears by storing an empty value — the same idiom as
+ * `resetOperatorSecret`, and what `resolveProviderCredential` already treats as
+ * absent — so the store port stays `get` + `store`.
+ */
+export function clearProviderToken(
+  secrets: SecretStore,
+  gatewayUrl: string,
+): Thenable<void> {
+  return secrets.store(providerTokenKey(gatewayUrl), "");
+}

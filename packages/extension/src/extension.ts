@@ -68,6 +68,7 @@ import {
 import {
   resolveProviderCredential,
   storeProviderToken,
+  clearProviderToken,
 } from "./provider-auth.js";
 
 /**
@@ -907,6 +908,38 @@ export async function activate(
       await reconnect("mfa-reset");
       void vscode.window.showInformationMessage(
         "CloakCode operator TOTP reset — open the app to re-pair.",
+      );
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cloakcode.signOutGateway", async () => {
+      // Forget the issued provider token so the next connection asks for a code.
+      // Without this the token is unreachable state: sign-in never prompts (the
+      // stored credential is presented instead), so a rejected/stale token cannot
+      // be cleared and a fresh sign-in cannot be reproduced.
+      const cfgNow = vscode.workspace.getConfiguration("cloakcode");
+      const plan = resolveConnectionPlan({
+        gatewayUrl: cfgNow.get<string>("gatewayUrl"),
+        envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
+      });
+      if (plan.kind !== "gateway") {
+        void vscode.window.showInformationMessage(
+          "CloakCode: set cloakcode.gatewayUrl first — sign-out applies only to gateway mode.",
+        );
+        return;
+      }
+      await clearProviderToken(context.secrets, plan.url);
+      log.info("gateway.signed_out", { url: plan.url });
+      await reconnect("gateway-signout");
+      void vscode.window.showInformationMessage(
+        `CloakCode: signed out of ${plan.url} — run "Sign in to Gateway" to enter a new code.` +
+          (resolveGatewayToken({
+            gatewayToken: cfgNow.get<string>("gatewayToken"),
+            envGatewayToken: process.env["CLOAKCODE_GATEWAY_TOKEN"],
+          })
+            ? " (cloakcode.gatewayToken is still set and will be presented instead.)"
+            : ""),
       );
     }),
   );

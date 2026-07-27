@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { startGateway, OperatorAuth, type Gateway } from "@cloakcode/gateway";
 import {
+  clearProviderToken,
   providerTokenKey,
   resolveProviderCredential,
   storeProviderToken,
@@ -56,6 +57,27 @@ describe("resolveProviderCredential", () => {
     const secrets = fakeSecrets();
     await storeProviderToken(secrets, url, "tok-2");
     expect(await resolveProviderCredential(secrets, url)).toBe("tok-2");
+  });
+
+  it("forgets a cleared token and falls back (sign-out is reproducible)", async () => {
+    const url = "ws://gw:7900";
+    const secrets = fakeSecrets();
+    await storeProviderToken(secrets, url, "tok-3");
+    await clearProviderToken(secrets, url);
+    // Nothing stored → prompt again (undefined), or the static escape hatch.
+    expect(await resolveProviderCredential(secrets, url)).toBeUndefined();
+    expect(await resolveProviderCredential(secrets, url, "static")).toBe(
+      "static",
+    );
+  });
+
+  it("clears only the named gateway's token", async () => {
+    const secrets = fakeSecrets();
+    await storeProviderToken(secrets, "ws://a:1", "tok-a");
+    await storeProviderToken(secrets, "ws://b:2", "tok-b");
+    await clearProviderToken(secrets, "ws://a:1");
+    expect(await resolveProviderCredential(secrets, "ws://a:1")).toBeUndefined();
+    expect(await resolveProviderCredential(secrets, "ws://b:2")).toBe("tok-b");
   });
 });
 

@@ -97,6 +97,11 @@
         "category": "CloakCode"
       },
       {
+        "command": "cloakcode.signOutGateway",
+        "title": "Sign out of Gateway (forget token)",
+        "category": "CloakCode"
+      },
+      {
         "command": "cloakcode.enableDebugLog",
         "title": "Enable Copilot Agent Debug Log (live updates)",
         "category": "CloakCode"
@@ -114,6 +119,10 @@
         },
         {
           "command": "cloakcode.signInGateway",
+          "when": "!cloakcode.embedded"
+        },
+        {
+          "command": "cloakcode.signOutGateway",
           "when": "!cloakcode.embedded"
         }
       ]
