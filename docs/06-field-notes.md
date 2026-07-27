@@ -112,6 +112,27 @@ Base: `~/.vscode-server/data/User/`
 > ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
 > rediscovery would waste someone's time.
 
+- **A resumed TLS session presents NO certificate — cert pinning must disable resumption
+  (2026-07-27).** Symptom: over `wss://` with `cloakcode.gatewayCertFingerprint`, the **first**
+  connect worked (gateway logged `provider.auth_required`) and the very next reconnect died with
+  "certificate fingerprint does not match the configured pin" — then the extension silently started
+  a local bridge. Not a bad pin, not routing: `getPeerCertificate()` returns `{}` on a **resumed**
+  session, so the guard saw an empty fingerprint. Proven with a shared `https.Agent` against the live
+  gateway: `#1 reused=false certKeys=19` → `#2+ reused=true certKeys=0`. Fix: whenever a pin is
+  configured, `gatewayTlsOptions` supplies its own `https.Agent({ maxCachedSessions: 0 })`.
+  - **Why it never reproduced in tests or under `tsx`:** `ws` only resumes when an **explicit** agent
+    is passed — replacing `https.globalAgent` does nothing. The VS Code extension host _does_ inject
+    one (`http.proxySupport: "override"`), so **only the packaged/installed extension fails**. Four
+    sequential `connectGateway` calls (incl. the MFA sign-in + token reconnect) pass under `tsx`.
+    Reproduce this class of bug with a shared agent, not by repeating the call.
+  - **Corollary (worse):** in CA-pin mode `checkServerIdentity` is _not called_ on a resumed session,
+    so the fingerprint check was being **silently skipped**. A pin a transport optimisation can skip
+    is not a pin.
+  - When a pin/auth check fails, **fail closed** — do not fall back to the embedded bridge (a
+    working-looking local bridge masks "something else answered"). And always name **both** the
+    presented and expected fingerprints: they are public, and without them "a different cert" and
+    "no cert at all" produce byte-identical logs.
+
 - **One upstream pnpm deprecation warning remains by design (2026-07-17).** Vitest/coverage 4.1.10
   removes the old `glob@10` path; jsdom 28 removes its `whatwg-encoding` path; and
   `ignoredOptionalDependencies: [keytar]` skips VSCE's unused credential-store integration plus its

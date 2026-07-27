@@ -8,6 +8,7 @@ import { buildActuators } from "./actuators.js";
 import {
   connectGateway,
   GatewayAuthRequiredError,
+  GatewayCertPinError,
   type GatewayClient,
 } from "./gateway-client.js";
 import { type GatewayPinConfig } from "./gateway-tls.js";
@@ -568,6 +569,30 @@ export async function activate(
             `CloakCode: gateway ${gatewayUrl} requires sign-in — ` +
             `run "CloakCode: Sign in to Gateway"`;
           return `gateway ${gatewayUrl} — sign-in required`;
+        }
+        if (err instanceof GatewayCertPinError) {
+          // The configured pin did not match what answered. Like the auth case we
+          // do NOT fall back to the embedded bridge — but here silence would be
+          // worse than confusing: a working-looking local bridge would mask the
+          // fact that something other than your gateway answered. Fail closed,
+          // loudly. The message names both fingerprints so the cause is visible.
+          log.error("gateway.cert_pin_mismatch", {
+            url: gatewayUrl,
+            error: err.message,
+          });
+          void vscode.commands.executeCommand(
+            "setContext",
+            "cloakcode.embedded",
+            false,
+          );
+          status.text = "$(broadcast) CloakCode $(error)";
+          status.tooltip =
+            `CloakCode: ${gatewayUrl} failed certificate pinning — ` +
+            `no bridge started. Check cloakcode.gatewayCertFingerprint.`;
+          void vscode.window.showErrorMessage(
+            `CloakCode: ${err.message}. No bridge was started.`,
+          );
+          return `gateway ${gatewayUrl} — certificate pin mismatch`;
         }
         log.warn("gateway.unreachable", {
           error: err instanceof Error ? err.message : String(err),

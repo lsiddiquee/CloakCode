@@ -60,6 +60,22 @@ export class GatewayAuthRequiredError extends Error {
 }
 
 /**
+ * Rejection reason when the gateway's certificate **failed the configured pin**
+ * (`cloakcode.gatewayCertFingerprint`) — a security signal, not a connectivity
+ * one. The caller must NOT fall back to the embedded bridge: something other than
+ * the expected gateway answered (a proxy, a rotated cert, the wrong host), and
+ * silently starting a local bridge would hide that behind a working-looking setup.
+ * `message` names the presented and expected fingerprints — public material, and
+ * the only way to tell a substituted cert from one that was never presented.
+ */
+export class GatewayCertPinError extends Error {
+  constructor(url: string, detail: string) {
+    super(`gateway ${url} rejected — ${detail}`);
+    this.name = "GatewayCertPinError";
+  }
+}
+
+/**
  * Client mode (docs/03 "Explicit gateway"): connect OUT to a standalone gateway
  * as a **provider** instead of hosting a local bridge. Announces `provider.hello`,
  * then serves the gateway's forwarded RPCs with the *same* per-connection handler
@@ -147,22 +163,18 @@ export function connectGateway(
           // is a real CloakCode gateway; only then do we send the full hello.
           s.send(knockFrame("provider"));
         },
-        () => {
+        (err) => {
           // Fingerprint-only pin mismatch: fail closed. Do not knock/hello an
           // unverified server, surface the reason, and do not reconnect-loop.
+          // The reason carries BOTH fingerprints (or "no certificate"), so a
+          // report says WHICH failure this was.
           lastError = "GATEWAY_CERT_FINGERPRINT_MISMATCH";
-          log(
-            `gateway ${url} rejected: certificate fingerprint does not match the configured pin`,
-          );
+          log(`gateway ${url} rejected: ${err.message}`);
           closed = true;
           if (!settled) {
             settled = true;
             clearTimeout(firstTimer);
-            reject(
-              new Error(
-                `gateway ${url} certificate fingerprint does not match the configured pin`,
-              ),
-            );
+            reject(new GatewayCertPinError(url, err.message));
           }
         },
       );

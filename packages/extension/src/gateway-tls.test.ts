@@ -33,6 +33,25 @@ describe("verifyPinnedCert", () => {
     expect(String(err)).toMatch(/fingerprint/i);
   });
 
+  it("names BOTH fingerprints so a mismatch is diagnosable", () => {
+    // Without this the message is identical whether the peer sent a different
+    // cert or none at all — undebuggable from a log (bit us 2026-07-27).
+    const presented = "00:" + PIN.slice(3);
+    const err = verifyPinnedCert(PIN, { fingerprint256: presented });
+    expect(err?.message).toContain(normalizeFingerprint(presented));
+    expect(err?.message).toContain(normalizeFingerprint(PIN));
+  });
+
+  it("distinguishes 'no certificate presented' from a real mismatch", () => {
+    expect(verifyPinnedCert(PIN, {})?.message).toMatch(/no certificate/i);
+    expect(verifyPinnedCert(PIN, { fingerprint256: "" })?.message).toMatch(
+      /no certificate/i,
+    );
+    expect(verifyPinnedCert(PIN, {})?.message).toContain(
+      normalizeFingerprint(PIN),
+    );
+  });
+
   it("fails closed when the peer presents no fingerprint", () => {
     expect(verifyPinnedCert(PIN, { fingerprint256: "" })).toBeInstanceOf(Error);
     expect(verifyPinnedCert(PIN, {})).toBeInstanceOf(Error);
@@ -85,6 +104,39 @@ describe("gatewayTlsOptions", () => {
   it("has no checkServerIdentity override when only a CA is set (default hostname check)", () => {
     const opts = gatewayTlsOptions("wss://hub:7443", { caPem: "PEM" });
     expect(opts.checkServerIdentity).toBeUndefined();
+  });
+
+  it("disables TLS session resumption whenever a fingerprint is pinned", () => {
+    // A RESUMED session presents no certificate: `getPeerCertificate()` returns
+    // `{}` and `checkServerIdentity` is never called, so the pin silently can't
+    // be verified — the guard then rejects a legitimate gateway (observed: the
+    // first connect works, every reconnect "fails the pin"). Proven against the
+    // live gateway 2026-07-27: attempt #1 certKeys=19, #2+ reused=true keys=0.
+    // Own the agent so no shared session cache (the extension host installs one
+    // via `http.proxySupport`) can skip verification.
+    for (const pin of [
+      { fingerprint: PIN },
+      { fingerprint: PIN, caPem: "P" },
+    ]) {
+      const agent = gatewayTlsOptions("wss://hub:7443", pin).agent;
+      expect(agent).toBeDefined();
+      expect(
+        (agent as unknown as { options: { maxCachedSessions?: number } })
+          .options.maxCachedSessions,
+      ).toBe(0);
+    }
+  });
+
+  it("leaves the agent alone when there is nothing to pin", () => {
+    // No pin → nothing to verify per-connection, so don't override the host's
+    // agent (it may carry the user's proxy configuration).
+    expect(gatewayTlsOptions("wss://hub:7443").agent).toBeUndefined();
+    expect(gatewayTlsOptions("wss://hub:7443", { caPem: "P" }).agent).toBe(
+      undefined,
+    );
+    expect(gatewayTlsOptions("ws://hub:7900", { fingerprint: PIN }).agent).toBe(
+      undefined,
+    );
   });
 });
 

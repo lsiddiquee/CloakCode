@@ -156,6 +156,25 @@ fingerprint pin if provided). With **no pin and no CA** on a `wss://` URL we sti
 `cloakcode.gatewayUrl`/`gatewayCaFile`/`gatewayCertFingerprint` settings are `machine`-scoped (S4a),
 so a workspace cannot redirect or unpin the link.
 
+**A pinned connection never resumes a TLS session** (`noResumptionAgent`, verified 2026-07-27). On a
+resumed session the server presents **no certificate**: `getPeerCertificate()` returns `{}` and
+`checkServerIdentity` is not called — so in fingerprint-only mode the guard rejects a _legitimate_
+gateway (the first connect works, every reconnect "fails the pin") and in CA-pin mode the fingerprint
+check is **silently skipped**. Whenever a fingerprint is configured the extension therefore supplies
+its **own** `https.Agent({ maxCachedSessions: 0 })`, forcing a full handshake per connection. This
+deliberately bypasses VS Code's `http.proxySupport` agent injection for this one socket — that
+injected, session-caching agent is what triggered the bug, and a pin that can be skipped by a
+transport optimisation is not a pin. The gateway is your own host (loopback / LAN / your tunnel), so
+no corporate proxy is expected on this path; a proxy that _did_ intercept would fail the pin by design.
+
+**A pin failure never falls back to the embedded bridge.** `connectGateway` rejects with a distinct
+`GatewayCertPinError` (not the generic "unreachable"), and the extension logs
+`gateway.cert_pin_mismatch`, shows an error notification and starts **no** bridge — same fail-closed
+treatment as `GatewayAuthRequiredError`. Starting a local bridge instead would hide "something other
+than your gateway answered" behind a working-looking setup. Only genuine unreachability (refused
+connection, timeout) still falls back. The error names the **presented and expected** fingerprints —
+public material, and the only way to tell a substituted cert from one that was never presented.
+
 The cert + fingerprint are provisioned **out-of-band via the authenticated PWA** — a “Connect an
 extension” action behind the Dev Tunnel sign-in + operator TOTP (the `gateway.connectInfo` operator RPC
 → the web view; the gateway also prints the `wss://` URL + fingerprint to its console as the fallback).

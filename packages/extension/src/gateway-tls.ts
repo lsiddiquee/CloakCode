@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import { Agent } from "node:https";
 import type { PeerCertificate, TLSSocket } from "node:tls";
 import type { ClientOptions, WebSocket } from "ws";
 
@@ -62,6 +63,12 @@ export function isFingerprintOnly(url: string, pin: GatewayPinConfig): boolean {
  * The pin check: accept (return `undefined`) iff the peer cert's SHA-256
  * fingerprint equals the expected pin; else return an `Error` (fail closed).
  * Separated out so it unit-tests directly with a `PeerCertificate`.
+ *
+ * The message **names both fingerprints**, and says so explicitly when the peer
+ * presented none: otherwise "a different server answered" and "we never captured
+ * the certificate" produce byte-identical logs, which is undebuggable from a
+ * report (cost real time 2026-07-27). A certificate fingerprint is public
+ * material — the gateway prints its own — so this leaks no secret.
  */
 export function verifyPinnedCert(
   expectedFingerprint: string,
@@ -69,11 +76,29 @@ export function verifyPinnedCert(
 ): Error | undefined {
   const expected = normalizeFingerprint(expectedFingerprint);
   const actual = normalizeFingerprint(cert.fingerprint256 ?? "");
-  return actual === expected
-    ? undefined
-    : new Error(
-        "cloakcode: gateway certificate fingerprint does not match the configured pin",
-      );
+  if (actual === expected) return undefined;
+  return new Error(
+    actual === ""
+      ? `cloakcode: gateway presented no certificate to pin (expected ${expected})`
+      : `cloakcode: gateway certificate fingerprint does not match the configured pin ` +
+          `(presented ${actual}, expected ${expected})`,
+  );
+}
+
+/**
+ * An agent that never resumes a TLS session, so every pinned connection does a
+ * **full** handshake and the server therefore always presents its certificate.
+ *
+ * On a resumed session the peer sends no certificate: `getPeerCertificate()`
+ * returns `{}` and `checkServerIdentity` is not called — the pin then cannot be
+ * verified at all. That is both a false rejection (the first connect works and
+ * every reconnect "fails the pin" — exactly what a packaged extension hit on
+ * 2026-07-27) and, in CA-pin mode, a silent *skip* of the fingerprint check.
+ * Owning the agent also means a shared session cache we don't control (VS Code
+ * installs one for extensions via `http.proxySupport`) can't reintroduce it.
+ */
+function noResumptionAgent(rejectUnauthorized: boolean): Agent {
+  return new Agent({ maxCachedSessions: 0, rejectUnauthorized });
 }
 
 /**
@@ -92,7 +117,12 @@ export function gatewayTlsOptions(
   // off (a self-signed chain would otherwise fail BEFORE the pin runs, and
   // checkServerIdentity is ignored when auth is off); guardFingerprintPin then
   // verifies the exact cert by hand and fails closed. See the module doc.
-  if (isFingerprintOnly(url, pin)) return { rejectUnauthorized: false };
+  if (isFingerprintOnly(url, pin)) {
+    return {
+      rejectUnauthorized: false,
+      agent: noResumptionAgent(false),
+    };
+  }
 
   // CA-pin / real-CA: never accept an unverified certificate.
   const opts: ClientOptions = { rejectUnauthorized: true };
@@ -100,6 +130,8 @@ export function gatewayTlsOptions(
 
   if (pin.fingerprint && pin.fingerprint.trim()) {
     const expected = pin.fingerprint;
+    // The pin must be checked on EVERY connection, so this mode owns its agent too.
+    opts.agent = noResumptionAgent(true);
     // @types/ws types `checkServerIdentity` as `(servername, CertMeta) => boolean`,
     // but at runtime ws forwards it to Node's `tls.connect`, which uses the
     // standard `(host, cert: PeerCertificate) => Error | undefined` contract

@@ -14,6 +14,7 @@ import type { SessionSummary } from "@cloakcode/protocol";
 import {
   connectGateway,
   GatewayAuthRequiredError,
+  GatewayCertPinError,
   type GatewayClient,
 } from "./gateway-client.js";
 import { parseSessionEvents } from "./session-observer.js";
@@ -441,6 +442,10 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
 
   it("fails closed on a fingerprint-only mismatch (no CA)", async () => {
     await startTlsGateway();
+    // A DISTINCT error type, not a generic one: the caller must be able to tell a
+    // pin mismatch (a security signal — never fall back to a local bridge) apart
+    // from an unreachable hub (fall back is fine). The message names both
+    // fingerprints so a field report says WHICH cert answered.
     await expect(
       connectGateway(
         `wss://127.0.0.1:${gateway!.providerPort}`,
@@ -453,7 +458,8 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
         undefined,
         { fingerprint: WRONG_PIN }, // no caPem: the manual verify rejects it
       ),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(GatewayCertPinError);
+    expect(gateway!.registry.all().length).toBe(0);
   });
 
   // The real-world path the operator actually runs: wss (fingerprint-pinned) +
