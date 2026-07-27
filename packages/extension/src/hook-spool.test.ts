@@ -730,4 +730,39 @@ describe("buildCarouselAnswers", () => {
     ]);
     expect(rec[`${RAW_QUESTION}:0`]).toBe("this is from our cloakcode ui");
   });
+
+  it("gives a custom answer PRIORITY over a single-select option", () => {
+    // The dropped-freeform bug: a single-select carrying both used to deliver
+    // only `selectedValue`, silently discarding what the operator typed.
+    const rec = buildCarouselAnswers(RAW_QUESTION, [
+      { selected: ["Read-only"], freeText: "take action", hasOptions: true },
+    ]);
+    expect(rec[`${RAW_QUESTION}:0`]).toEqual({ freeformValue: "take action" });
+  });
+
+  it("uses freeformValue (not a bare string) for a custom answer on an options-bearing question", () => {
+    // §4.16 correction: the single/multi carousel reads a custom value from
+    // `freeformValue`; only a NO-OPTIONS `text` question takes a bare string.
+    const rec = buildCarouselAnswers(RAW_QUESTION, [
+      { selected: [], freeText: "something else", hasOptions: true },
+    ]);
+    expect(rec[`${RAW_QUESTION}:0`]).toEqual({
+      freeformValue: "something else",
+    });
+  });
+
+  it("keeps BOTH values on a multi-select (options + custom answer)", () => {
+    const rec = buildCarouselAnswers(RAW_QUESTION, [
+      {
+        selected: ["Unit", "E2E"],
+        freeText: "and fuzz",
+        multiSelect: true,
+        hasOptions: true,
+      },
+    ]);
+    expect(rec[`${RAW_QUESTION}:0`]).toEqual({
+      selectedValues: ["Unit", "E2E"],
+      freeformValue: "and fuzz",
+    });
+  });
 });

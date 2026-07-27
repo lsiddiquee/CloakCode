@@ -148,7 +148,14 @@ export interface CarouselAnswerValue {
  * TYPE or VS Code mis-renders it: a `multiSelect` → `selectedValues` (+ optional
  * `freeformValue`); a chosen option → `selectedValue`; a free-text (`text`)
  * question with no options → a **bare string** (the text carousel restores it via
- * `String(answer)`, so an object would show "[object Object]"). Pure.
+ * `String(answer)`, so an object would show "[object Object]").
+ *
+ * A custom answer takes **priority** on a single-select: the client clears the
+ * selection the moment the operator types (a single-select has exactly one
+ * answer), so freeform is what they meant. Its shape depends on whether the
+ * question offered options — `hasOptions` (docs/02.3 §4.16 correction). A
+ * multi-select keeps BOTH: "pick all that apply, plus add your own" is a real
+ * VS Code shape, so clearing there stays a manual action. Pure.
  */
 export function buildCarouselAnswers(
   resolveId: string,
@@ -164,14 +171,17 @@ export function buildCarouselAnswers(
         selectedValues: a.selected,
         ...(a.freeText ? { freeformValue: a.freeText } : {}),
       };
+    } else if (a.freeText) {
+      // singleSelect answered with a custom value → freeform WINS. An
+      // options-bearing carousel reads it from `freeformValue`; a no-options
+      // ('text') question needs a BARE STRING (an object shows "[object Object]").
+      record[key] = a.hasOptions ? { freeformValue: a.freeText } : a.freeText;
     } else if (only !== undefined) {
       // singleSelect question with a chosen option.
       record[key] = { selectedValue: only };
     } else {
-      // No option selected → a free-text ('text') question: deliver a BARE
-      // STRING (VS Code's text carousel restores it via `String(answer)`, so an
-      // object shows "[object Object]"). Covers a custom freeform answer too.
-      record[key] = a.freeText ?? "";
+      // Nothing chosen and nothing typed → an empty text answer.
+      record[key] = "";
     }
   });
   return record;

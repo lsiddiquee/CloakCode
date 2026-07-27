@@ -391,7 +391,7 @@ export type PendingBlocker = z.infer<typeof pendingBlockerSchema>;
  * One question's answer in a structured `session.answer`, by question index.
  * `selected` are the chosen option labels (empty = skipped/freeform-only);
  * `freeText` is the freeform value when allowed. The extension maps these onto
- * the core carousel's `{selectedValues, freeformValue}` answer shape.
+ * the core carousel's `{selectedValue(s), freeformValue}` answer shape.
  */
 export const questionAnswerSchema = z.object({
   selected: z.array(z.string()),
@@ -399,6 +399,12 @@ export const questionAnswerSchema = z.object({
   // When true the question is multi-select — the extension delivers `selected`
   // as `selectedValues` (not a single `selectedValue`) so VS Code renders it.
   multiSelect: z.boolean().optional(),
+  // Whether the question OFFERED options. It disambiguates the two freeform
+  // shapes (docs/02.3 §4.16 correction): an options-bearing carousel reads a
+  // custom answer from `freeformValue`, while a no-options `text` carousel
+  // restores it via `String(answer)` and so needs a BARE STRING. Absent
+  // (legacy) ⇒ treated as no options, the previous behaviour.
+  hasOptions: z.boolean().optional(),
 });
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 

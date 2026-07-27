@@ -903,17 +903,32 @@ function PendingCard({
       next[i] = { ...getAns(i), ...p };
       return next;
     });
-  // Single-select replaces the choice; multi-select toggles the label in/out.
+  // Single-select holds exactly ONE answer, so picking replaces (and a second
+  // click on the chosen option CLEARS it — there was no way back); multi-select
+  // toggles the label in/out. Picking an option on a single-select also drops
+  // any typed custom answer, the mirror of `setFreeText` below: what the card
+  // shows is exactly what gets sent.
   const toggle = (i: number, label: string, multi: boolean): void => {
     const cur = getAns(i).selected;
-    patch(i, {
-      selected: multi
-        ? cur.includes(label)
+    if (multi) {
+      patch(i, {
+        selected: cur.includes(label)
           ? cur.filter((x) => x !== label)
-          : [...cur, label]
-        : [label],
+          : [...cur, label],
+      });
+      return;
+    }
+    patch(i, {
+      selected: cur.includes(label) ? [] : [label],
+      freeText: "",
     });
   };
+  // Typing a custom answer takes PRIORITY on a single-select, so it clears the
+  // chosen option (the extension would otherwise have to drop one of the two —
+  // it used to silently drop the text). A multi-select legitimately carries
+  // both ("pick all that apply, plus add your own"), so clearing stays manual.
+  const setFreeText = (i: number, value: string, multi: boolean): void =>
+    patch(i, { freeText: value, ...(multi ? {} : { selected: [] }) });
 
   const structuredAnswers: QuestionAnswer[] = confirmations.map((c, qi) => {
     const a = getAns(qi);
@@ -921,6 +936,10 @@ function PendingCard({
       selected: a.selected,
       freeText: a.freeText || null,
       ...(c.multiSelect ? { multiSelect: true } : {}),
+      // Lets the extension pick the right freeform shape: an options-bearing
+      // carousel reads `freeformValue`, a no-options `text` one a bare string
+      // (docs/02.3 §4.16 correction).
+      ...(c.options.length > 0 ? { hasOptions: true } : {}),
     };
   });
   const canSend =
@@ -980,7 +999,9 @@ function PendingCard({
                     placeholder="Type a custom answer…"
                     value={getAns(step).freeText}
                     disabled={sending}
-                    onChange={(e) => patch(step, { freeText: e.target.value })}
+                    onChange={(e) =>
+                      setFreeText(step, e.target.value, c.multiSelect ?? false)
+                    }
                   />
                 )}
               </div>

@@ -401,6 +401,90 @@ describe("PendingCard question stepper", () => {
   });
 });
 
+describe("PendingCard answer semantics", () => {
+  const answersSent = (): unknown =>
+    (h.answer.mock.calls[0]?.[0] as { answers?: unknown } | undefined)?.answers;
+
+  function freeformBlocker(multiSelect?: boolean): PendingBlocker {
+    return {
+      toolCallId: "tc-f",
+      toolName: "vscode_askQuestions",
+      resolveId: "tc-f__vscode-0",
+      createdAt: new Date().toISOString(),
+      confirmations: [
+        {
+          kind: "confirmation",
+          id: "q1",
+          prompt: "Working style?",
+          allowFreeform: true,
+          ...(multiSelect ? { multiSelect: true } : {}),
+          options: [
+            { id: "r", label: "Read-only" },
+            { id: "t", label: "Take action" },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("deselects a single-select option on a second click", () => {
+    h.pending = [freeformBlocker()];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    const opt = screen.getByRole("button", { name: /Read-only/ });
+    fireEvent.click(opt);
+    expect(opt.className).toContain("chosen");
+    // Clicking the chosen option again clears it — there was no way back.
+    fireEvent.click(opt);
+    expect(opt.className).not.toContain("chosen");
+    expect(
+      (screen.getByRole("button", { name: /Send answer/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("a typed custom answer clears the single-select option and wins", async () => {
+    h.pending = [freeformBlocker()];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    const opt = screen.getByRole("button", { name: /Read-only/ });
+    fireEvent.click(opt);
+    fireEvent.change(screen.getByPlaceholderText("Type a custom answer…"), {
+      target: { value: "watch only, ask first" },
+    });
+    expect(opt.className).not.toContain("chosen");
+
+    fireEvent.click(screen.getByRole("button", { name: /Send answer/ }));
+    expect(await screen.findByText("Answer sent ✓")).toBeTruthy();
+    expect(answersSent()).toEqual([
+      { selected: [], freeText: "watch only, ask first", hasOptions: true },
+    ]);
+  });
+
+  it("a multi-select keeps its options when a custom answer is typed", async () => {
+    h.pending = [freeformBlocker(true)];
+    render(<SessionView session={session()} onBack={() => {}} />);
+
+    const opt = screen.getByRole("button", { name: /Read-only/ });
+    fireEvent.click(opt);
+    fireEvent.change(screen.getByPlaceholderText("Type a custom answer…"), {
+      target: { value: "and log it" },
+    });
+    expect(opt.className).toContain("chosen");
+
+    fireEvent.click(screen.getByRole("button", { name: /Send answer/ }));
+    expect(await screen.findByText("Answer sent ✓")).toBeTruthy();
+    expect(answersSent()).toEqual([
+      {
+        selected: ["Read-only"],
+        freeText: "and log it",
+        multiSelect: true,
+        hasOptions: true,
+      },
+    ]);
+  });
+});
+
 describe("PendingCard approve/deny", () => {
   function decisionBlocker(): PendingBlocker {
     return {
