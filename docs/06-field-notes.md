@@ -166,6 +166,23 @@ Base: `~/.vscode-server/data/User/`
     agent when none is supplied — that one passes with a fix that the real host would have thrown
     away. **Simulate the hostile host, not the polite one.**
 
+- **An error must report the CAUSE and the REMEDY, not the failed assertion (2026-07-27).** The bug
+  above cost hours mostly because of its message: `gateway presented no certificate to pin (expected
+  82F2…)`. Post-mortem of why that was cryptic — all four apply to any check you write:
+  - **It reported what the check saw, not why.** The cause ("the session was resumed") was one call
+    away — `isSessionReused()` on the socket we already held `getPeerCertificate()` from — and the
+    resumption behaviour was already written down in docs/04. **If you documented a failure mode,
+    detect it at the failure site.**
+  - **It echoed an expected value in a failure where the expectation wasn't what broke.** Printing
+    `(expected <pin>)` framed a transport problem as a config problem, so the first reactions were to
+    remove the fingerprint and restart the gateway — both dead ends. Naming both values is right for
+    a genuine **mismatch** and misleading when **nothing was compared**.
+  - **No remedy.** A cause the operator can't act on is still a dead end; name the setting to change.
+  - **Two causes shared one error type.** "Different cert" and "no cert" have different causes and
+    different fixes, so one message had to serve both — and it served the rare one. The log event
+    (`gateway.cert_pin_mismatch`) then asserted a mismatch that never happened: **the event name is
+    part of the message.**
+
 - **One upstream pnpm deprecation warning remains by design (2026-07-17).** Vitest/coverage 4.1.10
   removes the old `glob@10` path; jsdom 28 removes its `whatwg-encoding` path; and
   `ignoredOptionalDependencies: [keytar]` skips VSCE's unused credential-store integration plus its
