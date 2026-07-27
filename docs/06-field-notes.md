@@ -140,6 +140,32 @@ Base: `~/.vscode-server/data/User/`
     presented and expected fingerprints: they are public, and without them "a different cert" and
     "no cert at all" produce byte-identical logs.
 
+- **VS Code DISCARDS an extension's `https.Agent` for every host but `localhost`/`127.0.0.1`
+  (2026-07-27).** The follow-up to the bullet above: the "own agent" fix worked on loopback and did
+  nothing for `wss://host.docker.internal:7901`. Cause, in the server's own
+  `@vscode/proxy-agent/out/index.js` (~line 460):
+  `const isLocalhost = !host || host === 'localhost' || host === '127.0.0.1';` and then
+  `originalAgent: (!useProxySettings || isLocalhost || config === 'fallback') ? originalAgent : undefined`
+  — a carve-out for microsoft/vscode#120354 (don't proxy loopback dev servers), so preserving our
+  agent there is an accident. Only the **default** `"override"` drops it; `"on"`, `"off"` and
+  `"fallback"` keep it. **Rule: an extension cannot rely on its own agent surviving. Anything you
+  must guarantee has to live on the request `options` (`ca`, `checkServerIdentity`,
+  `rejectUnauthorized`) — those are preserved (`options.ca = originalCa` is re-applied explicitly).**
+  - The user-visible deadlock this caused: connect #1 (full handshake) → the gateway asks for
+    sign-in → entering the code triggers a **reconnect** → that reconnect resumes → "presented no
+    certificate" → the code is never delivered. Sign-in was unreachable, and restarting the gateway
+    only bought one more connection. **When a feature's happy path needs a reconnect, a
+    reconnect-only defect is a total outage, not a degradation.**
+  - Fix (no new setting, `selfProvisionedPin`): fetch the gateway's cert over a direct `tls.connect`
+    (agent-less, never resumed, and only `addCertificatesV2` patches it), verify the fingerprint
+    against it, then pass it as `ca`. That converts fingerprint-only into the already-tested CA-pin
+    path — same trust decision, enforced by the TLS stack, which handles resumption correctly.
+    Reaching for options the host preserves beat fighting it for the agent.
+  - Test that proves it: patch `https.request` to **overwrite** `options.agent` (discard, not
+    default) and connect three times in a row. Distinct from the earlier test that only injects an
+    agent when none is supplied — that one passes with a fix that the real host would have thrown
+    away. **Simulate the hostile host, not the polite one.**
+
 - **One upstream pnpm deprecation warning remains by design (2026-07-17).** Vitest/coverage 4.1.10
   removes the old `glob@10` path; jsdom 28 removes its `whatwg-encoding` path; and
   `ignoredOptionalDependencies: [keytar]` skips VSCE's unused credential-store integration plus its

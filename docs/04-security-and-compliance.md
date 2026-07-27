@@ -167,6 +167,26 @@ injected, session-caching agent is what triggered the bug, and a pin that can be
 transport optimisation is not a pin. The gateway is your own host (loopback / LAN / your tunnel), so
 no corporate proxy is expected on this path; a proxy that _did_ intercept would fail the pin by design.
 
+**A fingerprint-only pin provisions its own CA** (verified 2026-07-27). The agent above is not always
+ours to give: under the default `http.proxySupport: "override"`, `@vscode/proxy-agent` **discards an
+extension-supplied agent for every host except `localhost`/`127.0.0.1`** (an explicit carve-out for
+microsoft/vscode#120354) and substitutes its own session-caching one — so a `wss://` gateway reached by
+any other name resumes anyway, and fingerprint-only pinning rejects it on every reconnect after the
+first. That made provider **sign-in unreachable**: entering a code triggers a reconnect, and the
+reconnect is precisely the connection that resumes. What the host *does* preserve is the request
+`options`: `ca`, `checkServerIdentity` and `rejectUnauthorized` all survive.
+
+So a fingerprint-only link **self-provisions its own CA** (`selfProvisionedPin`) instead of asking the
+operator for a PEM: before connecting, the extension fetches the gateway's certificate over a direct
+`tls.connect` (unpatched by the host, and never resumed), **verifies the configured fingerprint against
+it**, and then connects with that cert as the `ca`. Fingerprint-only stays the one-value setup it was
+meant to be, and the trust decision is unchanged — the fingerprint, and nothing else, is what makes the
+fetched cert acceptable. Everything after that is strictly stronger: `rejectUnauthorized` back on, full
+chain validation against the pinned cert on **every** connection (resumed or not), and the fingerprint
+re-checked in `checkServerIdentity` on each full handshake. A probe that reaches a server presenting the
+wrong cert fails closed before any frame is sent; a probe that reaches nothing is just unreachability.
+An explicit `cloakcode.gatewayCaFile` still short-circuits all of this.
+
 **A pin failure never falls back to the embedded bridge.** `connectGateway` rejects with a distinct
 `GatewayCertPinError` (not the generic "unreachable"), and the extension logs
 `gateway.cert_pin_mismatch`, shows an error notification and starts **no** bridge — same fail-closed

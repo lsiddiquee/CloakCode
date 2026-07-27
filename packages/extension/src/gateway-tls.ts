@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { Agent } from "node:https";
+import { connect as tlsConnect } from "node:tls";
 import type { PeerCertificate, TLSSocket } from "node:tls";
 import type { ClientOptions, WebSocket } from "ws";
 
@@ -145,6 +146,113 @@ export function gatewayTlsOptions(
 }
 
 /**
+ * The "no certificate" case we can actually explain. A **resumed** TLS session
+ * carries no certificate, so the fingerprint cannot be checked and we fail closed
+ * — but the pin is not wrong. {@link selfProvisionedPin} makes this unreachable in
+ * normal operation (a fingerprint-only link is upgraded to a CA-pin, which the TLS
+ * stack enforces even on a resumed session); it remains as the honest report if a
+ * host ever manages to hand us a resumed, unvalidated session anyway.
+ */
+function resumedPinError(): Error {
+  return new Error(
+    "cloakcode: the gateway's TLS session was RESUMED, so it presented no " +
+      "certificate and the fingerprint pin could not be checked (the pin itself " +
+      "is not wrong). Set cloakcode.gatewayCaFile to the gateway's certificate — " +
+      "CA-pinning is enforced by the TLS stack and is unaffected — or set " +
+      'http.proxySupport to "on" so VS Code stops replacing CloakCode\'s ' +
+      "connection agent.",
+  );
+}
+
+/** DER (`cert.raw`) → the PEM text Node accepts as a `ca` trust anchor. */
+function derToPem(der: Buffer): string {
+  const lines = der.toString("base64").match(/.{1,64}/g) ?? [];
+  return [
+    "-----BEGIN CERTIFICATE-----",
+    ...lines,
+    "-----END CERTIFICATE-----",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Fetch the gateway's own certificate over a **direct** `tls.connect` and return
+ * it as PEM — but only if it matches `expected`. The probe accepts an unvalidated
+ * chain (there is nothing to validate a self-signed gateway against yet), so the
+ * fingerprint check is the ONLY thing that makes the result trustworthy: it is
+ * verified here, before the PEM is handed back, and a mismatch throws.
+ */
+async function fetchPinnedCertPem(
+  url: string,
+  expected: string,
+  timeoutMs: number,
+): Promise<string> {
+  const { hostname, port } = new URL(url);
+  return new Promise<string>((resolve, reject) => {
+    const socket = tlsConnect(
+      {
+        host: hostname,
+        port: Number(port || 443),
+        // Nothing to validate against yet — the fingerprint below is the check.
+        rejectUnauthorized: false,
+      },
+      () => {
+        const cert = socket.getPeerCertificate();
+        socket.destroy();
+        const err = verifyPinnedCert(expected, cert);
+        if (err) reject(err);
+        else if (!cert.raw) reject(new Error("cloakcode: no certificate to pin"));
+        else resolve(derToPem(cert.raw));
+      },
+    );
+    socket.setTimeout(timeoutMs, () =>
+      socket.destroy(new Error(`cloakcode: no TLS answer from ${url}`)),
+    );
+    socket.on("error", reject);
+  });
+}
+
+/**
+ * Turn a **fingerprint-only** pin into a CA-pin, with no extra configuration.
+ *
+ * Fingerprint-only pinning has to *observe* the certificate on the wire, and a
+ * resumed TLS session carries none — and we cannot prevent resumption, because
+ * `@vscode/proxy-agent` discards an extension-supplied agent for every host except
+ * `localhost`/`127.0.0.1` (an explicit carve-out for microsoft/vscode#120354) under
+ * the default `http.proxySupport: "override"`. So a non-loopback gateway would work
+ * on the first connect and fail every reconnect — including the sign-in reconnect,
+ * which made provider sign-in unreachable.
+ *
+ * What the host *does* preserve is the request options (`ca`, `checkServerIdentity`,
+ * `rejectUnauthorized`). So we fetch the gateway's cert ourselves, verify the
+ * configured fingerprint against it, and pass it as the `ca` — moving the check
+ * into the TLS stack, which treats a resumed session as already validated. The
+ * trust decision is identical to fingerprint-only (the fingerprint, and nothing
+ * else, is what makes the fetched cert acceptable) and the link is then strictly
+ * stronger: full chain validation, plus the pin re-verified in
+ * `checkServerIdentity` on every full handshake.
+ *
+ * A probe that cannot reach the gateway returns the pin unchanged — that is
+ * "unreachable", handled by the caller's normal timeout, not a pin failure. A
+ * probe that reaches a server presenting the WRONG cert throws: fail closed.
+ */
+export async function selfProvisionedPin(
+  url: string,
+  pin: GatewayPinConfig,
+  timeoutMs = 4000,
+): Promise<GatewayPinConfig> {
+  if (!isFingerprintOnly(url, pin) || !pin.fingerprint) return pin;
+  try {
+    return { ...pin, caPem: await fetchPinnedCertPem(url, pin.fingerprint, timeoutMs) };
+  } catch (err) {
+    // A fingerprint mismatch is a real pin failure and must surface; anything
+    // else (refused, timeout, reset) is unreachability — let the connect report it.
+    if (err instanceof Error && err.message.includes("to pin")) throw err;
+    return pin;
+  }
+}
+
+/**
  * Wire fingerprint-only verification onto a freshly-created `ws` socket, then
  * signal readiness. In fingerprint-only mode Node did **not** validate the cert,
  * so we capture the peer cert on `upgrade` and, the instant the socket opens,
@@ -168,10 +276,14 @@ export function guardFingerprintPin(
     return;
   }
   let peerCert: PeerCertificate | undefined;
+  let resumed = false;
   socket.on("upgrade", (res: IncomingMessage) => {
     const tlsSocket = res.socket as TLSSocket;
     if (typeof tlsSocket.getPeerCertificate === "function") {
       peerCert = tlsSocket.getPeerCertificate();
+    }
+    if (typeof tlsSocket.isSessionReused === "function") {
+      resumed = tlsSocket.isSessionReused() === true;
     }
   });
   socket.on("open", () => {
@@ -181,7 +293,7 @@ export function guardFingerprintPin(
     );
     if (err) {
       socket.terminate();
-      onReject(err);
+      onReject(resumed && !peerCert?.fingerprint256 ? resumedPinError() : err);
       return;
     }
     onVerified();

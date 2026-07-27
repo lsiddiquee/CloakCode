@@ -19,6 +19,7 @@ import { knockFrame, isGatewayKnock } from "./ws-knock.js";
 import {
   gatewayTlsOptions,
   guardFingerprintPin,
+  selfProvisionedPin,
   type GatewayPinConfig,
 } from "./gateway-tls.js";
 import { errorCode } from "./errors.js";
@@ -86,7 +87,7 @@ export class GatewayCertPinError extends Error {
  * `firstConnectTimeoutMs` — so the caller can fall back to the embedded bridge
  * when the hub is unreachable.
  */
-export function connectGateway(
+export async function connectGateway(
   url: string,
   provider: ProviderInfo,
   deps: BridgeDeps,
@@ -97,6 +98,16 @@ export function connectGateway(
   onToken?: (token: string) => void | PromiseLike<void>,
   pin: GatewayPinConfig = {},
 ): Promise<GatewayClient> {
+  // A fingerprint-only pin cannot survive a resumed TLS session (no certificate is
+  // presented) and we do not control the connection agent for a non-loopback host.
+  // Fetch + verify the gateway's cert ONCE and use it as the trust anchor, so the
+  // pin is enforced by the TLS stack on every connection (see selfProvisionedPin).
+  let effectivePin = pin;
+  try {
+    effectivePin = await selfProvisionedPin(url, pin);
+  } catch (err) {
+    throw new GatewayCertPinError(url, (err as Error).message);
+  }
   return new Promise((resolve, reject) => {
     let closed = false;
     let settled = false;
@@ -137,7 +148,7 @@ export function connectGateway(
     }, firstConnectTimeoutMs);
 
     const connect = (): void => {
-      const s = new WebSocket(url, gatewayTlsOptions(url, pin));
+      const s = new WebSocket(url, gatewayTlsOptions(url, effectivePin));
       const c: Connection = {
         alive: true,
         followers: new Map(),
@@ -155,7 +166,7 @@ export function connectGateway(
       guardFingerprintPin(
         s,
         url,
-        pin,
+        effectivePin,
         () => {
           // Server verified (or not fingerprint-only) — safe to send.
           attempt = 0;

@@ -441,11 +441,16 @@ export async function activate(
 
   // Offer gateway sign-in when the hub refuses our provider credential (F2a slice
   // 2): a one-click path to enter a code once and exchange it for a stored token.
-  const promptGatewaySignIn = (gatewayUrl: string): void => {
+  // `reason` is set when a code we DID submit was refused (e.g. it expired while
+  // being typed) — without it that failure is invisible outside the log.
+  const promptGatewaySignIn = (gatewayUrl: string, reason?: string): void => {
     void vscode.window
       .showWarningMessage(
-        `CloakCode: the gateway (${gatewayUrl}) requires sign-in — enter a code ` +
-          `from your authenticator to connect this window as a provider.`,
+        reason
+          ? `CloakCode: the gateway (${gatewayUrl}) refused the sign-in code — ` +
+              `${reason}. Codes are valid for ~60s; try one that has just refreshed.`
+          : `CloakCode: the gateway (${gatewayUrl}) requires sign-in — enter a code ` +
+              `from your authenticator to connect this window as a provider.`,
         "Sign In",
       )
       .then((pick) => {
@@ -557,6 +562,9 @@ export async function activate(
             url: gatewayUrl,
             reason: err.reason,
           });
+          // A code we submitted was refused: `onAuthRequired` consumed it instead
+          // of prompting, so nothing has told the user yet. Re-offer sign-in.
+          if (err.reason) promptGatewaySignIn(gatewayUrl, err.reason);
           // Gateway mode (no embedded bridge): hide the operator-TOTP commands,
           // show `Sign in to Gateway`.
           void vscode.commands.executeCommand(

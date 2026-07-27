@@ -634,6 +634,52 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
     expect(broughtOwnAgent).toEqual([true, true]);
   });
 
+  it("reconnects when the host DISCARDS our agent (proxySupport 'override', non-loopback)", async () => {
+    // The production failure, exactly: `@vscode/proxy-agent` keeps an
+    // extension-supplied agent only for localhost/127.0.0.1, so for any other
+    // host our no-resumption agent is thrown away and replaced by a
+    // session-caching one. The first connect then succeeds and EVERY reconnect
+    // dies with "presented no certificate" — including the sign-in reconnect,
+    // which made provider sign-in unreachable. Pinning must survive that.
+    const { fingerprint } = await startTlsGateway();
+    const url = `wss://127.0.0.1:${gateway!.providerPort}`;
+    const injected = new https.Agent({
+      keepAlive: true,
+      maxCachedSessions: 100,
+    });
+    const realRequest = https.request;
+    const patched = https as { request: typeof https.request };
+    patched.request = ((
+      options: https.RequestOptions,
+      cb?: (res: IncomingMessage) => void,
+    ) => {
+      options.agent = injected; // discarded, not merely defaulted
+      return realRequest(options, cb);
+    }) as typeof https.request;
+
+    try {
+      for (const attempt of [1, 2, 3]) {
+        client = await connectGateway(
+          url,
+          { instanceId: `i${attempt}` },
+          deps,
+          () => {},
+          4000,
+          undefined,
+          undefined,
+          undefined,
+          { fingerprint },
+        );
+        expect(gateway!.registry.all().length).toBe(1);
+        client.close();
+        client = undefined;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    } finally {
+      patched.request = realRequest;
+    }
+  });
+
   it("reconnects with the token minted by an MFA sign-in (the real sign-in leg)", async () => {
     // The exact production sequence: connect → auth_required → sign in with a
     // code → the extension reconnects presenting the issued token. The reconnect

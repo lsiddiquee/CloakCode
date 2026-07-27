@@ -178,9 +178,16 @@ function fakeSocket(): EventEmitter & { terminated: boolean } {
 }
 
 /** Emit an `upgrade` whose TLS socket presents `fingerprint256`. */
-function emitUpgrade(sock: EventEmitter, fingerprint256: string): void {
+function emitUpgrade(
+  sock: EventEmitter,
+  fingerprint256: string,
+  reused = false,
+): void {
   sock.emit("upgrade", {
-    socket: { getPeerCertificate: () => ({ fingerprint256 }) },
+    socket: {
+      getPeerCertificate: () => ({ fingerprint256 }),
+      isSessionReused: () => reused,
+    },
   });
 }
 
@@ -236,6 +243,28 @@ describe("guardFingerprintPin", () => {
     expect(verified).toBe(false);
     expect(rejected).toBeInstanceOf(Error);
     expect(sock.terminated).toBe(true);
+  });
+
+  it("(fingerprint-only) blames a RESUMED session, not the pin, when no cert was sent", () => {
+    const sock = fakeSocket();
+    let verified = false;
+    let rejected: Error | undefined;
+    guardFingerprintPin(
+      sock as unknown as WebSocket,
+      "wss://hub:7443",
+      { fingerprint: PIN },
+      () => (verified = true),
+      (e) => (rejected = e),
+    );
+    emitUpgrade(sock, "", true); // resumed handshake: no certificate on the wire
+    sock.emit("open");
+    expect(verified).toBe(false);
+    expect(sock.terminated).toBe(true);
+    // The remedy must be in the message: this is not a wrong pin, and the user
+    // cannot act on "presented no certificate" alone.
+    expect(rejected?.message).toMatch(/resumed/i);
+    expect(rejected?.message).toContain("cloakcode.gatewayCaFile");
+    expect(rejected?.message).toContain("http.proxySupport");
   });
 
   it("(CA-pin / real-CA / plain ws) signals verified on open without a manual check", () => {
