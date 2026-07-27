@@ -33,13 +33,21 @@ describe("verifyPinnedCert", () => {
     expect(String(err)).toMatch(/fingerprint/i);
   });
 
-  it("names BOTH fingerprints so a mismatch is diagnosable", () => {
-    // Without this the message is identical whether the peer sent a different
-    // cert or none at all — undebuggable from a log (bit us 2026-07-27).
+  it("names both fingerprints, but neither in full", () => {
+    // Diagnosability without handing over trust material. Enough to see that a
+    // DIFFERENT cert answered (vs none at all — identical messages bit us
+    // 2026-07-27) and which pin was in effect; not enough to paste into the
+    // setting. The presented value is derived from bytes the REMOTE chose, so a
+    // full echo would let whatever answered offer its own fingerprint as the
+    // "fix" — trust-on-first-use by copy-paste. The configured one stays out of
+    // shared logs.
     const presented = "00:" + PIN.slice(3);
     const err = verifyPinnedCert(PIN, { fingerprint256: presented });
-    expect(err?.message).toContain(normalizeFingerprint(presented));
-    expect(err?.message).toContain(normalizeFingerprint(PIN));
+    const full = normalizeFingerprint(presented);
+    expect(err?.message).not.toContain(full);
+    expect(err?.message).not.toContain(normalizeFingerprint(PIN));
+    expect(err?.message).toContain(full.slice(0, 12));
+    expect(err?.message).toContain(normalizeFingerprint(PIN).slice(0, 12));
   });
 
   it("distinguishes 'no certificate presented' from a real mismatch", () => {
@@ -47,7 +55,11 @@ describe("verifyPinnedCert", () => {
     expect(verifyPinnedCert(PIN, { fingerprint256: "" })?.message).toMatch(
       /no certificate/i,
     );
+    // Says which pin was in effect, still without printing it in full.
     expect(verifyPinnedCert(PIN, {})?.message).toContain(
+      normalizeFingerprint(PIN).slice(0, 12),
+    );
+    expect(verifyPinnedCert(PIN, {})?.message).not.toContain(
       normalizeFingerprint(PIN),
     );
   });

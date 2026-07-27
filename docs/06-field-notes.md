@@ -136,9 +136,11 @@ Base: `~/.vscode-server/data/User/`
     so the fingerprint check was being **silently skipped**. A pin a transport optimisation can skip
     is not a pin.
   - When a pin/auth check fails, **fail closed** — do not fall back to the embedded bridge (a
-    working-looking local bridge masks "something else answered"). And always name **both** the
-    presented and expected fingerprints: they are public, and without them "a different cert" and
-    "no cert at all" produce byte-identical logs.
+    working-looking local bridge masks "something else answered"). Distinguish "a different cert"
+    from "no cert at all" — they produced byte-identical logs — but name each fingerprint
+    **truncated (12 hex)**, never in full: the presented value comes from bytes the *remote* chose,
+    so a full echo hands the operator a paste-ready "fix" and turns the pin into trust-on-first-use.
+    A pin is only worth something when it is read out-of-band.
 
 - **VS Code DISCARDS an extension's `https.Agent` for every host but `localhost`/`127.0.0.1`
   (2026-07-27).** The follow-up to the bullet above: the "own agent" fix worked on loopback and did
@@ -176,7 +178,8 @@ Base: `~/.vscode-server/data/User/`
   - **It echoed an expected value in a failure where the expectation wasn't what broke.** Printing
     `(expected <pin>)` framed a transport problem as a config problem, so the first reactions were to
     remove the fingerprint and restart the gateway — both dead ends. Naming both values is right for
-    a genuine **mismatch** and misleading when **nothing was compared**.
+    a genuine **mismatch** and misleading when **nothing was compared** — and even then, print them
+    **truncated**: a full echo of a remote-chosen value is a paste-ready downgrade of the pin.
   - **No remedy.** A cause the operator can't act on is still a dead end; name the setting to change.
   - **Two causes shared one error type.** "Different cert" and "no cert" have different causes and
     different fixes, so one message had to serve both — and it served the rare one. The log event

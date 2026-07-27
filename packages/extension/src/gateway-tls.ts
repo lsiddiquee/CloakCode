@@ -78,12 +78,25 @@ export function verifyPinnedCert(
   const expected = normalizeFingerprint(expectedFingerprint);
   const actual = normalizeFingerprint(cert.fingerprint256 ?? "");
   if (actual === expected) return undefined;
+  // Show enough of each to tell the failures apart (a DIFFERENT cert vs none at
+  // all vs which pin was in effect) and no more. The presented value is derived
+  // from bytes the REMOTE chose, so printing it in full lets whatever answered
+  // put a ready-to-paste "fix" in front of the operator — that turns pinning into
+  // trust-on-first-use. The configured value is theirs already, and a truncated
+  // echo keeps it out of shared logs.
   return new Error(
     actual === ""
-      ? `cloakcode: gateway presented no certificate to pin (expected ${expected})`
+      ? `cloakcode: gateway presented no certificate to pin (configured pin ${short(expected)})`
       : `cloakcode: gateway certificate fingerprint does not match the configured pin ` +
-          `(presented ${actual}, expected ${expected})`,
+          `(presented ${short(actual)}, configured ${short(expected)}). Read the correct ` +
+          `pin from the gateway's own console or its "Connect an extension" view — ` +
+          `never from this message.`,
   );
+}
+
+/** First 12 hex chars — enough to compare by eye, useless to paste. */
+function short(fingerprint: string): string {
+  return fingerprint.slice(0, 12) + "…";
 }
 
 /**

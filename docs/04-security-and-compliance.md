@@ -192,8 +192,12 @@ An explicit `cloakcode.gatewayCaFile` still short-circuits all of this.
 `gateway.cert_pin_mismatch`, shows an error notification and starts **no** bridge — same fail-closed
 treatment as `GatewayAuthRequiredError`. Starting a local bridge instead would hide "something other
 than your gateway answered" behind a working-looking setup. Only genuine unreachability (refused
-connection, timeout) still falls back. The error names the **presented and expected** fingerprints —
-public material, and the only way to tell a substituted cert from one that was never presented.
+connection, timeout) still falls back. The error names the presented and configured fingerprints
+**truncated to 12 hex chars** — enough to tell a substituted cert from one that was never presented,
+and from which pin was in effect, but not enough to paste. The presented value is derived from bytes
+the **remote chose**: printing it in full would let whatever answered put a ready-to-paste "fix" in
+front of the operator, turning a pin into trust-on-first-use. The real pin is only ever read
+out-of-band, from the gateway's own console or its authenticated **Connect an extension** view.
 
 The cert + fingerprint are provisioned **out-of-band via the authenticated PWA** — a “Connect an
 extension” action behind the Dev Tunnel sign-in + operator TOTP (the `gateway.connectInfo` operator RPC
