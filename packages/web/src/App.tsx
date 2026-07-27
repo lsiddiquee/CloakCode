@@ -150,10 +150,6 @@ export function App(): JSX.Element {
   }
 
   const connected = state.kind === "ready";
-  const blockedCount =
-    state.kind === "ready"
-      ? state.sessions.filter((s) => s.status === "blocked").length
-      : 0;
   // Group once so the app bar (settings menu) and the list share one result.
   const groups = state.kind === "ready" ? groupByWorkspace(state.sessions) : [];
   const readOnlyCount = groups.filter((g) => !isOwnedGroup(g)).length;
@@ -167,9 +163,7 @@ export function App(): JSX.Element {
             {state.kind === "ready"
               ? `${state.gateway ? `${state.gateway} · ` : ""}${
                   state.sessions.length
-                } sessions${
-                  blockedCount ? ` · ${blockedCount} needs input` : ""
-                }`
+                } sessions`
               : state.kind === "loading"
                 ? "connecting…"
                 : "offline"}
@@ -304,9 +298,7 @@ export function App(): JSX.Element {
                         group.rows.map((s) => (
                           <div
                             key={s.sessionId}
-                            className={`row ${
-                              s.status === "blocked" ? "blocked" : ""
-                            }${s.owned ? "" : " locked"}`}
+                            className={`row${s.owned ? "" : " locked"}`}
                             onClick={() => setSelected(s)}
                           >
                             <span className={`dot ${dotClass(s.status)}`} />
@@ -324,11 +316,7 @@ export function App(): JSX.Element {
                                 </span>
                               </div>
                             </div>
-                            {s.owned ? (
-                              s.status === "blocked" && (
-                                <span className="needs">Needs input</span>
-                              )
-                            ) : (
+                            {!s.owned && (
                               <span className="needs locked">read-only</span>
                             )}
                           </div>

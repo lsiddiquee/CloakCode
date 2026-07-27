@@ -26,7 +26,6 @@ describe("humanAge", () => {
 describe("statusLabel", () => {
   it("labels each status", () => {
     expect(statusLabel("active", 0)).toBe("active");
-    expect(statusLabel("blocked", 180)).toBe("blocked 3m");
     expect(statusLabel("idle", 7200)).toBe("idle 2h");
   });
 });
@@ -60,7 +59,7 @@ describe("sessionActivity", () => {
 
   it("labels a question as awaiting response", () => {
     expect(
-      sessionActivity([question], noParts, none, "blocked", true, 0),
+      sessionActivity([question], noParts, none, "active", true, 0),
     ).toEqual({
       label: "awaiting response",
       awaiting: true,
@@ -71,7 +70,7 @@ describe("sessionActivity", () => {
     const parts: SessionPart[] = [
       { kind: "confirmation", id: "c1", prompt: "?", options: [] },
     ];
-    expect(sessionActivity([], parts, none, "blocked", true, 0).label).toBe(
+    expect(sessionActivity([], parts, none, "active", true, 0).label).toBe(
       "awaiting response",
     );
   });

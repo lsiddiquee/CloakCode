@@ -314,10 +314,6 @@ button.group-label {
   border-radius: 12px;
   margin-bottom: 8px;
 }
-.row.blocked {
-  border-color: var(--amber);
-  background: color-mix(in srgb, var(--amber) 9%, var(--surface));
-}
 .row .dot {
   margin-top: 4px;
 }

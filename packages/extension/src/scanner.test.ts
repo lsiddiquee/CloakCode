@@ -25,69 +25,6 @@ describe("parseTranscript", () => {
     const parsed = parseTranscript(content);
     expect(parsed.turns).toBe(2);
     expect(parsed.title).toBe("Refactor the auth middleware");
-    expect(parsed.openInteractiveTools).toEqual([]);
-  });
-
-  it("flags an unmatched interactive tool call as an open blocker", () => {
-    const content = [
-      JSON.stringify({ type: "user.message", data: { content: "go" } }),
-      JSON.stringify({
-        type: "tool.execution_start",
-        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
-      }),
-    ].join("\n");
-    expect(parseTranscript(content).openInteractiveTools).toEqual([
-      "vscode_askQuestions",
-    ]);
-  });
-
-  it("does not flag an interactive start superseded by a later turn", () => {
-    const content = [
-      JSON.stringify({ type: "user.message", data: { content: "go" } }),
-      JSON.stringify({
-        type: "tool.execution_start",
-        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
-      }),
-      // A later turn abandons the orphaned start (its complete never flushed).
-      JSON.stringify({ type: "user.message", data: { content: "next task" } }),
-    ].join("\n");
-    expect(parseTranscript(content).openInteractiveTools).toEqual([]);
-  });
-
-  it("still flags an interactive start in the latest turn", () => {
-    const content = [
-      JSON.stringify({ type: "user.message", data: { content: "go" } }),
-      JSON.stringify({ type: "assistant.turn_start", data: {} }),
-      JSON.stringify({
-        type: "tool.execution_start",
-        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
-      }),
-    ].join("\n");
-    expect(parseTranscript(content).openInteractiveTools).toEqual([
-      "vscode_askQuestions",
-    ]);
-  });
-
-  it("does not flag a matched (completed) interactive tool call", () => {
-    const content = [
-      JSON.stringify({
-        type: "tool.execution_start",
-        data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
-      }),
-      JSON.stringify({
-        type: "tool.execution_complete",
-        data: { toolCallId: "t1", success: true },
-      }),
-    ].join("\n");
-    expect(parseTranscript(content).openInteractiveTools).toEqual([]);
-  });
-
-  it("ignores non-interactive open tool calls (e.g. run_in_terminal)", () => {
-    const content = JSON.stringify({
-      type: "tool.execution_start",
-      data: { toolCallId: "t1", toolName: "run_in_terminal" },
-    });
-    expect(parseTranscript(content).openInteractiveTools).toEqual([]);
   });
 
   it("skips malformed lines without throwing", () => {
@@ -95,7 +32,6 @@ describe("parseTranscript", () => {
     expect(parseTranscript(content)).toEqual({
       title: "",
       turns: 0,
-      openInteractiveTools: [],
       inTurn: false,
     });
   });
@@ -298,14 +234,14 @@ describe("workspaceStorageRootFromGlobalStorage", () => {
 });
 
 describe("classifyStatus", () => {
-  it("is blocked when live with an open interactive tool", () => {
-    expect(classifyStatus(10, true, 120)).toBe("blocked");
+  it("is active inside the live window", () => {
+    expect(classifyStatus(10, 120)).toBe("active");
   });
-  it("is active when live without a blocker", () => {
-    expect(classifyStatus(10, false, 120)).toBe("active");
+  it("is idle past the live window", () => {
+    expect(classifyStatus(9999, 120)).toBe("idle");
   });
-  it("is idle when past the live window regardless of open tools", () => {
-    expect(classifyStatus(9999, true, 120)).toBe("idle");
+  it("treats the boundary second as idle", () => {
+    expect(classifyStatus(120, 120)).toBe("idle");
   });
 });
 
@@ -346,7 +282,7 @@ describe("scanSessions", () => {
           data: { toolCallId: "t1", toolName: "vscode_askQuestions" },
         },
       ],
-      10, // live -> blocked
+      10, // live -> active (an open interactive tool no longer changes status)
     );
     await writeSession(
       "hashB",
@@ -387,7 +323,7 @@ describe("scanSessions", () => {
       workspaceHash: "hashA",
       title: "Refactor auth middleware",
       turns: 1,
-      status: "blocked",
+      status: "active",
     });
     expect(second).toMatchObject({
       sessionId: "sessB",
@@ -395,6 +331,53 @@ describe("scanSessions", () => {
       workspaceHash: "hashB",
       status: "idle",
     });
+  });
+
+  it("takes liveness from the debug-log when the transcript lags behind", async () => {
+    const r = await fs.mkdtemp(path.join(os.tmpdir(), "cc-mtime-"));
+    const ws = path.join(r, "hashM", "GitHub.copilot-chat");
+    const tx = path.join(ws, "transcripts");
+    await fs.mkdir(tx, { recursive: true });
+
+    // The transcript is one reply behind (docs/02.4 §4.23), so its mtime is
+    // stale — the debug-log is where the live turn is still landing.
+    const write = async (
+      id: string,
+      txAgeSeconds: number,
+      dlAgeSeconds?: number,
+    ): Promise<void> => {
+      const txFile = path.join(tx, `${id}.jsonl`);
+      await fs.writeFile(
+        txFile,
+        JSON.stringify({ type: "user.message", data: { content: "go" } }),
+      );
+      const txWhen = new Date(NOW - txAgeSeconds * 1000);
+      await fs.utimes(txFile, txWhen, txWhen);
+      if (dlAgeSeconds === undefined) return;
+      const dl = path.join(ws, "debug-logs", id);
+      await fs.mkdir(dl, { recursive: true });
+      const dlFile = path.join(dl, "main.jsonl");
+      await fs.writeFile(dlFile, "");
+      const dlWhen = new Date(NOW - dlAgeSeconds * 1000);
+      await fs.utimes(dlFile, dlWhen, dlWhen);
+    };
+    await write("sFresh", 3600, 5); // stale transcript, live debug-log -> active
+    await write("sStale", 3600, 7200); // both dormant -> idle
+    await write("sNoLog", 10); // no debug-log -> transcript mtime governs
+
+    const sessions = await scanSessions({
+      instanceId: "x",
+      root: r,
+      now: () => NOW,
+    });
+    const byId = Object.fromEntries(sessions.map((s) => [s.sessionId, s]));
+    expect(byId["sFresh"]?.status).toBe("active");
+    expect(byId["sFresh"]?.idleSeconds).toBe(5);
+    expect(byId["sStale"]?.status).toBe("idle");
+    expect(byId["sStale"]?.idleSeconds).toBe(3600);
+    expect(byId["sNoLog"]?.status).toBe("active");
+    expect(byId["sNoLog"]?.idleSeconds).toBe(10);
+    await fs.rm(r, { recursive: true, force: true });
   });
 
   it("sets inTurn only for a LIVE session mid-turn (open turn_start)", async () => {

@@ -10,8 +10,16 @@ import type { SessionStatus, SessionSummary } from "@cloakcode/protocol";
  *
  * Key lessons baked in (docs/02 §3.2–§3.3):
  *  - status derives from file **mtime liveness**, never the last event type;
- *  - a blocker is an **unmatched interactive `tool.execution_start`** (matched
- *    by `toolCallId`).
+ *  - liveness reads the **freshest of the two logs** (debug-log + transcript):
+ *    the transcript is one reply behind (docs/02.4 §4.23), so its mtime alone
+ *    can read "idle" mid-turn.
+ *
+ * The list deliberately carries **no blocker signal**: the transcript's
+ * unmatched-interactive-`tool.execution_start` signature (docs/02 §3.3) goes
+ * stale exactly when it matters — it stays frozen mid-ask while the debug-log
+ * shows the turn already finished — so a bulk scan would contradict the live
+ * session view. "Needs input" is owned solely by the live hook spool
+ * (`computePendingBlockers`), the one source that is authoritative.
  */
 
 export const INTERACTIVE_TOOL_HINTS = [
@@ -100,17 +108,11 @@ export interface ScanOptions {
 interface ParsedTranscript {
   title: string;
   turns: number;
-  openInteractiveTools: string[];
   /** An assistant turn is in flight: a `turn_start` with no later `turn_end`. */
   inTurn: boolean;
 }
 
-function isInteractive(toolName: unknown): boolean {
-  const name = String(toolName ?? "").toLowerCase();
-  return INTERACTIVE_TOOL_HINTS.some((hint) => name.includes(hint));
-}
-
-/** Parse one transcript's JSONL body: title, turn count, open interactive tools. */
+/** Parse one transcript's JSONL body: title, turn count, in-flight turn. */
 export function parseTranscript(content: string): ParsedTranscript {
   let title = "";
   let turns = 0;
@@ -126,18 +128,6 @@ export function parseTranscript(content: string): ParsedTranscript {
   let openTurnAfterTurnEnd = false;
   let openTurnHadActivity = false;
   let prevType = "";
-  const openTools = new Map<string, string>(); // toolCallId -> toolName
-
-  // A new turn (a user message, or the assistant starting to speak) abandons any
-  // still-open interactive tool from an EARLIER turn: §4.6 batches tool events at
-  // completion, so an orphaned `execution_start` (its `complete` never flushed)
-  // would otherwise pile up and read as "blocked" forever (docs/05 #27). Only an
-  // interactive start with no later turn after it is a live blocker.
-  const supersedeOpenInteractive = (): void => {
-    for (const [id, name] of openTools) {
-      if (isInteractive(name)) openTools.delete(id);
-    }
-  };
 
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
@@ -146,8 +136,6 @@ export function parseTranscript(content: string): ParsedTranscript {
       type?: string;
       data?: {
         content?: unknown;
-        toolCallId?: unknown;
-        toolName?: unknown;
         turnId?: unknown;
       };
     };
@@ -166,17 +154,14 @@ export function parseTranscript(content: string): ParsedTranscript {
             .trim()
             .slice(0, 60);
         }
-        supersedeOpenInteractive();
         break;
       }
       case "assistant.turn_start": {
-        supersedeOpenInteractive();
         // A new turn RESETS any still-open turn: editor-hosted sessions omit
         // `assistant.turn_end` (§4.10), so a dangling `turn_start` would read
-        // "mid-turn" forever — the latest start is the one in flight. Mirrors
-        // the interactive-tool self-heal above. Reset on `turn_start` ONLY, not
-        // `user.message` (a steer injects a mid-turn `user.message`, §3.1, which
-        // must NOT clear the in-flight turn).
+        // "mid-turn" forever — the latest start is the one in flight. Reset on
+        // `turn_start` ONLY, not `user.message` (a steer injects a mid-turn
+        // `user.message`, §3.1, which must NOT clear the in-flight turn).
         openTurnId = String(data.turnId ?? "");
         // Placeholder guard: a `turn_start` right after a `turn_end` (no user
         // message between) is either the spurious idle placeholder or an
@@ -187,14 +172,6 @@ export function parseTranscript(content: string): ParsedTranscript {
       }
       case "assistant.turn_end": {
         openTurnId = undefined;
-        break;
-      }
-      case "tool.execution_start": {
-        openTools.set(String(data.toolCallId), String(data.toolName));
-        break;
-      }
-      case "tool.execution_complete": {
-        openTools.delete(String(data.toolCallId));
         break;
       }
       default:
@@ -217,7 +194,6 @@ export function parseTranscript(content: string): ParsedTranscript {
   return {
     title,
     turns,
-    openInteractiveTools: [...openTools.values()].filter(isInteractive),
     // Mid-turn only when there's an open turn that is NOT the spurious idle
     // placeholder (opened right after a turn_end with no activity since).
     inTurn:
@@ -266,15 +242,16 @@ export function computeInTurnFromDebugLog(content: string): boolean {
   return inTurn;
 }
 
-/** Liveness classification: mtime window + the blocker signature. */
+/**
+ * Liveness classification from the mtime window alone. There is deliberately no
+ * `blocked` here — see the file header: a bulk scan cannot see a blocker without
+ * contradicting the live view, so "needs input" is the hook spool's job.
+ */
 export function classifyStatus(
   idleSeconds: number,
-  hasOpenInteractive: boolean,
   liveWindowSeconds: number,
 ): SessionStatus {
-  const live = idleSeconds < liveWindowSeconds;
-  if (live && hasOpenInteractive) return "blocked";
-  return live ? "active" : "idle";
+  return idleSeconds < liveWindowSeconds ? "active" : "idle";
 }
 
 async function readWorkspaceName(
@@ -383,23 +360,29 @@ export async function debugLogTitle(
 }
 
 /**
- * Whether this session resolves to a LIVE debug-log source — the presence of
- * `<debugLogsDir>/<sessionId>/main.jsonl`, exactly what `findSessionLog` tails
- * (session-observer.ts). Drives `SessionSummary.logSource` (docs/02.4 §4.23): a
- * session WITHOUT it tails the transcript, whose newest reply lags. Empirical
- * (file existence) — never the experiment-gated config flag, which lies both ways
+ * The mtime of this session's LIVE debug-log source
+ * (`<debugLogsDir>/<sessionId>/main.jsonl`, exactly what `findSessionLog` tails
+ * in session-observer.ts), or `undefined` when there is none.
+ *
+ * Presence drives `SessionSummary.logSource` (docs/02.4 §4.23): a session
+ * WITHOUT it tails the transcript, whose newest reply lags. The mtime drives
+ * liveness — mid-turn writes land here while the transcript sits a reply behind,
+ * so the transcript alone can read a live session as "idle". Empirical (file
+ * existence) — never the experiment-gated config flag, which lies both ways
  * (docs/02.4 §4.25). NB: a debug-log dir with only a `title-*.jsonl` (no
- * `main.jsonl`) is still transcript-sourced, so we check `main.jsonl` specifically.
+ * `main.jsonl`) is still transcript-sourced, so we stat `main.jsonl` specifically.
  */
-async function hasDebugLog(
+async function debugLogMtimeMs(
   debugLogsDir: string,
   sessionId: string,
-): Promise<boolean> {
+): Promise<number | undefined> {
   try {
-    await fs.access(path.join(debugLogsDir, sessionId, "main.jsonl"));
-    return true;
+    const stat = await fs.stat(
+      path.join(debugLogsDir, sessionId, "main.jsonl"),
+    );
+    return stat.mtimeMs;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -458,22 +441,27 @@ export async function scanSessions(
         .map(async (file) => {
           const full = path.join(transcriptsDir, file);
           let content: string;
-          let mtimeMs: number;
+          let transcriptMs: number;
           try {
             content = await fs.readFile(full, "utf8");
-            mtimeMs = (await fs.stat(full)).mtimeMs;
+            transcriptMs = (await fs.stat(full)).mtimeMs;
           } catch {
             return;
           }
           const sessionId = file.slice(0, -".jsonl".length);
-          const { title, turns, openInteractiveTools, inTurn } =
-            parseTranscript(content);
+          const { title, turns, inTurn } = parseTranscript(content);
           // Prefer VS Code's own LLM-generated title (from the debug-log) over
           // the first user message; fall back when there's no debug-log.
           const generatedTitle = await debugLogTitle(debugLogsDir, sessionId);
           // Which source the observer will tail (docs/02.4 §4.23) — display-only
           // freshness signal, resolved empirically (main.jsonl presence).
-          const debugLog = await hasDebugLog(debugLogsDir, sessionId);
+          const debugLogMs = await debugLogMtimeMs(debugLogsDir, sessionId);
+          const debugLog = debugLogMs !== undefined;
+          // Liveness = the FRESHEST write across the session's two logs. The
+          // transcript is one reply behind (docs/02.4 §4.23) so it can read
+          // "idle 1h" mid-turn; the debug-log can itself be stale (recycled /
+          // absent, §4.22). Taking the max degrades to whichever exists.
+          const mtimeMs = Math.max(transcriptMs, debugLogMs ?? 0);
           const idleSeconds = Math.max(0, Math.floor((nowMs - mtimeMs) / 1000));
           const live = idleSeconds < liveWindow;
           // `inTurn` is AUTHORITATIVE from the debug-log's clean turn spans when
@@ -507,11 +495,7 @@ export async function scanSessions(
               workspaceHash: hashDir,
               title: generatedTitle || title || "(no user message)",
               turns,
-              status: classifyStatus(
-                idleSeconds,
-                openInteractiveTools.length > 0,
-                liveWindow,
-              ),
+              status: classifyStatus(idleSeconds, liveWindow),
               idleSeconds,
               // Mid-turn from the authoritative per-log detector, gated to live
               // sessions above (a dormant log that ends open must read idle).

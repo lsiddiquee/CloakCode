@@ -95,18 +95,18 @@ describe("App", () => {
     expect(fetchSessionsMock).toHaveBeenCalledTimes(2);
   });
 
-  it("renders the session list with counts and a blocked badge", async () => {
+  it("renders the session list with counts (no scan-derived blocker badge)", async () => {
     fetchSessionsMock.mockResolvedValue(
       listResult([
-        summary({ sessionId: "s1", status: "blocked" }),
+        summary({ sessionId: "s1", status: "active" }),
         summary({ sessionId: "s2" }),
       ]),
     );
     render(<App />);
 
-    expect(await screen.findByText(/2 sessions · 1 needs input/)).toBeTruthy();
+    expect(await screen.findByText(/2 sessions/)).toBeTruthy();
     expect(screen.getByText("connected")).toBeTruthy();
-    expect(screen.getByText("Needs input")).toBeTruthy();
+    expect(screen.queryByText("Needs input")).toBeNull();
     expect(screen.getByText(/workspace repo/)).toBeTruthy();
   });
 

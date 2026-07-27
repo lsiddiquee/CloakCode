@@ -106,7 +106,7 @@ const validSummary: SessionSummary = {
   workspaceHash: "abc123def456",
   title: "Refactor auth middleware",
   turns: 12,
-  status: "blocked",
+  status: "active",
   idleSeconds: 3,
   owned: true,
   inTurn: false,
@@ -134,14 +134,18 @@ describe("DEFAULT_PROVIDER_PORT", () => {
 });
 
 describe("sessionStatusSchema", () => {
-  it("accepts the three known statuses", () => {
-    for (const s of ["active", "blocked", "idle"]) {
+  it("accepts the two known statuses", () => {
+    for (const s of ["active", "idle"]) {
       expect(sessionStatusSchema.parse(s)).toBe(s);
     }
   });
 
   it("rejects an unknown status", () => {
     expect(sessionStatusSchema.safeParse("running").success).toBe(false);
+  });
+
+  it("rejects the retired `blocked` status (owned by PendingBlocker now)", () => {
+    expect(sessionStatusSchema.safeParse("blocked").success).toBe(false);
   });
 });
 

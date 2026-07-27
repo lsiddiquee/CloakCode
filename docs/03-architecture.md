@@ -422,7 +422,7 @@ an un-memoized part — any one silently restores the O(n²) open on long transc
 
 ### Derived session activity (client header phrase)
 
-The scan status (`active` / `blocked` / `idle`) lags a live turn, so the session
+The scan status (`active` / `idle`) is **liveness only** and lags a live turn, so the session
 header derives a sharper "what's happening now" phrase from the live-pending overlay
 plus the mirrored parts (`@cloakcode/web` `sessionActivity`) — no new event type, no
 extra egress:
@@ -433,8 +433,11 @@ extra egress:
 | pending blocker with `confirmations`, or an unresolved `confirmation` part | `awaiting response`   | yes (amber)        |
 | a `toolCall` part `running` while `inTurn`                                 | `tool calling`        | no                 |
 | `inTurn` with no `running` tool part                                       | `working`             | no                 |
-| otherwise                                                                  | the scan status word  | `blocked` → amber  |
+| otherwise                                                                  | the scan status word  | no                 |
 
+Every "awaiting" row above comes from the **live** spool/parts — never the scan, which
+carries no blocker at all (docs/02.4 §4.23: the transcript's blocker signature freezes
+mid-ask and contradicts the debug-log).
 The returned `awaiting` bit drives the amber indicator; every phrase is derived
 purely from data the observer already streams (no new `SessionPart`, no new RPC).
 `tool calling`/`working` are gated on the **authoritative** `inTurn` (debug-log turn

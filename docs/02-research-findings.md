@@ -147,7 +147,10 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   (with fake timestamps), the debug-log does **not**.
 - **§4.23** The transcript is always **one reply behind**; the debug-log has the latest turn.
   Surfaced per-session as `SessionSummary.logSource` (empirical — `main.jsonl` presence, not the
-  config flag) → a phone freshness advisory.
+  config flag) → a phone freshness advisory. The same lag **invalidates the transcript's blocker
+  signature** (it freezes mid-ask while the debug-log shows the turn finished), so "needs input" is
+  owned solely by the live hook spool and the scan status is just `active | idle`, taken from the
+  **freshest mtime across both logs**.
 - **§4.24** The transcript schema is authoritatively typed; `tool.execution_complete` carries
   `result.content` (the tool output).
 - **§4.25** Copilot Chat is **built into core VS Code** (the standalone repo was archived); the

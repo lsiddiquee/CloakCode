@@ -20,7 +20,7 @@ const sample: SessionSummary[] = [
     workspaceHash: "hash-abc",
     title: "Refactor auth middleware",
     turns: 12,
-    status: "blocked",
+    status: "active",
     idleSeconds: 3,
     owned: true,
     inTurn: false,

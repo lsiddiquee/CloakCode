@@ -549,8 +549,16 @@ the critical path.
   status **live** (poll or push). Related to the two stale-snapshot issues above.
   **Done 2026-07-12 (a):** `parseTranscript` now supersedes an open interactive start when a
   later turn (`user.message` / `assistant.turn_start`) follows it, so accumulated orphaned
-  starts no longer read as "blocked". (b) drive live "blocked" from the spool and (c) a live
-  list/header status remain.
+  starts no longer read as "blocked".
+  **CLOSED 2026-07-27 — the scan-derived blocker is DELETED, not fixed.** (a) was not enough: the
+  transcript also freezes **mid-ask** (docs/02.4 §4.23), so the list said "Needs input" while the
+  session view — reading the live spool for the same session — correctly said the turn had
+  finished. Two sources, one question. `SessionStatus` is now `active | idle` (liveness only),
+  `parseTranscript` no longer derives `openInteractiveTools`, and scan liveness reads the
+  **freshest mtime across both logs** so a live turn stops reading "idle". **Follow-up (open):** the
+  list now has **no** needs-input badge at all — restoring it means fanning the spool's
+  `PendingBlocker`s into `sessions.list` (or a live list subscription), which is the (b)/(c) work
+  above, now the only remaining piece.
 - **RESOLVED (2026-07-11).** Three session-list UX items are fixed in `packages/web`
   (`App.tsx`, `SessionView.tsx`): _transcript jump-to-bottom on initial load_;
   _under-surfaced session identity_ (workspace + session id are now labeled in the list rows

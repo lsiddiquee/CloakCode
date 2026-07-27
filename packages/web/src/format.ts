@@ -14,9 +14,7 @@ export function humanAge(seconds: number): string {
 
 /** Traffic-light dot class for a session status. */
 export function dotClass(status: SessionStatus): string {
-  if (status === "blocked") return "amber";
-  if (status === "active") return "green";
-  return "grey";
+  return status === "active" ? "green" : "grey";
 }
 
 /** Short status word shown next to a session row. */
@@ -25,8 +23,6 @@ export function statusLabel(
   idleSeconds: number,
 ): string {
   switch (status) {
-    case "blocked":
-      return `blocked ${humanAge(idleSeconds)}`;
     case "active":
       return "active";
     case "idle":
@@ -82,10 +78,9 @@ export function sessionActivity(
   // the LAGGING scan status, which can read a stale "idle 1h" during a turn.
   if (inTurn) return { label: "working", awaiting: false };
 
-  return {
-    label: statusLabel(status, idleSeconds),
-    awaiting: status === "blocked",
-  };
+  // The scan status is liveness only (no `blocked`, docs/02.4 §4.23): every
+  // "needs input" signal above comes from the live spool/parts, never the scan.
+  return { label: statusLabel(status, idleSeconds), awaiting: false };
 }
 
 export interface ToolSummary {

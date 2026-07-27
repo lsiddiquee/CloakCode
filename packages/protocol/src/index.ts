@@ -57,9 +57,14 @@ export * from "./rate-limit.js";
 
 /**
  * Liveness-derived session status. Per research (docs/02 §3.3) this comes from
- * file mtime + the blocker signature, never from the last event type.
+ * file mtime alone — never from the last event type.
+ *
+ * There is deliberately no `blocked`: a bulk scan's blocker signature (an
+ * unmatched interactive `tool.execution_start`) goes stale exactly when it
+ * matters, contradicting the live session view (docs/02.4 §4.23). "Needs input"
+ * is carried by `PendingBlocker`, sourced from the live hook spool.
  */
-export const sessionStatusSchema = z.enum(["active", "blocked", "idle"]);
+export const sessionStatusSchema = z.enum(["active", "idle"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
 /**

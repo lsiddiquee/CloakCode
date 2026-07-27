@@ -10,8 +10,9 @@ import type {
 
 /**
  * A deliberately varied session list: several workspaces, owned + read-only,
- * one blocked (needs input), long titles, and a spread of idle times — enough to
- * exercise grouping, ordering, the read-only toggle, and collapse.
+ * long titles, and a spread of idle times — enough to exercise grouping,
+ * ordering, the read-only toggle, and collapse. ("Needs input" is not a scan
+ * status any more — it arrives as a live `PendingBlocker`, see PENDING below.)
  */
 export const SESSIONS: SessionSummary[] = [
   {
@@ -33,7 +34,7 @@ export const SESSIONS: SessionSummary[] = [
     workspaceHash: "wsCloak",
     title: "Add a mock build so we can play with the UI without a gateway",
     turns: 8,
-    status: "blocked",
+    status: "active",
     idleSeconds: 42,
     owned: true,
     inTurn: false,
@@ -47,7 +48,7 @@ export const SESSIONS: SessionSummary[] = [
     workspaceHash: "wsCloak",
     title: "Windows desktop host: sessions not listing",
     turns: 15,
-    status: "blocked",
+    status: "active",
     idleSeconds: 18,
     owned: true,
     inTurn: true,
@@ -343,7 +344,7 @@ export const TRANSCRIPTS: Record<string, SessionEvent[]> = {
 };
 
 /**
- * A live pending blocker for the "blocked" session, delivered on the pending
+ * A live pending blocker for the second session, delivered on the pending
  * channel so the App renders the needs-input affordances.
  */
 export const PENDING: Record<string, PendingBlocker[]> = {

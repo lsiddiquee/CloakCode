@@ -44,7 +44,7 @@ const summary: SessionSummary = {
   workspaceHash: "H",
   title: "e2e",
   turns: 1,
-  status: "blocked",
+  status: "active",
   idleSeconds: 0,
   owned: true,
   inTurn: false,
