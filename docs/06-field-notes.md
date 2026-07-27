@@ -125,6 +125,13 @@ Base: `~/.vscode-server/data/User/`
     one (`http.proxySupport: "override"`), so **only the packaged/installed extension fails**. Four
     sequential `connectGateway` calls (incl. the MFA sign-in + token reconnect) pass under `tsx`.
     Reproduce this class of bug with a shared agent, not by repeating the call.
+  - **The test gap that let it ship: every e2e exercised only the FIRST connect** (all 9
+    `connectGateway` call sites). A reconnect-only defect was therefore invisible to 773 tests.
+    `e2e-gateway.test.ts` now has a **reconnect leg** — one test patches `https.request` to inject a
+    pooling agent exactly as the host does (a frozen ESM namespace can't be patched, so import
+    `https` as **default/CJS**), and asserts both connections brought their own agent — a
+    timing-independent assertion that fails without the fix. When a bug is only reachable on the
+    _second_ call, add the second call to the suite.
   - **Corollary (worse):** in CA-pin mode `checkServerIdentity` is _not called_ on a resumed session,
     so the fingerprint check was being **silently skipped**. A pin a transport optimisation can skip
     is not a pin.

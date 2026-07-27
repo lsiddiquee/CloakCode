@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
+// Default (CJS) import on purpose: the test below patches `https.request` to
+// simulate the extension host's agent injection, and an ESM namespace is frozen.
+import https from "node:https";
+import type { IncomingMessage } from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { TLSSocket } from "node:tls";
 import WebSocket from "ws";
 import {
   OperatorAuth,
@@ -17,6 +22,7 @@ import {
   GatewayCertPinError,
   type GatewayClient,
 } from "./gateway-client.js";
+import { normalizeFingerprint } from "./gateway-tls.js";
 import { parseSessionEvents } from "./session-observer.js";
 import type { BridgeDeps } from "./bridge.js";
 
@@ -516,5 +522,159 @@ describe("e2e: wss provider link with fingerprint pinning (C3 / S4b)", () => {
       ),
     ).rejects.toBeInstanceOf(GatewayAuthRequiredError);
     expect(gateway!.registry.all().length).toBe(0);
+  });
+
+  // ── The RECONNECT leg. Every other e2e here exercises the FIRST connect only,
+  //    which is exactly how a reconnect-only defect shipped: a resumed TLS
+  //    session presents no certificate, so the pin silently could not be
+  //    verified and the guard rejected a legitimate gateway on connect #2.
+
+  it("a RESUMED TLS session presents no certificate (the hazard the pin must avoid)", async () => {
+    // Executable proof of the premise, straight against the real gateway. If this
+    // ever stops holding, the no-resumption agent below can be reconsidered —
+    // until then, verifying a pin on a resumable connection is not possible.
+    const { fingerprint } = await startTlsGateway();
+    const url = `wss://127.0.0.1:${gateway!.providerPort}`;
+    // One shared agent == a warm TLS session cache on the 2nd connect. This is
+    // the shape VS Code's `http.proxySupport` injection creates in the host.
+    const agent = new https.Agent({ keepAlive: true, maxCachedSessions: 100 });
+
+    /** Connect once, reporting what the pin check would have had to work with. */
+    const probe = () =>
+      new Promise<{ reused: boolean; fingerprint256: string }>(
+        (resolve, reject) => {
+          const s = new WebSocket(url, { rejectUnauthorized: false, agent });
+          s.on("error", reject);
+          s.on("upgrade", (res) => {
+            // By `upgrade` the handshake (and its session ticket) is complete, so
+            // the next connection through this agent can already resume.
+            const tls = res.socket as TLSSocket;
+            // Read BOTH before closing: `isSessionReused()` returns null once
+            // the handle is gone.
+            const cert = tls.getPeerCertificate();
+            const reused = tls.isSessionReused();
+            s.close();
+            resolve({ reused, fingerprint256: cert.fingerprint256 ?? "" });
+          });
+        },
+      );
+
+    const first = await probe();
+    expect(first.reused).toBe(false);
+    expect(normalizeFingerprint(first.fingerprint256)).toBe(
+      normalizeFingerprint(fingerprint),
+    );
+
+    const second = await probe();
+    expect(second.reused).toBe(true);
+    // Nothing to pin against: an empty fingerprint is indistinguishable from a
+    // hostile server, so the guard must fail closed — hence: never resume.
+    expect(second.fingerprint256).toBe("");
+  });
+
+  it("re-verifies the pin on a RECONNECT even when the host injects a pooling agent", async () => {
+    const { fingerprint } = await startTlsGateway();
+    const url = `wss://127.0.0.1:${gateway!.providerPort}`;
+    // Simulate VS Code's `http.proxySupport: "override"`: the extension host
+    // injects a shared, session-caching agent into every HTTP(S) call that does
+    // not bring its own. That injection is what made this fail ONLY in the
+    // packaged extension — never under vitest or tsx.
+    const injected = new https.Agent({
+      keepAlive: true,
+      maxCachedSessions: 100,
+    });
+    const realRequest = https.request;
+    const broughtOwnAgent: boolean[] = [];
+    const patched = https as { request: typeof https.request };
+    patched.request = ((
+      options: https.RequestOptions,
+      cb?: (res: IncomingMessage) => void,
+    ) => {
+      broughtOwnAgent.push(options.agent !== undefined);
+      if (!options.agent) options.agent = injected;
+      return realRequest(options, cb);
+    }) as typeof https.request;
+
+    try {
+      client = await connectGateway(
+        url,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        4000,
+        undefined,
+        undefined,
+        undefined,
+        { fingerprint },
+      );
+      client.close();
+      client = undefined;
+      // The reconnect (what "Sign in to Gateway" triggers). It must verify the
+      // pin again — which it can only do on a full handshake.
+      client = await connectGateway(
+        url,
+        { instanceId: "i1" },
+        deps,
+        () => {},
+        4000,
+        undefined,
+        undefined,
+        undefined,
+        { fingerprint },
+      );
+      expect(gateway!.registry.all().length).toBe(1);
+    } finally {
+      patched.request = realRequest;
+    }
+
+    // Both connections declined the injected agent — the client owns its own, so
+    // no cache it does not control can skip the per-connection pin check. This
+    // assertion is timing-independent: it fails without the fix regardless of
+    // whether resumption happened to kick in.
+    expect(broughtOwnAgent).toEqual([true, true]);
+  });
+
+  it("reconnects with the token minted by an MFA sign-in (the real sign-in leg)", async () => {
+    // The exact production sequence: connect → auth_required → sign in with a
+    // code → the extension reconnects presenting the issued token. The reconnect
+    // is where pinning broke, so it belongs in the suite, not just in a probe.
+    const operatorAuth = new OperatorAuth({
+      secret: SECRET,
+      now: () => 59_000,
+      confirmed: true,
+    });
+    const { fingerprint } = await startTlsGateway(operatorAuth);
+    const url = `wss://127.0.0.1:${gateway!.providerPort}`;
+    let stored: string | undefined;
+    client = await connectGateway(
+      url,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      undefined,
+      async () => "287082",
+      (t) => {
+        stored = t;
+      },
+      { fingerprint },
+    );
+    client.close();
+    client = undefined;
+
+    client = await connectGateway(
+      url,
+      { instanceId: "i1" },
+      deps,
+      () => {},
+      4000,
+      stored, // the stored token — no second code, and no sign-in prompt
+      async () => {
+        throw new Error("must not be asked to sign in again");
+      },
+      undefined,
+      { fingerprint },
+    );
+    expect(gateway!.registry.all().length).toBe(1);
   });
 });
