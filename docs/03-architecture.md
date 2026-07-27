@@ -363,6 +363,9 @@ type SessionPart =
       prompt: string;
       options: Choice[];
       allowFreeform?: boolean;
+      multiSelect?: boolean;
+      // What was actually chosen, once known — debug-log only (docs/02.3 §4.8).
+      answer?: { selected: string[]; freeText?: string | null; skipped?: boolean };
     } // the blocker
   | { kind: "progress"; id: string; label: string }
   | {
@@ -412,6 +415,11 @@ an un-memoized part — any one silently restores the O(n²) open on long transc
 | `assistant.message`       | `markdown` (+ `thinking` from `reasoningText`)                                   |
 | `tool.execution_start`    | `toolCall` status `running` — **or `confirmation`** if `toolName` is interactive |
 | `tool.execution_complete` | `toolCall` → `done`/`error` (or resolves the `confirmation`)                     |
+
+The transcript can only _resolve_ a `confirmation` — it records no answer. The debug-log's
+`tool_call` span carries `attrs.result`, so the **CHOSEN** answer (keyed by question `header`) is
+filled in on that path only (docs/02.3 §4.8); a resolved card highlights what was picked instead of
+the `recommended` option.
 
 ## Session state machine
 

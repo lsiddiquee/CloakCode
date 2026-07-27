@@ -194,6 +194,20 @@ export const choiceSchema = z.object({
 export type Choice = z.infer<typeof choiceSchema>;
 
 /**
+ * What the operator actually chose for a `confirmation`, exactly as VS Code
+ * recorded it in the tool result (`{selected, freeText, skipped}` keyed by
+ * question header — docs/02.4 §4.23). Distinct from `questionAnswer`, which is
+ * the OPERATOR'S outgoing answer: this is the OBSERVED one, mirrored back so a
+ * resolved card can show what was picked instead of re-listing the options.
+ */
+export const confirmationAnswerSchema = z.object({
+  selected: z.array(z.string()),
+  freeText: z.string().nullable().optional(),
+  skipped: z.boolean().optional(),
+});
+export type ConfirmationAnswer = z.infer<typeof confirmationAnswerSchema>;
+
+/**
  * A blocker `confirmation`: one question with selectable `options` and an
  * optional freeform escape hatch. Named (not inline) so the live-pending
  * overlay can reuse it — a `vscode_askQuestions` blocker is a list of these.
@@ -207,6 +221,10 @@ export const confirmationPartSchema = z.object({
   // `vscode_askQuestions` `multiSelect` — the client lets the operator pick more
   // than one option, and the answer is delivered as `selectedValues`.
   multiSelect: z.boolean().optional(),
+  // The chosen answer, once known. Only the debug-log carries it (the
+  // transcript's `tool.execution_complete` is just `{toolCallId, success}`), so
+  // a transcript-sourced session leaves it absent.
+  answer: confirmationAnswerSchema.optional(),
 });
 export type ConfirmationPart = z.infer<typeof confirmationPartSchema>;
 

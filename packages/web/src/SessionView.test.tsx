@@ -622,6 +622,53 @@ describe("PendingCard answer submit", () => {
     expect(document.querySelector(".usage-partial")).toBeNull(); // not stitched
   });
 
+  it("shows the CHOSEN answer on a resolved confirmation, not the recommendation", async () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    act(() => {
+      h.emitEvent({
+        type: "append",
+        seq: 0,
+        part: {
+          kind: "confirmation",
+          id: "c0",
+          prompt: "Working style?",
+          options: [
+            { id: "act", label: "Take action", recommended: true },
+            { id: "ro", label: "Read-only" },
+          ],
+          answer: { selected: ["Read-only"], freeText: null, skipped: false },
+        },
+      });
+      h.emitEvent({ type: "resolve", seq: 1, id: "c0" });
+    });
+    expect(await screen.findByText("Answered: Read-only")).toBeTruthy();
+    // The recommendation is still badged, but it must NOT be the highlighted
+    // row — that highlight now means "this is what was picked".
+    const reco = screen.getByText("Take action").closest(".choice");
+    const chosen = screen.getByText("Read-only").closest(".choice");
+    expect(reco?.className).not.toContain("reco");
+    expect(chosen?.className).toContain("chosen");
+  });
+
+  it("leaves the recommendation highlighted while a confirmation is unanswered", async () => {
+    render(<SessionView session={session()} onBack={() => {}} />);
+    act(() => {
+      h.emitEvent({
+        type: "append",
+        seq: 0,
+        part: {
+          kind: "confirmation",
+          id: "c0",
+          prompt: "Working style?",
+          options: [{ id: "act", label: "Take action", recommended: true }],
+        },
+      });
+    });
+    const reco = (await screen.findByText("Take action")).closest(".choice");
+    expect(reco?.className).toContain("reco");
+    expect(document.querySelector(".blocker-answer")).toBeNull();
+  });
+
   it("clears the view on a reset frame (the tailed source changed)", async () => {
     render(<SessionView session={session()} onBack={() => {}} />);
     act(() => {

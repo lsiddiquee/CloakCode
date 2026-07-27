@@ -3,6 +3,7 @@ import type { PendingBlocker, SessionPart } from "@cloakcode/protocol";
 import {
   approvalSummary,
   buildAnswerText,
+  answerSummary,
   humanAge,
   sessionActivity,
   statusLabel,
@@ -220,5 +221,32 @@ describe("buildAnswerText", () => {
         { question: "  Q2  ", answer: "  Append  " },
       ]),
     ).toBe("Q2 → Append");
+  });
+});
+
+describe("answerSummary", () => {
+  it("reports the picked option(s)", () => {
+    expect(answerSummary({ selected: ["Overwrite"], freeText: null })).toBe(
+      "Answered: Overwrite",
+    );
+    expect(answerSummary({ selected: ["Unit", "E2E"] })).toBe(
+      "Answered: Unit · E2E",
+    );
+  });
+
+  it("reports a typed answer, alongside any picked option", () => {
+    expect(answerSummary({ selected: [], freeText: "  test.txt " })).toBe(
+      "Answered: test.txt",
+    );
+    expect(answerSummary({ selected: ["Unit"], freeText: "and docs" })).toBe(
+      "Answered: Unit · and docs",
+    );
+  });
+
+  it("reports a skipped or empty answer", () => {
+    expect(
+      answerSummary({ selected: ["ignored"], freeText: "x", skipped: true }),
+    ).toBe("Skipped");
+    expect(answerSummary({ selected: [], freeText: null })).toBe("No answer");
   });
 });

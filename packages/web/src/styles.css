@@ -729,6 +729,13 @@ button.group-label {
   color: var(--muted);
   margin-top: 6px;
 }
+.blocker-answer {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--accent);
+  margin-top: 8px;
+  word-break: break-word;
+}
 
 /* Live-pending overlay: hook-sourced "Needs your input" footer, pinned below
    the transcript so a pending blocker is always visible without scrolling. */
@@ -777,7 +784,7 @@ button.group-label {
   cursor: default;
   opacity: 0.7;
 }
-.choice-btn.chosen {
+.choice.chosen {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 18%, var(--bg));
   box-shadow: 0 0 0 1px var(--accent) inset;

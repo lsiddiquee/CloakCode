@@ -1,4 +1,5 @@
 import type {
+  ConfirmationAnswer,
   PendingBlocker,
   SessionPart,
   SessionStatus,
@@ -223,4 +224,17 @@ export function buildAnswerText(lines: AnswerLine[]): string {
     .filter((l) => l.answer.trim())
     .map((l) => `${l.question.trim()} → ${l.answer.trim()}`)
     .join("\n");
+}
+
+/**
+ * One-line summary of the answer a confirmation actually got. A typed answer
+ * counts as much as a picked option (both can be present on a multi-select),
+ * so both are shown — the recommended option is NOT the answer.
+ */
+export function answerSummary(answer: ConfirmationAnswer): string {
+  if (answer.skipped) return "Skipped";
+  const parts = [...answer.selected];
+  const text = answer.freeText?.trim();
+  if (text) parts.push(text);
+  return parts.length ? `Answered: ${parts.join(" · ")}` : "No answer";
 }

@@ -121,6 +121,9 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.6** A live **pending** blocker is **not** on disk yet (flushed at answer time) → the **hook is required**.
 - **§4.7** Two non-interchangeable answer channels: **questions ← injected text**, **approvals ← hook/command**.
 - **§4.8** `vscode_askQuestions` returns `{answers:{header:{selected,freeText,skipped}}}`; `chat.open` can't produce it.
+  Persisted **only** on the debug-log `tool_call` span (`attrs.result`, a JSON string) — the
+  transcript's interactive `execution_complete` has **no** result — so a resolved `confirmation`
+  replays the chosen answer (matched by `header`) on the debug-log path only.
 - **§4.9** Hook discovery: write `~/.copilot/hooks/cloakcode.json` (user-global) for zero-per-repo install.
 - **§4.15** The approval decision (`permissionLevel`) is reachable per-request in the debug-log
   (**superseded** — CloakCode no longer replicates it).
@@ -152,7 +155,8 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   owned solely by the live hook spool and the scan status is just `active | idle`, taken from the
   **freshest mtime across both logs**.
 - **§4.24** The transcript schema is authoritatively typed; `tool.execution_complete` carries
-  `result.content` (the tool output).
+  `result.content` (the tool output) — **except** for interactive tools, which record only
+  `{toolCallId, success}` (narrowed 2026-07-27; the answers are debug-log-only, §4.8).
 - **§4.25** Copilot Chat is **built into core VS Code** (the standalone repo was archived); the
   debug-log toggle was renamed + is experiment-gated — an **unreliable proxy** (lies both ways), so
   the freshness signal is the empirically-resolved per-session source, never the flag.

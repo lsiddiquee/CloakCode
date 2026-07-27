@@ -71,16 +71,53 @@ function optionsFrom(rawOptions: unknown): Choice[] {
 }
 
 type ConfirmationPart = Extract<SessionPart, { kind: "confirmation" }>;
+type ConfirmationAnswer = NonNullable<ConfirmationPart["answer"]>;
+
+/**
+ * Pull the recorded answers out of an interactive tool's `result`. VS Code
+ * writes `{answers: {"<question header>": {selected, freeText, skipped}}}` —
+ * keyed by the question's `header`, not its index (verified on disk
+ * 2026-07-27, docs/02.3). Only the debug-log carries this; the transcript's
+ * `tool.execution_complete` is just `{toolCallId, success}`.
+ */
+function answersFrom(result: unknown): Record<string, unknown> {
+  const r = (typeof result === "object" && result ? result : {}) as Record<
+    string,
+    unknown
+  >;
+  const a = r["answers"];
+  return typeof a === "object" && a ? (a as Record<string, unknown>) : {};
+}
+
+/** The answer for one question, looked up by header then by prompt. */
+function answerFor(
+  answers: Record<string, unknown>,
+  ...keys: unknown[]
+): ConfirmationAnswer | undefined {
+  const raw = keys
+    .map((k) => (typeof k === "string" ? answers[k] : undefined))
+    .find((v): v is Record<string, unknown> => typeof v === "object" && !!v);
+  if (!raw) return undefined;
+  const freeText = raw["freeText"];
+  const skipped = raw["skipped"];
+  return {
+    selected: Array.isArray(raw["selected"]) ? raw["selected"].map(String) : [],
+    ...(typeof freeText === "string" || freeText === null ? { freeText } : {}),
+    ...(typeof skipped === "boolean" ? { skipped } : {}),
+  };
+}
 
 /**
  * Build `confirmation` parts from an interactive tool's `arguments`. Real
  * `vscode_askQuestions` sends a `questions[]` array (verified 2026-07-09) — one
  * confirmation per question, ids `${baseId}-${i}`. Falls back to a single
- * question/options shape. See docs/02 §3.2.
+ * question/options shape. See docs/02 §3.2. `result`, when the tool has already
+ * returned, carries the answer that was actually chosen.
  */
 export function toConfirmations(
   baseId: string,
   args: unknown,
+  result?: unknown,
 ): ConfirmationPart[] {
   const a = (typeof args === "object" && args ? args : {}) as Record<
     string,
@@ -100,39 +137,46 @@ export function toConfirmations(
     r["multiSelect"] === true || r["multiselect"] === true;
 
   const questions = Array.isArray(a["questions"]) ? a["questions"] : null;
+  const answers = answersFrom(result);
   if (questions) {
     return questions.map((q: unknown, i: number): ConfirmationPart => {
       const qq = (typeof q === "object" && q ? q : {}) as Record<
         string,
         unknown
       >;
+      const prompt = String(
+        qq["question"] ??
+          qq["message"] ??
+          qq["header"] ??
+          qq["prompt"] ??
+          "Confirm",
+      );
+      const answer = answerFor(answers, qq["header"], prompt);
       return {
         kind: "confirmation",
         id: `${baseId}-${i}`,
-        prompt: String(
-          qq["question"] ??
-            qq["message"] ??
-            qq["header"] ??
-            qq["prompt"] ??
-            "Confirm",
-        ),
+        prompt,
         options: optionsFrom(qq["options"]),
         ...(freeform(qq) ? { allowFreeform: true } : {}),
         ...(multi(qq) ? { multiSelect: true } : {}),
+        ...(answer ? { answer } : {}),
       };
     });
   }
 
+  const prompt = String(
+    a["question"] ?? a["prompt"] ?? a["message"] ?? a["title"] ?? "Confirm",
+  );
+  const answer = answerFor(answers, a["header"], prompt);
   return [
     {
       kind: "confirmation",
       id: baseId,
-      prompt: String(
-        a["question"] ?? a["prompt"] ?? a["message"] ?? a["title"] ?? "Confirm",
-      ),
+      prompt,
       options: optionsFrom(a["options"] ?? a["choices"]),
       ...(freeform(a) ? { allowFreeform: true } : {}),
       ...(multi(a) ? { multiSelect: true } : {}),
+      ...(answer ? { answer } : {}),
     },
   ];
 }
@@ -405,6 +449,7 @@ export class IncrementalDebugLogParser {
           const confs = toConfirmations(
             confPartId(cid),
             parseAttr(attrs["args"]),
+            parseAttr(attrs["result"]),
           );
           for (const conf of confs) append(conf);
           for (const conf of confs) resolve(conf.id);

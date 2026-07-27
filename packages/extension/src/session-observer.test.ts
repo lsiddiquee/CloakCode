@@ -1838,6 +1838,83 @@ describe("parseDebugLogEvents", () => {
     expect(events[1]).toMatchObject({ type: "resolve", id: appended.part.id });
   });
 
+  it("carries the CHOSEN answer from the tool_call result, keyed by question header", () => {
+    // The answers live only in the debug-log `result` (the transcript's
+    // `tool.execution_complete` is just {toolCallId, success}) and are keyed by
+    // the question's `header`, not its index (verified on disk 2026-07-27).
+    const content = otel([
+      {
+        type: "tool_call",
+        name: "vscode_askQuestions",
+        spanId: "q1",
+        attrs: {
+          args: JSON.stringify({
+            questions: [
+              {
+                header: "with-options",
+                question: "Which file?",
+                options: [
+                  { label: "a.txt", recommended: true },
+                  { label: "b.txt" },
+                ],
+              },
+              {
+                header: "freeform-only",
+                question: "Any note?",
+              },
+              { header: "unanswered", question: "Skipped one?" },
+            ],
+          }),
+          result: JSON.stringify({
+            answers: {
+              "with-options": {
+                selected: ["b.txt"],
+                freeText: null,
+                skipped: false,
+              },
+              "freeform-only": {
+                selected: [],
+                freeText: "my comment",
+                skipped: false,
+              },
+            },
+          }),
+        },
+      },
+    ]);
+    const parts = parseDebugLogEvents(content)
+      .filter((e) => e.type === "append")
+      .map((e) => e.part);
+    expect(parts[0]).toMatchObject({
+      kind: "confirmation",
+      answer: { selected: ["b.txt"], freeText: null, skipped: false },
+    });
+    expect(parts[1]).toMatchObject({
+      kind: "confirmation",
+      answer: { selected: [], freeText: "my comment" },
+    });
+    // No entry for that header → no answer at all (not an empty one).
+    expect(parts[2]).not.toHaveProperty("answer");
+  });
+
+  it("leaves the answer absent when the span carries no result (still running)", () => {
+    const content = otel([
+      {
+        type: "tool_call",
+        name: "vscode_askQuestions",
+        spanId: "q2",
+        attrs: {
+          args: JSON.stringify({
+            questions: [{ header: "h", question: "Which file?" }],
+          }),
+        },
+      },
+    ]);
+    const appended = parseDebugLogEvents(content)[0];
+    if (appended?.type !== "append") throw new Error("expected an append");
+    expect(appended.part).not.toHaveProperty("answer");
+  });
+
   it("salvages assistant text when `response` is truncated/unparseable", () => {
     // VS Code caps the debug-log `response` attr at ~5 KB and appends a
     // `[truncated]` marker, so it no longer parses to the message array. The

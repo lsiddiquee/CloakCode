@@ -31,6 +31,7 @@ import {
   type ConnState,
 } from "./bridge";
 import {
+  answerSummary,
   approvalSummary,
   dotClass,
   sessionActivity,
@@ -718,7 +719,11 @@ const Part = memo(function Part({
         </div>
       );
     }
-    case "confirmation":
+    case "confirmation": {
+      // Once the answer is known, the highlight must follow what was CHOSEN.
+      // Keeping the `recommended` highlight on a resolved card read as "this is
+      // what was picked" and was routinely wrong (bug: 2026-07-27).
+      const answer = part.answer;
       return (
         <div className={`blocker ${resolved ? "resolved" : ""}`}>
           <span className="blocker-tag">
@@ -726,15 +731,28 @@ const Part = memo(function Part({
             {resolved ? "Answered" : "Needs your input"}
           </span>
           <div className="blocker-q">{part.prompt}</div>
-          {part.options.map((o) => (
-            <div key={o.id} className={`choice ${o.recommended ? "reco" : ""}`}>
-              <div className="choice-label">
-                <span>{o.label}</span>
-                {o.recommended && <span className="reco-badge">REC</span>}
+          {part.options.map((o) => {
+            const chosen = answer?.selected.includes(o.label);
+            const highlight = answer
+              ? chosen
+                ? "chosen"
+                : ""
+              : o.recommended
+                ? "reco"
+                : "";
+            return (
+              <div key={o.id} className={`choice ${highlight}`}>
+                <div className="choice-label">
+                  <span>{o.label}</span>
+                  {o.recommended && <span className="reco-badge">REC</span>}
+                </div>
+                {o.detail && <div className="choice-detail">{o.detail}</div>}
               </div>
-              {o.detail && <div className="choice-detail">{o.detail}</div>}
-            </div>
-          ))}
+            );
+          })}
+          {answer && (
+            <div className="blocker-answer">{answerSummary(answer)}</div>
+          )}
           {!resolved && (
             <div className="blocker-note">
               Shown here for context — answer it from the pending panel.
@@ -742,6 +760,7 @@ const Part = memo(function Part({
           )}
         </div>
       );
+    }
   }
 });
 
