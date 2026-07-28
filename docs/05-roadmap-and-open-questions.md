@@ -398,13 +398,18 @@ the critical path.
   `ChatViewModel.getItems()` appends every pending (queued/steering) request _after_ it — so once a
   message is queued in a session, its waiting tool confirmation can no longer be resolved by
   command, only by clicking the card (the card's own buttons call `state.confirm` directly). Our
-  `respond` mid-turn is _designed_ to auto-queue, so "send, then approve" silently wedges. **No
-  extension-reachable fix** (same class as the old composer-capture blocker): nothing exposes the
-  pending queue, and dequeuing would discard the operator's message. Half-measure shipped: `decide`
+  `respond` mid-turn is _designed_ to auto-queue, so "send, then approve" silently wedges.
+  Field-confirmed: allow/deny worked until steering + queued messages were sent, then never again
+  that session. **No extension-reachable fix** — all four confirmation commands (incl. the
+  `…PostExecution` pair) share one base class and the identical bail; nothing else reaches
+  `state.confirm`. Half-measure shipped: `decide`
   now opens the session first, which fixes the _other_ silent bail (no widget had the session
-  loaded). Candidates: warn on the phone when a decision is pending and the operator types
-  (client-side, needs the pending state we already stream); or ask upstream to search the last
-  **response** item rather than the last item.
+  loaded). Candidates, in order: (1) **client-side** — while a decision is pending, make Allow/Deny
+  the primary action on the phone and warn before sending (we already stream that state), so the
+  operator never wedges it; (2) an explicit, labelled **"clear queue & approve"** escape
+  (`removeAllPendingRequests` then `acceptTool`) — never automatic, it discards queued text;
+  (3) **upstream** — the local `Ctrl+Enter` keybinding breaks identically, so file it: search for
+  the last **response** item (`[...items].reverse().find(isResponseVM)`) rather than the last item.
 - **Stop-and-send can still raise the local pending-requests modal — OPEN (2026-07-28, docs/02.3
   §4.35).** A submit with no `queue` kind, made while the session holds pending messages and no
   request is in progress, opens a **modal** ("You already have pending requests… Keep / Remove /

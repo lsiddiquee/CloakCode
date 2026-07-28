@@ -3,10 +3,7 @@ import { Agent } from "node:https";
 import { connect as tlsConnect } from "node:tls";
 import type { PeerCertificate, TLSSocket } from "node:tls";
 import type { ClientOptions, WebSocket } from "ws";
-import {
-  normalizeFingerprint,
-  shortFingerprint,
-} from "@cloakcode/protocol";
+import { normalizeFingerprint, shortFingerprint } from "@cloakcode/protocol";
 
 /**
  * Server-identity pinning for the extension's outbound provider link (drift
@@ -170,7 +167,7 @@ function resumedPinError(): Error {
   return new Error(
     "cloakcode: the gateway's TLS session was RESUMED, so it presented no " +
       "certificate and the fingerprint pin could not be checked (the pin itself " +
-      "is not wrong). Reconnect, or set http.proxySupport to \"on\" so VS Code " +
+      'is not wrong). Reconnect, or set http.proxySupport to "on" so VS Code ' +
       "stops replacing CloakCode's connection agent.",
   );
 }

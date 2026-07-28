@@ -1,4 +1,7 @@
-import { normalizeFingerprint, splitPinnedGatewayUrl } from "@cloakcode/protocol";
+import {
+  normalizeFingerprint,
+  splitPinnedGatewayUrl,
+} from "@cloakcode/protocol";
 import type { GatewayPinConfig } from "./gateway-tls.js";
 
 /**
@@ -35,7 +38,10 @@ export function resolveConnectionPlan(input: {
 }): ConnectionPlan {
   const raw =
     usableGatewayUrl(input.envGatewayUrl) ?? usableGatewayUrl(input.gatewayUrl);
-  if (!raw) return input.embeddedBridge === false ? { kind: "disabled" } : { kind: "embedded" };
+  if (!raw)
+    return input.embeddedBridge === false
+      ? { kind: "disabled" }
+      : { kind: "embedded" };
   const { url, fingerprint } = splitPinnedGatewayUrl(raw);
   return { kind: "gateway", url, ...(fingerprint ? { fingerprint } : {}) };
 }
