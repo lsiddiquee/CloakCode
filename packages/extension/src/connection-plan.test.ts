@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   resolveConnectionPlan,
+  resolveGatewayPin,
   resolveGatewayToken,
 } from "./connection-plan.js";
+
+const PIN = "82F20036F2E852DA73B069790DBA6F20299978FBE3951BDDF3EA0319F0697293";
 
 describe("resolveConnectionPlan", () => {
   it("uses an explicit gatewayUrl, trimmed", () => {
@@ -46,6 +49,67 @@ describe("resolveConnectionPlan", () => {
         envGatewayUrl: "ws://:7900",
       }),
     ).toEqual({ kind: "embedded" });
+  });
+
+  it("splits the pin out of a pairing URL so the dialled address stays bare", () => {
+    // One copy-paste string carries host + pin, so they cannot drift apart.
+    expect(
+      resolveConnectionPlan({ gatewayUrl: `wss://hub:7901#fp=${PIN}` }),
+    ).toEqual({ kind: "gateway", url: "wss://hub:7901", fingerprint: PIN });
+  });
+
+  it("REFUSES a pairing URL whose pin is unusable (never dials unpinned)", () => {
+    expect(() =>
+      resolveConnectionPlan({ gatewayUrl: "wss://hub:7901#fp=oops" }),
+    ).toThrow(/64 hex/i);
+  });
+});
+
+describe("resolveGatewayPin", () => {
+  it("takes the pin from the pairing URL or from the setting", () => {
+    expect(resolveGatewayPin({ urlFingerprint: PIN })).toEqual({
+      fingerprint: PIN,
+    });
+    expect(resolveGatewayPin({ settingFingerprint: `  ${PIN} ` })).toEqual({
+      fingerprint: PIN,
+    });
+  });
+
+  it("is unpinned when neither is set (a real authority vouches for the cert)", () => {
+    expect(resolveGatewayPin({})).toEqual({});
+    expect(
+      resolveGatewayPin({ urlFingerprint: "  ", settingFingerprint: "" }),
+    ).toEqual({});
+  });
+
+  it("accepts the same pin written two ways (colon-hex vs flat)", () => {
+    const colons = PIN.match(/.{2}/g)!.join(":").toLowerCase();
+    expect(
+      resolveGatewayPin({ urlFingerprint: PIN, settingFingerprint: colons }),
+    ).toEqual({ fingerprint: PIN });
+  });
+
+  it("FAILS CLOSED when the two disagree instead of picking by precedence", () => {
+    // One of them is stale or mistyped; silently preferring either would be a
+    // trust decision the operator never saw.
+    expect(() =>
+      resolveGatewayPin({
+        urlFingerprint: PIN,
+        settingFingerprint: "92" + PIN.slice(2),
+      }),
+    ).toThrow(/disagree/i);
+  });
+
+  it("never puts a full pin in the disagreement message", () => {
+    try {
+      resolveGatewayPin({
+        urlFingerprint: PIN,
+        settingFingerprint: "92" + PIN.slice(2),
+      });
+      expect.unreachable();
+    } catch (err) {
+      expect((err as Error).message).not.toContain(PIN);
+    }
   });
 });
 

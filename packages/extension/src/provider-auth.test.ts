@@ -76,7 +76,9 @@ describe("resolveProviderCredential", () => {
     await storeProviderToken(secrets, "ws://a:1", "tok-a");
     await storeProviderToken(secrets, "ws://b:2", "tok-b");
     await clearProviderToken(secrets, "ws://a:1");
-    expect(await resolveProviderCredential(secrets, "ws://a:1")).toBeUndefined();
+    expect(
+      await resolveProviderCredential(secrets, "ws://a:1"),
+    ).toBeUndefined();
     expect(await resolveProviderCredential(secrets, "ws://b:2")).toBe("tok-b");
   });
 });

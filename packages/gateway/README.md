@@ -280,14 +280,16 @@ An **encrypted overlay / reverse proxy** (Tailscale, WireGuard, `ssh -L`, Caddy/
 listeners on loopback is still the lowest-friction path when you already have one.
 
 **Pair an extension** from the app: open the PWA (behind your tunnel + TOTP) → **Settings → Connect an
-extension**. It shows the reachable `wss://` URL, the fingerprint, and the certificate to copy into the
-extension's `cloakcode.gatewayUrl` and `cloakcode.gatewayCertFingerprint`. For a self-signed gateway
-the **fingerprint alone is enough** — the extension verifies the exact certificate by hand and **fails
-closed** on a mismatch, never downgrading to trust-on-first-use. Adding the cert as
-`cloakcode.gatewayCaFile` is an **optional stricter** path (full-chain validation); a gateway behind a
-**real/BYO CA** needs neither. The console printout is the fallback when no tunnel is up. The
-fingerprint and cert are **public** (an integrity pin, not a secret); the private key never leaves the
-gateway.
+extension**. It shows one **pairing URL** to paste into the extension's `cloakcode.gatewayUrl` — the
+reachable `wss://` address with this gateway's fingerprint attached as a `#fp=…` fragment, so the
+address and its pin can never drift apart (the fragment is never transmitted; the extension splits it
+off locally). The extension then fetches the certificate, accepts it **only** if it matches that pin,
+and uses it as the trust anchor — **failing closed** on a mismatch, never downgrading to
+trust-on-first-use. The bare pin is shown too for anyone who prefers `cloakcode.gatewayCertFingerprint`
+as a separate setting. A gateway whose certificate a **real authority** already vouches for (a public
+CA, or your org's root deployed to the device) needs no setting beyond the URL. The console printout
+is the fallback when no tunnel is up. The fingerprint is **public** (an integrity pin, not a secret);
+the private key never leaves the gateway.
 
 ## Operator auth (TOTP)
 

@@ -1008,7 +1008,7 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     await expect(open(`wss://127.0.0.1:${gw.providerPort}`)).rejects.toThrow();
   });
 
-  it("serves gateway.connectInfo (available: pin + cert + wss urls) to the operator", async () => {
+  it("serves gateway.connectInfo (available: pin + wss urls) to the operator", async () => {
     const mat = await tlsMaterial();
     gw = await startGateway({
       port: 0,
@@ -1028,13 +1028,15 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     expect(info.available).toBe(true);
     expect(info.insecure).toBe(false); // wss provider listener
     expect(info.fingerprint).toBe(mat.fingerprint);
-    expect(info.certPem).toBe(mat.cert);
+    // The pin is the whole trust anchor: the extension fetches the certificate
+    // itself and accepts it only if it matches, so pairing never ships a PEM.
+    expect(info).not.toHaveProperty("certPem");
     expect(info.urls.length).toBeGreaterThan(0);
     expect(info.urls.every((u) => u.startsWith("wss://"))).toBe(true);
     operator.close();
   });
 
-  it("serves connectInfo for an INSECURE provider listener (ws urls, no cert/pin)", async () => {
+  it("serves connectInfo for an INSECURE provider listener (ws urls, no pin)", async () => {
     gw = await startGateway({ port: 0 }); // no provider.tls → insecure plain ws
     const operator = await open(`ws://127.0.0.1:${gw.port}`);
     operator.send(JSON.stringify({ id: "ci", op: "gateway.connectInfo" }));
@@ -1044,7 +1046,6 @@ describe("startGateway native TLS (C2 — the wss provider listener)", () => {
     expect(info.available).toBe(true); // the provider listener always exists
     expect(info.insecure).toBe(true); // plain ws — unencrypted
     expect(info.fingerprint).toBeUndefined();
-    expect(info.certPem).toBeUndefined();
     expect(info.urls.every((u) => u.startsWith("ws://"))).toBe(true);
     operator.close();
   });

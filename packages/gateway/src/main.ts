@@ -50,7 +50,10 @@ import {
 } from "./operator-secret.js";
 import { resolveTlsMaterial } from "./tls.js";
 import { qrTerminal } from "./qr-terminal.js";
-import { DEFAULT_PROVIDER_PORT } from "@cloakcode/protocol";
+import {
+  DEFAULT_PROVIDER_PORT,
+  formatPinnedGatewayUrl,
+} from "@cloakcode/protocol";
 import { resolveInstanceId } from "./instance-id.js";
 
 const host = process.env["CLOAKCODE_GATEWAY_HOST"] ?? "127.0.0.1";
@@ -245,10 +248,11 @@ if (serveDir) {
 
 // The URLs an extension puts in `cloakcode.gatewayUrl` — the dedicated PROVIDER
 // listener (not the operator port), ranked by where the extension runs relative
-// to this host. wss when the listener has a cert (also print the fingerprint pin);
-// an insecure plain ws otherwise. The cert FINGERPRINT is public (the pin —
-// integrity, not secrecy), safe to print as the console fallback for pairing; the
-// PWA "Connect an extension" view is the primary out-of-band channel (docs/04/05).
+// to this host. wss when the listener has a cert; each URL then carries the cert
+// FINGERPRINT as a `#fp=` fragment so address and pin are one copy-paste and
+// cannot drift apart. The fingerprint is public (integrity, not secrecy) and the
+// fragment is never transmitted; the console is the fallback pairing channel —
+// the PWA "Connect an extension" view is the primary one (docs/04/05).
 const providerScheme = gateway.providerInsecure ? "ws" : "wss";
 console.log(
   `[cloakcode-gateway] connect extensions with cloakcode.gatewayUrl (${providerScheme}://, provider listener):`,
@@ -258,16 +262,21 @@ for (const { url, label } of connectionUrls(
   gateway.providerPort,
   interfaces,
 )) {
-  console.log(
-    `[cloakcode-gateway]   ${url.replace(/^ws:/, `${providerScheme}:`).padEnd(34)} ${label}`,
-  );
+  const dial = url.replace(/^ws:/, `${providerScheme}:`);
+  const pinned = gateway.fingerprint
+    ? formatPinnedGatewayUrl(dial, gateway.fingerprint)
+    : dial;
+  // Label first: a pinned URL is ~100 chars, so trailing labels never line up.
+  console.log(`[cloakcode-gateway]   ${label.padEnd(22)} ${pinned}`);
 }
 if (!gateway.providerInsecure && gateway.fingerprint) {
-  console.log(`[cloakcode-gateway]   cert fingerprint (SHA-256 pin):`);
-  console.log(`[cloakcode-gateway]     ${gateway.fingerprint}`);
   console.log(
-    `[cloakcode-gateway]   set cloakcode.gatewayCertFingerprint to that pin (a self-signed gateway needs nothing else).`,
+    `[cloakcode-gateway]   the "#fp=" fragment is this gateway's certificate pin — paste the whole URL.`,
   );
+  console.log(
+    `[cloakcode-gateway]   to keep the URL bare, drop the fragment and set cloakcode.gatewayCertFingerprint to:`,
+  );
+  console.log(`[cloakcode-gateway]     ${gateway.fingerprint}`);
 }
 
 // Consolidated INSECURE-MODE banner (docs/04): warn — in the console AND, via

@@ -693,7 +693,7 @@ describe("response schemas", () => {
     expect(sessionHistoryResponseSchema.parse(res)).toEqual(res);
   });
 
-  it("parses a gateway.connectInfo response (available, secure, with pin + cert)", () => {
+  it("parses a gateway.connectInfo response (available, secure, with pin)", () => {
     const res = {
       id: "ci",
       ok: true as const,
@@ -703,7 +703,6 @@ describe("response schemas", () => {
         urls: ["wss://192.168.1.10:7443"],
         insecure: false,
         fingerprint: "AB:CD:EF",
-        certPem: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
       },
     };
     expect(gatewayConnectInfoResponseSchema.parse(res)).toEqual(res);

@@ -135,26 +135,37 @@ the blessed low-friction alternative to native TLS is still an **encrypted overl
 **which** provider listener it reached before it sends anything, by pinning the cert's **SHA-256
 fingerprint** — two ways, below.
 
-**Two ways to trust the gateway** (`gateway-tls.ts` · drift audit S4b) — pick per what you configure:
+**Two ways a gateway earns trust** (`gateway-tls.ts` · drift audit S4b) — they differ in _who vouches
+for the certificate_, and there is deliberately nothing in between:
 
-- **Fingerprint-only (the low-friction default).** Set just `cloakcode.gatewayCertFingerprint`.
-  Node's `rejectUnauthorized:true` would reject a self-signed chain _before_ any pin runs, and
-  `checkServerIdentity` is _ignored_ once auth is off — so this mode turns chain auth off and verifies
-  the **exact cert fingerprint by hand** the instant the socket opens, **terminating before it sends
-  the knock/hello** on mismatch (`guardFingerprintPin`, fail-closed). Pinning the exact cert is as
-  strong as a CA for a single known server, and it skips the hostname/SAN check a bare-IP /
+- **A real authority vouches for it.** The certificate chains to a root the machine already trusts — a
+  public CA, or your organization's root deployed to the device (VS Code honours the OS store via
+  `http.systemCertificates`). Configure **nothing**: `rejectUnauthorized:true` against the system trust
+  store plus the standard hostname check, exactly like a browser.
+- **You vouch for it.** A self-signed gateway (the zero-setup default) is trusted by its **SHA-256
+  fingerprint**, carried out-of-band. Node's `rejectUnauthorized:true` would reject a self-signed chain
+  _before_ any pin runs, and `checkServerIdentity` is _ignored_ once auth is off — so the extension
+  fetches the certificate first, accepts it **only** if it matches the pin, and uses it as the trust
+  anchor for the real connection (`selfProvisionedPin`, below). Pinning the exact cert is as strong as
+  a CA for a single known server, and it skips the hostname/SAN check a bare-IP /
   `host.docker.internal` gateway can't satisfy. (Verified secure against the live gateway;
   "Mechanism 2".)
-- **CA-pin (optional, stricter).** Additionally set `cloakcode.gatewayCaFile` to the gateway's cert:
-  full chain validation stays **on** (`rejectUnauthorized` never downgraded), the self-signed cert is
-  trusted as a CA, and the optional `cloakcode.gatewayCertFingerprint` is verified in
-  `checkServerIdentity` (which Node calls only _after_ chain validation).
 
-A gateway fronted by a **real/BYO CA** needs neither — the system trust store validates it (plus the
-fingerprint pin if provided). With **no pin and no CA** on a `wss://` URL we still fail closed
-(`rejectUnauthorized:true` against the system trust store; never an unverified socket). The
-`cloakcode.gatewayUrl`/`gatewayCaFile`/`gatewayCertFingerprint` settings are `machine`-scoped (S4a),
-so a workspace cannot redirect or unpin the link.
+With **no pin and no trusted chain** on a `wss://` URL we still fail closed (`rejectUnauthorized:true`
+against the system trust store; never an unverified socket). The
+`cloakcode.gatewayUrl`/`gatewayCertFingerprint` settings are `machine`-scoped (S4a), so a workspace
+cannot redirect or unpin the link.
+
+**The pin travels _with_ the address, in one pairing URL.** The gateway console and the PWA's **Connect
+an extension** view both publish `wss://host:port#fp=<fingerprint>`; `resolveConnectionPlan` splits the
+fragment off locally into the pin (`@cloakcode/protocol` owns the codec, so both ends agree). Two
+separate settings could drift — a stale pin against a new host, or a one-character typo in a field
+nothing cross-checks (this cost real time on 2026-07-27) — and a fragment is chosen over a query string
+so the pin is never transmitted to the server or any proxy. `cloakcode.gatewayCertFingerprint` still
+exists for anyone who prefers a bare URL; a value there that **contradicts** the URL's pin is refused
+rather than resolved by precedence, since silently preferring either would be a trust decision the
+operator never saw. A pin that is present but unusable is likewise an error, never a silent downgrade
+to an unpinned connection.
 
 **A pinned connection never resumes a TLS session** (`noResumptionAgent`, verified 2026-07-27). On a
 resumed session the server presents **no certificate**: `getPeerCertificate()` returns `{}` and
@@ -185,7 +196,8 @@ fetched cert acceptable. Everything after that is strictly stronger: `rejectUnau
 chain validation against the pinned cert on **every** connection (resumed or not), and the fingerprint
 re-checked in `checkServerIdentity` on each full handshake. A probe that reaches a server presenting the
 wrong cert fails closed before any frame is sent; a probe that reaches nothing is just unreachability.
-An explicit `cloakcode.gatewayCaFile` still short-circuits all of this.
+The pairing payload therefore ships **no certificate** — only the pin — because the extension obtains
+the cert itself and the pin is the whole trust decision.
 
 **A pin failure never falls back to the embedded bridge.** `connectGateway` rejects with a distinct
 `GatewayCertPinError` (not the generic "unreachable"), and the extension logs

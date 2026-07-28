@@ -198,11 +198,11 @@ describe("connectHint", () => {
     expect(connectHint(undefined, "wss://host:7443")).toBe("");
   });
 
-  it("names both trust options for a wss cert-trust failure", () => {
+  it("points at the pairing URL and the pin for a wss cert-trust failure", () => {
     const hint = connectHint("DEPTH_ZERO_SELF_SIGNED_CERT", "wss://host:7443");
     expect(hint).toContain("DEPTH_ZERO_SELF_SIGNED_CERT");
+    expect(hint).toContain("pairing");
     expect(hint).toContain("gatewayCertFingerprint");
-    expect(hint).toContain("gatewayCaFile");
   });
 
   it("does not give TLS advice for a plain ws failure", () => {

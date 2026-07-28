@@ -3,6 +3,10 @@ import { Agent } from "node:https";
 import { connect as tlsConnect } from "node:tls";
 import type { PeerCertificate, TLSSocket } from "node:tls";
 import type { ClientOptions, WebSocket } from "ws";
+import {
+  normalizeFingerprint,
+  shortFingerprint,
+} from "@cloakcode/protocol";
 
 /**
  * Server-identity pinning for the extension's outbound provider link (drift
@@ -11,40 +15,41 @@ import type { ClientOptions, WebSocket } from "ws";
  * a redirected `gatewayUrl` (S4) or a MITM could impersonate the hub and request
  * env-wide session data. Pure so the pin logic unit-tests without an extension host.
  *
- * Two ways to trust a self-signed / BYO gateway — pick per what you configured:
+ * There are exactly **two** ways a `wss://` gateway earns trust:
  *
- *  • **Fingerprint-only (the easy path)** — set only
- *    `cloakcode.gatewayCertFingerprint`. Node's `rejectUnauthorized:true` would
- *    reject a self-signed chain *before* any pin runs, and `checkServerIdentity`
- *    is **ignored** when auth is off — so this mode turns chain auth off and
- *    verifies the **exact cert fingerprint by hand** the instant the socket opens,
- *    failing closed before sending anything (see {@link guardFingerprintPin}).
- *    Pinning the exact cert is as strong as a CA for a single known server, and it
- *    skips the hostname/SAN check a bare-IP / `host.docker.internal` gateway can't
+ *  • **A real authority vouches for it** — the certificate chains to a root the
+ *    machine already trusts (a public CA, or your organization's root deployed to
+ *    the device). Configure nothing: `rejectUnauthorized:true` against the system
+ *    trust store plus the standard hostname check, exactly like a browser.
+ *
+ *  • **You vouch for it** — a self-signed gateway (the zero-setup default) is
+ *    trusted by its SHA-256 **fingerprint**, carried out-of-band in the pairing
+ *    URL's `#fp=` fragment or in `cloakcode.gatewayCertFingerprint`. Node's
+ *    `rejectUnauthorized:true` would reject a self-signed chain *before* any pin
+ *    runs, and `checkServerIdentity` is **ignored** when auth is off — so
+ *    {@link selfProvisionedPin} first fetches the certificate over a throwaway
+ *    socket, accepts it **only** if it matches the pin, and then uses it as the
+ *    trust anchor for the real connection with full validation back on. Pinning
+ *    the exact cert is as strong as a CA for a single known server, and it skips
+ *    the hostname/SAN check a bare-IP / `host.docker.internal` gateway can't
  *    satisfy. (Verified secure against the live gateway; "Mechanism 2".)
  *
- *  • **CA-pin (optional, stricter)** — additionally set `cloakcode.gatewayCaFile`
- *    to the gateway's cert. Full chain validation stays **on** (`rejectUnauthorized`
- *    is never downgraded); the self-signed cert is trusted as a CA and the optional
- *    fingerprint pins it in `checkServerIdentity` (which Node calls only *after*
- *    chain validation succeeds).
- *
- * A **real-CA** gateway needs neither: the system trust store validates it and the
- * default hostname check applies (plus the fingerprint pin if provided). With no
- * pin and no CA on a `wss://` URL we still fail closed — `rejectUnauthorized:true`
- * against the system trust store; we never fall back to an unverified socket.
+ * With neither — an unpinned `wss://` whose chain the machine doesn't trust — we
+ * fail closed; we never fall back to an unverified socket.
  */
 export interface GatewayPinConfig {
-  /** Contents of the gateway cert PEM (from `cloakcode.gatewayCaFile`), if set. */
+  /**
+   * The gateway's certificate as PEM, used as the trust anchor. Not a setting:
+   * {@link selfProvisionedPin} produces it by fetching and verifying the cert
+   * against {@link GatewayPinConfig.fingerprint}.
+   */
   caPem?: string | undefined;
-  /** Expected SHA-256 fingerprint (`cloakcode.gatewayCertFingerprint`), if set. */
+  /** Expected SHA-256 fingerprint (pairing URL `#fp=` or the setting), if set. */
   fingerprint?: string | undefined;
 }
 
 /** Canonicalize a fingerprint for comparison: hex only, uppercase. */
-export function normalizeFingerprint(fingerprint: string): string {
-  return fingerprint.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
-}
+export { normalizeFingerprint };
 
 /**
  * True when the pin config selects **fingerprint-only** mode for this URL: a
@@ -86,17 +91,12 @@ export function verifyPinnedCert(
   // echo keeps it out of shared logs.
   return new Error(
     actual === ""
-      ? `cloakcode: gateway presented no certificate to pin (configured pin ${short(expected)})`
+      ? `cloakcode: gateway presented no certificate to pin (configured pin ${shortFingerprint(expected)})`
       : `cloakcode: gateway certificate fingerprint does not match the configured pin ` +
-          `(presented ${short(actual)}, configured ${short(expected)}). Read the correct ` +
+          `(presented ${shortFingerprint(actual)}, configured ${shortFingerprint(expected)}). Read the correct ` +
           `pin from the gateway's own console or its "Connect an extension" view — ` +
           `never from this message.`,
   );
-}
-
-/** First 12 hex chars — enough to compare by eye, useless to paste. */
-function short(fingerprint: string): string {
-  return fingerprint.slice(0, 12) + "…";
 }
 
 /**
@@ -170,10 +170,8 @@ function resumedPinError(): Error {
   return new Error(
     "cloakcode: the gateway's TLS session was RESUMED, so it presented no " +
       "certificate and the fingerprint pin could not be checked (the pin itself " +
-      "is not wrong). Set cloakcode.gatewayCaFile to the gateway's certificate — " +
-      "CA-pinning is enforced by the TLS stack and is unaffected — or set " +
-      'http.proxySupport to "on" so VS Code stops replacing CloakCode\'s ' +
-      "connection agent.",
+      "is not wrong). Reconnect, or set http.proxySupport to \"on\" so VS Code " +
+      "stops replacing CloakCode's connection agent.",
   );
 }
 
@@ -214,7 +212,8 @@ async function fetchPinnedCertPem(
         socket.destroy();
         const err = verifyPinnedCert(expected, cert);
         if (err) reject(err);
-        else if (!cert.raw) reject(new Error("cloakcode: no certificate to pin"));
+        else if (!cert.raw)
+          reject(new Error("cloakcode: no certificate to pin"));
         else resolve(derToPem(cert.raw));
       },
     );
@@ -256,7 +255,10 @@ export async function selfProvisionedPin(
 ): Promise<GatewayPinConfig> {
   if (!isFingerprintOnly(url, pin) || !pin.fingerprint) return pin;
   try {
-    return { ...pin, caPem: await fetchPinnedCertPem(url, pin.fingerprint, timeoutMs) };
+    return {
+      ...pin,
+      caPem: await fetchPinnedCertPem(url, pin.fingerprint, timeoutMs),
+    };
   } catch (err) {
     // A fingerprint mismatch is a real pin failure and must surface; anything
     // else (refused, timeout, reset) is unreachability — let the connect report it.

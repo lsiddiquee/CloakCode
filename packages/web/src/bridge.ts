@@ -209,8 +209,8 @@ export function fetchHistory(
 
 /**
  * One-shot `gateway.connectInfo` fetch (C4): how to pair an EXTENSION with the
- * gateway's `wss://` provider listener — the reachable URLs, the SHA-256
- * fingerprint pin, and the cert PEM (all public; the key is never sent). Refused
+ * gateway's `wss://` provider listener — the reachable URLs and the SHA-256
+ * fingerprint pin (public; neither the key nor the certificate is sent). Refused
  * with `needsAuth` until the operator is logged in — same auth prelude as the
  * other ops. Mirrors {@link fetchSessions}.
  */

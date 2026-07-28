@@ -55,6 +55,9 @@ export * from "./logger.js";
 // Token-bucket rate limiter for bounding operator ingress (docs/04, F2b).
 export * from "./rate-limit.js";
 
+// The pairing-URL codec (address + `#fp=` pin) shared by gateway and extension.
+export * from "./gateway-url.js";
+
 /**
  * Liveness-derived session status. Per research (docs/02 §3.3) this comes from
  * file mtime alone — never from the last event type.
@@ -573,8 +576,8 @@ export const rpcRequestSchema = z.discriminatedUnion("op", [
     op: z.literal("gateway.connectInfo"),
     // The authenticated operator (PWA) asks how to pair an EXTENSION with this
     // gateway's native-TLS (wss) provider listener (docs/04 "Closing the gap",
-    // C4): the reachable wss:// URLs, the SHA-256 fingerprint pin, and the cert
-    // PEM (for `cloakcode.gatewayCaFile`). All public — no secret is returned.
+    // C4): the reachable wss:// URLs and the SHA-256 fingerprint pin, which the
+    // PWA also joins into one pairing URL. All public — no secret is returned.
     params: z.object({}).optional(),
   }),
 ]);
@@ -657,8 +660,6 @@ export const gatewayConnectInfoSchema = z.object({
   insecure: z.boolean().default(false),
   /** SHA-256 cert fingerprint (the pin) for `cloakcode.gatewayCertFingerprint`. */
   fingerprint: z.string().optional(),
-  /** The gateway's TLS certificate PEM for `cloakcode.gatewayCaFile` (public). */
-  certPem: z.string().optional(),
 });
 export type GatewayConnectInfo = z.infer<typeof gatewayConnectInfoSchema>;
 

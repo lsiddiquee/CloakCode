@@ -304,34 +304,33 @@ the critical path.
      mounted read-only in Docker) — zero setup, and it gives the gateway a fingerprint to publish.
      `CLOAKCODE_TLS_CERT_FILE` / `CLOAKCODE_TLS_KEY_FILE` override with an operator-supplied cert/key
      (real CA / mkcert / corporate PKI).
-  3. **Server identity to the extension: a SHA-256 fingerprint pin + the cert, delivered out-of-band
-     via the authenticated PWA.** The gateway never prints/logs a secret; instead the PWA — already
-     behind the Dev Tunnel sign-in **and** operator TOTP — exposes a **“Connect an extension”** action
-     (`gateway.connectInfo` op) that shows the reachable `wss://<host>:<wssPort>` URL, the cert
-     fingerprint, and the cert PEM for the operator to copy into `cloakcode.gatewayUrl` +
-     `cloakcode.gatewayCertFingerprint` (the fingerprint alone pins a self-signed gateway;
-     `cloakcode.gatewayCaFile` is optional, for stricter full-chain validation). The PWA
-     is a _different, already-verified_ channel (tunnel TLS + operator auth), so this is legitimate
-     out-of-band provisioning, not blind TOFU. **Console is the fallback** when no tunnel is up; a
-     **BYO real-CA** gateway needs no CA file.
-  4. **The extension always verifies — two pin modes (`gateway-tls.ts`).**
-     - **Fingerprint-only (the low-friction default).** With just
-       `cloakcode.gatewayCertFingerprint`, the extension turns chain auth off
-       (`rejectUnauthorized:false`) and verifies the **exact cert fingerprint by hand** the instant the
-       socket opens — `guardFingerprintPin` **terminates before sending the knock/hello** on mismatch.
-       `checkServerIdentity` is ignored once auth is off (and a self-signed chain would fail before any
-       pin ran), so the manual check IS the verification; it also skips the hostname/SAN check a
-       bare-IP / `host.docker.internal` gateway can't satisfy. Pinning the exact cert is as strong as a
-       CA for a single known server (verified live; "Mechanism 2").
-     - **CA-pin (optional, stricter).** Adding `cloakcode.gatewayCaFile` keeps
-       `rejectUnauthorized: true`: the self-signed cert is trusted as a CA and the fingerprint pins it
-       in `checkServerIdentity` (called only _after_ chain validation). A **BYO real-CA** gateway needs
-       neither; with no pin and no CA we still fail closed against the system trust store.
+  3. **Server identity to the extension: a SHA-256 fingerprint pin, delivered out-of-band via the
+     authenticated PWA.** The gateway never prints/logs a secret; instead the PWA — already behind the
+     Dev Tunnel sign-in **and** operator TOTP — exposes a **“Connect an extension”** action
+     (`gateway.connectInfo` op) that shows a single **pairing URL**,
+     `wss://<host>:<wssPort>#fp=<fingerprint>`, to paste into `cloakcode.gatewayUrl`; the address and
+     its pin therefore cannot drift apart, and the fragment is never transmitted. The bare pin is shown
+     too for anyone who prefers `cloakcode.gatewayCertFingerprint` as a separate setting. No cert PEM
+     is delivered — the extension fetches the certificate itself and the pin is the whole trust
+     decision. The PWA is a _different, already-verified_ channel (tunnel TLS + operator auth), so this
+     is legitimate out-of-band provisioning, not blind TOFU. **Console is the fallback** when no tunnel
+     is up; a gateway a **real authority** already vouches for needs no pin at all.
+  4. **The extension always verifies — two ways to earn trust (`gateway-tls.ts`).**
+     - **A real authority vouches for it.** The cert chains to a root the machine already trusts (a
+       public CA, or an org root deployed to the device). Configure nothing: `rejectUnauthorized:true`
+       against the system trust store plus the standard hostname check.
+     - **You vouch for it (self-signed, the zero-setup default).** The fingerprint is the anchor:
+       `selfProvisionedPin` fetches the certificate over a direct `tls.connect`, accepts it **only** if
+       it matches the pin, and connects with it as the `ca` — so `rejectUnauthorized` stays true, full
+       chain validation runs on every connection, and the fingerprint is re-checked in
+       `checkServerIdentity`. It also skips the hostname/SAN check a bare-IP / `host.docker.internal`
+       gateway can't satisfy. Pinning the exact cert is as strong as a CA for a single known server
+       (verified live; "Mechanism 2"). With no pin and no trusted chain we still fail closed.
 
-     The PWA only _delivers_ the cert + pin; delivery never substitutes for verification. Explicitly
-     rejected: blind first-connection TOFU and learning the pin over the unverified socket.
-     Fingerprint-only does set `rejectUnauthorized:false`, but only paired with the mandatory
-     exact-cert check that fails closed before any app data — a pin, not TOFU.
+     The PWA only _delivers_ the pin; delivery never substitutes for verification. Explicitly
+     rejected: blind first-connection TOFU and learning the pin over the unverified socket. The
+     certificate fetch does set `rejectUnauthorized:false` on a **throwaway** socket that carries no
+     application data, and its result is accepted only on an exact fingerprint match — a pin, not TOFU.
   5. **Two role-scoped listeners (the listener split, 2026-07-23).** The gateway binds an **operator**
      listener (loopback HTTP + phone WebSocket, `CLOAKCODE_GATEWAY_HOST` default `127.0.0.1`, fronted
      by the tunnel — Dev Tunnel terminates TLS at ingress → loopback, proven) **and** a dedicated,
@@ -355,8 +354,9 @@ the critical path.
   **Shipped surfaces (C1–C4):** gateway `startGateway` `tls` option + the second `wss://` listener
   (`gateway.ts`) + self-signed cert-gen/persist (`tls.ts`, EC P-256, key `0600`); the
   `gateway.connectInfo` operator RPC (`@cloakcode/protocol`) + the PWA **Connect an extension** view
-  (`ConnectExtensionView`); the pinned extension client (`gateway-tls.ts`) + `cloakcode.gatewayCaFile`
-  / `cloakcode.gatewayCertFingerprint` settings (machine-scoped, S4a); env `CLOAKCODE_TLS_PORT` /
+  (`ConnectExtensionView`); the pinned extension client (`gateway-tls.ts`) + the pairing-URL codec
+  (`@cloakcode/protocol`) behind `cloakcode.gatewayUrl` / `cloakcode.gatewayCertFingerprint`
+  (machine-scoped, S4a); env `CLOAKCODE_TLS_PORT` /
   `CLOAKCODE_TLS_CERT_FILE` / `CLOAKCODE_TLS_KEY_FILE`. No transport protocol change (TLS is transport;
   the connect-info response is the one new operator-facing op). READMEs updated (C5).
 

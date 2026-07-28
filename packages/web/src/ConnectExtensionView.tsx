@@ -1,5 +1,8 @@
 import { useEffect, useState, type JSX } from "react";
-import type { GatewayConnectInfo } from "@cloakcode/protocol";
+import {
+  formatPinnedGatewayUrl,
+  type GatewayConnectInfo,
+} from "@cloakcode/protocol";
 import { fetchConnectInfo, isBridgeInsecure } from "./bridge";
 import { InsecureBanner } from "./InsecureBanner";
 
@@ -65,10 +68,9 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
           <>
             Add these to the CloakCode <strong>extension</strong> settings in VS
             Code to connect it to this gateway over an encrypted, pinned{" "}
-            <code>wss://</code> link. The{" "}
-            <strong>fingerprint pin is all you need</strong> for a self-signed
-            gateway; the certificate below is optional (stricter full-chain
-            validation):
+            <code>wss://</code> link. The URL below already{" "}
+            <strong>carries this gateway&rsquo;s certificate pin</strong>, so
+            one paste is enough:
           </>
         )}
       </p>
@@ -83,12 +85,17 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
               port.
             </p>
           )}
-          {info.urls.map((u) => (
-            <div className="connect-value" key={u}>
-              <code className="wrap">{u}</code>
-              <CopyButton value={u} />
-            </div>
-          ))}
+          {info.urls.map((u) => {
+            const value = info.fingerprint
+              ? formatPinnedGatewayUrl(u, info.fingerprint)
+              : u;
+            return (
+              <div className="connect-value" key={u}>
+                <code className="wrap">{value}</code>
+                <CopyButton value={value} />
+              </div>
+            );
+          })}
         </li>
         {info.fingerprint && (
           <li>
@@ -96,8 +103,9 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
               <code>cloakcode.gatewayCertFingerprint</code>
             </div>
             <p className="hint dim">
-              For a self-signed gateway this pin is all you need — the extension
-              verifies the exact certificate and refuses a mismatch.
+              Already included in the URL above — copy it here only if you
+              prefer to keep the URL bare. The extension verifies the exact
+              certificate on every connection and refuses a mismatch.
             </p>
             <div className="connect-value">
               <code className="wrap">{info.fingerprint}</code>
@@ -105,32 +113,12 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
             </div>
           </li>
         )}
-        {info.certPem && (
-          <li>
-            <div className="connect-label">
-              <code>cloakcode.gatewayCaFile</code>
-            </div>
-            <p className="hint dim">
-              Optional — the fingerprint above already pins a self-signed
-              gateway. Add this only for stricter full-chain validation; skip it
-              if your gateway uses a real / BYO CA.
-            </p>
-            <textarea
-              className="connect-cert"
-              readOnly
-              rows={6}
-              value={info.certPem}
-              aria-label="Gateway TLS certificate (PEM)"
-            />
-            <CopyButton value={info.certPem} label="Copy certificate" />
-          </li>
-        )}
       </ol>
       {!info.insecure && (
         <p className="hint dim">
-          The fingerprint is a public integrity pin and the certificate is
-          public — neither is a secret. The extension verifies the pin on every
-          connection and refuses a mismatch.
+          The fingerprint is a public integrity pin, not a secret — but read it
+          only from here or the gateway&rsquo;s console, never from an error
+          message reporting what some other server presented.
         </p>
       )}
     </>

@@ -14,7 +14,9 @@ import {
 import { type GatewayPinConfig } from "./gateway-tls.js";
 import {
   resolveConnectionPlan,
+  resolveGatewayPin,
   resolveGatewayToken,
+  type ConnectionPlan,
 } from "./connection-plan.js";
 import { createOutputChannelLogger } from "./logger.js";
 import { type Logger, type LogLevel } from "@cloakcode/protocol";
@@ -218,32 +220,11 @@ function resolveOwnedHashes(
 }
 
 /**
- * Resolve the wss server-identity pin (drift audit S4b) from settings:
- * `cloakcode.gatewayCaFile` (read into a CA PEM) + `cloakcode.gatewayCertFingerprint`.
- * A missing/unreadable CA file is logged (not fatal) — without it a self-signed
- * `wss://` gateway fails closed at CA validation, which is the safe outcome. Both
- * are inert for `ws://` and for a real/BYO-CA gateway.
+ * Resolve the wss server-identity pin (drift audit S4b) from the settings: the
+ * `#fp=` fragment of `cloakcode.gatewayUrl` and/or `cloakcode.gatewayCertFingerprint`.
+ * Both are inert for `ws://` and for a gateway whose certificate a real authority
+ * already vouches for (the system trust store validates that one).
  */
-async function resolveGatewayPin(
-  cfg: vscode.WorkspaceConfiguration,
-  log: Logger,
-): Promise<GatewayPinConfig> {
-  const fingerprint =
-    (cfg.get<string>("gatewayCertFingerprint") ?? "").trim() || undefined;
-  const caFile = (cfg.get<string>("gatewayCaFile") ?? "").trim();
-  let caPem: string | undefined;
-  if (caFile) {
-    try {
-      caPem = await fs.readFile(caFile, "utf8");
-    } catch {
-      log.warn("gateway.ca_file_unreadable", { file: caFile });
-    }
-  }
-  return {
-    ...(caPem ? { caPem } : {}),
-    ...(fingerprint ? { fingerprint } : {}),
-  };
-}
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -484,11 +465,37 @@ export async function activate(
       cfgNow.get<number | null>("port"),
     );
     // Pure decision (tested in connection-plan.test.ts): explicit url → gateway;
-    // else embedded.
-    const plan = resolveConnectionPlan({
-      gatewayUrl: cfgNow.get<string>("gatewayUrl"),
-      envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
-    });
+    // else embedded. The URL may be the gateway's pairing URL, carrying its
+    // certificate pin in a `#fp=` fragment; that is split off here so everything
+    // downstream dials/logs/keys by the bare address. A malformed pin — in the
+    // URL or contradicting the standalone setting — throws: it is a trust input,
+    // so it is never silently dropped in favour of an unpinned connection.
+    let plan: ConnectionPlan;
+    let gatewayPin: GatewayPinConfig;
+    try {
+      plan = resolveConnectionPlan({
+        gatewayUrl: cfgNow.get<string>("gatewayUrl"),
+        envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
+      });
+      gatewayPin = resolveGatewayPin({
+        urlFingerprint: plan.kind === "gateway" ? plan.fingerprint : undefined,
+        settingFingerprint: cfgNow.get<string>("gatewayCertFingerprint"),
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      log.error("gateway.pin_config_invalid", { error: detail });
+      void vscode.commands.executeCommand(
+        "setContext",
+        "cloakcode.embedded",
+        false,
+      );
+      status.text = "$(broadcast) CloakCode $(error)";
+      status.tooltip = `CloakCode: ${detail}`;
+      void vscode.window.showErrorMessage(
+        `CloakCode: ${detail} No bridge was started.`,
+      );
+      return "gateway — invalid pin configuration";
+    }
     // Provider↔gateway shared secret (machine-to-machine): the env var wins,
     // else the setting; unset → no auth (loopback dev). Presented in the
     // provider hello — never operator-facing (docs/04). Env-first matches the
@@ -498,11 +505,6 @@ export async function activate(
       envGatewayToken: process.env["CLOAKCODE_GATEWAY_TOKEN"],
     });
     const gatewayUrl = plan.kind === "gateway" ? plan.url : undefined;
-    // TLS server-identity pin for a wss:// gateway (drift audit S4b, docs/04):
-    // trust a self-signed gateway's cert (gatewayCaFile) so rejectUnauthorized
-    // stays true, and pin its fingerprint (gatewayCertFingerprint). Inert for
-    // ws:// and for a real/BYO-CA gateway.
-    const gatewayPin = await resolveGatewayPin(cfgNow, log);
     // Operator TOTP for the embedded bridge (gateway/client mode authenticates
     // the operator at the hub instead). Resolved from the current settings.
     const opAuth = gatewayUrl ? undefined : await resolveOperatorAuth(cfgNow);

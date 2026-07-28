@@ -275,7 +275,6 @@ describe("guardFingerprintPin", () => {
     // The remedy must be in the message: this is not a wrong pin, and the user
     // cannot act on "presented no certificate" alone.
     expect(rejected?.message).toMatch(/resumed/i);
-    expect(rejected?.message).toContain("cloakcode.gatewayCaFile");
     expect(rejected?.message).toContain("http.proxySupport");
   });
 

@@ -503,7 +503,6 @@ describe("fetchConnectInfo", () => {
         available: true,
         urls: ["wss://192.168.1.10:7443"],
         fingerprint: "AB:CD:EF",
-        certPem: "PEM",
       },
     });
     await expect(p).resolves.toEqual({
@@ -511,7 +510,6 @@ describe("fetchConnectInfo", () => {
       urls: ["wss://192.168.1.10:7443"],
       insecure: false,
       fingerprint: "AB:CD:EF",
-      certPem: "PEM",
     });
   });
 

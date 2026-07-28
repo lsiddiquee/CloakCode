@@ -1,10 +1,13 @@
+import { normalizeFingerprint, splitPinnedGatewayUrl } from "@cloakcode/protocol";
+import type { GatewayPinConfig } from "./gateway-tls.js";
+
 /**
  * The pre-connect DECISION, computed purely from settings so it is testable
  * without an extension host. The async connect I/O stays in the extension
  * adapter (`extension.ts`); this only decides WHAT to do.
  */
 export type ConnectionPlan =
-  { kind: "gateway"; url: string } | { kind: "embedded" };
+  { kind: "gateway"; url: string; fingerprint?: string } | { kind: "embedded" };
 
 /**
  * Resolve the connection plan from the setting + env. Pure.
@@ -13,14 +16,22 @@ export type ConnectionPlan =
  *   → connect OUT to that standalone gateway. A hostless `ws://:port` is skipped
  *   (an unfilled `${env:HOST_IP}`), so F5 on a non-WSL host still goes embedded.
  * - Else embedded (serve our own PWA + `/bridge`).
+ *
+ * The chosen URL may be the gateway's **pairing URL** — address plus a
+ * `#fp=<fingerprint>` pin in one copy-paste string (docs/04). The pin is split
+ * out here so everything downstream dials, logs and keys secrets by the bare
+ * address. **Throws** on a URL whose fragment is present but unusable: ignoring
+ * it would quietly downgrade a pinned link to an unpinned one.
  */
 export function resolveConnectionPlan(input: {
   gatewayUrl: string | undefined;
   envGatewayUrl?: string | undefined;
 }): ConnectionPlan {
-  const url =
+  const raw =
     usableGatewayUrl(input.envGatewayUrl) ?? usableGatewayUrl(input.gatewayUrl);
-  return url ? { kind: "gateway", url } : { kind: "embedded" };
+  if (!raw) return { kind: "embedded" };
+  const { url, fingerprint } = splitPinnedGatewayUrl(raw);
+  return { kind: "gateway", url, ...(fingerprint ? { fingerprint } : {}) };
 }
 
 /** A trimmed, non-empty `ws(s)://host…` URL (rejects a hostless `ws://:port`). */
@@ -49,4 +60,36 @@ export function resolveGatewayToken(input: {
 function nonEmpty(raw: string | undefined): string | undefined {
   const v = raw?.trim();
   return v ? v : undefined;
+}
+
+/**
+ * Resolve the `wss://` server-identity pin (drift audit S4b, docs/04) from the
+ * two places a fingerprint can arrive: the `#fp=` fragment of the pairing URL
+ * and the standalone `cloakcode.gatewayCertFingerprint` setting. Pure.
+ *
+ * They are the same value expressed two ways, so either alone wins. Both set and
+ * **disagreeing** is a genuine ambiguity — one of them is stale or mistyped, and
+ * picking either silently would be a trust decision made by precedence rules the
+ * operator never saw. Fail closed and say which two disagree (truncated: a pin
+ * belongs in an out-of-band channel, not in a log).
+ */
+export function resolveGatewayPin(input: {
+  urlFingerprint?: string | undefined;
+  settingFingerprint?: string | undefined;
+}): GatewayPinConfig {
+  const fromUrl = nonEmpty(input.urlFingerprint);
+  const fromSetting = nonEmpty(input.settingFingerprint);
+  if (
+    fromUrl &&
+    fromSetting &&
+    normalizeFingerprint(fromUrl) !== normalizeFingerprint(fromSetting)
+  ) {
+    throw new Error(
+      "cloakcode: the pin in cloakcode.gatewayUrl and the one in " +
+        "cloakcode.gatewayCertFingerprint disagree — remove whichever is stale, " +
+        "then re-copy the pairing URL from the gateway's console.",
+    );
+  }
+  const fingerprint = fromUrl ?? fromSetting;
+  return fingerprint ? { fingerprint } : {};
 }

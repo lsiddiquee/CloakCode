@@ -502,10 +502,10 @@ export async function startGateway(
   );
 
   // Connect-info the authenticated operator (PWA) fetches to pair an extension
-  // with the provider listener (C4). All public — the fingerprint is a pin, the
-  // cert is public; the key is never included. When the provider listener is an
-  // insecure plain `ws://` there is no cert/fingerprint (the operator is warned
-  // separately) and the URLs keep the `ws://` scheme.
+  // with the provider listener (C4). All public — the fingerprint is a pin, not
+  // a secret; the key and the cert itself are never included. When the provider
+  // listener is an insecure plain `ws://` there is no fingerprint (the operator
+  // is warned separately) and the URLs keep the `ws://` scheme.
   connectInfo = {
     available: true,
     insecure: !providerTls,
@@ -514,9 +514,7 @@ export async function startGateway(
       providerBoundPort,
       networkInterfaces(),
     ).map(({ url }) => (providerTls ? url.replace(/^ws:/i, "wss:") : url)),
-    ...(providerTls
-      ? { fingerprint: providerTls.fingerprint, certPem: providerTls.cert }
-      : {}),
+    ...(providerTls ? { fingerprint: providerTls.fingerprint } : {}),
   };
 
   return {

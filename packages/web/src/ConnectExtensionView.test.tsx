@@ -23,20 +23,21 @@ afterEach(() => {
 });
 
 describe("ConnectExtensionView", () => {
-  it("renders the wss url, fingerprint pin and cert when TLS is available", async () => {
+  it("renders ONE pairing URL that already carries the pin, plus the bare pin", async () => {
     fetchConnectInfoMock.mockResolvedValue({
       available: true,
       urls: ["wss://192.168.1.10:7443"],
       fingerprint: "AB:CD:EF",
-      certPem: "-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----",
     });
     render(<ConnectExtensionView onBack={() => {}} />);
 
-    await screen.findByText("wss://192.168.1.10:7443");
+    // Address + pin in one copy-paste string, so they cannot drift apart.
+    await screen.findByText("wss://192.168.1.10:7443#fp=ABCDEF");
     expect(screen.getByText("cloakcode.gatewayCertFingerprint")).toBeTruthy();
     expect(screen.getByText("AB:CD:EF")).toBeTruthy();
-    const cert = screen.getByLabelText(/certificate/i) as HTMLTextAreaElement;
-    expect(cert.value).toContain("BEGIN CERTIFICATE");
+    // The certificate itself is never handed out for pairing — the pin is the
+    // whole anchor, and the extension fetches the cert and verifies it itself.
+    expect(screen.queryByLabelText(/certificate/i)).toBeNull();
   });
 
   it("warns and shows a plain ws url when the provider listener is insecure", async () => {
@@ -81,13 +82,14 @@ describe("ConnectExtensionView", () => {
       available: true,
       urls: ["wss://h:7443"],
       fingerprint: "AB",
-      certPem: "PEM",
     });
     render(<ConnectExtensionView onBack={() => {}} />);
 
-    await screen.findByText("wss://h:7443");
+    await screen.findByText("wss://h:7443#fp=AB");
     fireEvent.click(screen.getAllByRole("button", { name: /copy/i })[0]!);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("wss://h:7443"));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("wss://h:7443#fp=AB"),
+    );
   });
 
   it("calls onBack when the back button is clicked", async () => {

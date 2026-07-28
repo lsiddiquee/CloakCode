@@ -288,7 +288,8 @@ Base: `~/.vscode-server/data/User/`
   `gateway … unreachable` because `gateway-client.ts` did `s.on("error", () => {})`, hiding the actual
   `DEPTH_ZERO_SELF_SIGNED_CERT` (cert-not-trusted) — so a fixable trust problem looked like the
   gateway was down. Fix pattern: capture `errorCode(e)` and fold it into the surfaced message/reject
-  (`connectHint()`), mapping known codes to an action ("set gatewayCertFingerprint / gatewayCaFile").
+  (`connectHint()`), mapping known codes to an action ("paste the gateway's pairing URL, which carries
+  the pin").
   "Never log secrets" bounds WHAT you log; it never licenses logging NOTHING.
 - **Provider↔gateway handshake: log every failure branch (redaction-safe), and test it by sharing
   only the TOTP code (2026-07-24).** When a provider fails to register you must read WHY from the log,

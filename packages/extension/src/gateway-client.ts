@@ -331,7 +331,7 @@ export async function connectGateway(
 /**
  * A redaction-safe, actionable suffix for a failed connection, built from the
  * captured error CODE (never the message). For a wss cert-trust failure it names
- * the two ways to trust a self-signed gateway; otherwise it just names the code.
+ * the two ways a gateway earns trust; otherwise it just names the code.
  * Empty when no error was captured (a genuine timeout with no socket error).
  */
 export function connectHint(code: string | undefined, url: string): string {
@@ -339,8 +339,9 @@ export function connectHint(code: string | undefined, url: string): string {
   const isTlsTrust = /CERT|SSL|SELF_SIGNED|UNABLE_TO_VERIFY/i.test(code);
   if (isTlsTrust && url.startsWith("wss:")) {
     return (
-      ` (${code} \u2014 the gateway's certificate is not trusted; set ` +
-      `cloakcode.gatewayCertFingerprint to its pin, or cloakcode.gatewayCaFile to its cert)`
+      ` (${code} \u2014 the gateway's certificate is not trusted; use the pairing ` +
+      `URL from its console, which carries the pin, or set ` +
+      `cloakcode.gatewayCertFingerprint to that pin)`
     );
   }
   return ` (${code})`;
