@@ -142,6 +142,11 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.31** `acceptTool`/`skipTool` bail **silently** unless a widget already has that session
   loaded (hence `vscode.open` first) **and** the last view-model item is a response — any
   **queued/steering** row is appended after it and wedges the approval (unreachable remotely).
+- **§4.35** A `chat.submit` with **no queue kind**, made while messages are pending and no request
+  is in progress, opens a **local-only modal** ("You already have pending requests… Keep / Remove /
+  Cancel") that stalls the remote send (Cancel drops it silently) — `respond` now always passes
+  `{queue:"queued"}`, the same early return the local _Add to Queue_ button uses; `stop`-and-send
+  can't be protected (its `cancelCurrentRequest` branch clears the kind upstream).
 
 ### On-disk storage & logs — [02.4](02.4-storage-and-logs.md)
 

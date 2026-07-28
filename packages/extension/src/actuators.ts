@@ -48,14 +48,25 @@ export function buildActuators({
     respond: async ({ sessionId, text, traceId }) => {
       // M3b targeted-send: focus the SPECIFIC local session by its resource URI,
       // then submit the text DIRECTLY (`chat.submit {inputValue}`) — our payload,
-      // never the shared composer, so a local draft is untouched. While a turn
-      // runs VS Code auto-queues it (default queue kind); idle it sends.
+      // never the shared composer, so a local draft is untouched.
       // `sessionId` names the transcript AND is what Copilot base64url-encodes
       // into `vscode-chat-session://local/<id>`, a registered editor. See docs/02.
+      //
+      // ALWAYS name a queue kind. Without one, a submit made while the session
+      // holds queued/steering messages raises a MODAL only the person at the
+      // desktop can answer, and the remote send hangs behind it;
+      // `confirmPendingRequestsBeforeSend` returns early on `options.queue`
+      // (docs/02.3 §4.32). `queued` also matches what VS Code itself defaults to
+      // mid-turn (`options.queue ??= Queued`), so this changes nothing else:
+      // idle + empty queue still sends immediately (the queue is drained at once),
+      // and a non-empty queue keeps its messages, ours going last.
       const uri = sessionUri(sessionId);
       log.info("actuator.respond", { sessionId, traceId });
       await execute("vscode.open", uri);
-      await execute("workbench.action.chat.submit", { inputValue: text });
+      await execute("workbench.action.chat.submit", {
+        inputValue: text,
+        acceptInputOptions: { queue: "queued" },
+      });
     },
     steer: async ({ sessionId, text, traceId }) => {
       // Redirect the IN-FLIGHT turn (docs/02 §4.28): focus the session, then
@@ -80,7 +91,10 @@ export function buildActuators({
       // Cancel the in-flight turn. Plain stop → `chat.cancel` (acts on the
       // focused session). Stop-and-send → ONE atomic `chat.submit` with
       // `cancelCurrentRequest` (VS Code's native "Stop and Send"): cancels the
-      // running turn AND sends `text` as a fresh turn, composer-free.
+      // running turn AND sends `text` as a fresh turn, composer-free. NOTE this
+      // path can still raise the local pending-requests modal (docs/02.3 §4.35):
+      // the `cancelCurrentRequest` branch sets `options.queue = undefined`
+      // upstream, so naming a queue kind here would just be discarded.
       const uri = sessionUri(sessionId);
       log.info("actuator.stop", { sessionId, send: Boolean(text), traceId });
       await execute("vscode.open", uri);

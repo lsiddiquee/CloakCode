@@ -405,6 +405,17 @@ the critical path.
   loaded). Candidates: warn on the phone when a decision is pending and the operator types
   (client-side, needs the pending state we already stream); or ask upstream to search the last
   **response** item rather than the last item.
+- **Stop-and-send can still raise the local pending-requests modal — OPEN (2026-07-28, docs/02.3
+  §4.35).** A submit with no `queue` kind, made while the session holds pending messages and no
+  request is in progress, opens a **modal** ("You already have pending requests… Keep / Remove /
+  Cancel") only the local desktop can answer; the remote send hangs behind it, and Cancel drops it
+  silently. **Fixed for `respond`** by always passing `acceptInputOptions: {queue:"queued"}` — the
+  same early return the local _Add to Queue_ button uses, and behaviour-preserving everywhere else
+  (idle sends still drain immediately; mid-turn VS Code applied that kind itself). **Not fixable the
+  same way for `stop`:** the `cancelCurrentRequest` branch clears `options.queue` upstream, so the
+  kind is discarded. Left as-is: it needs a deliberate stop **and** a non-empty queue, and the local
+  user sees the dialog. Real fix is client-side — show the queue on the phone so the operator never
+  sends blind (which also avoids the §4.31 wedge, since queueing is what creates it).
 - **Steer composer-capture — RESOLVED (2026-07-24).** The earlier steer prefilled the **shared**
   composer (`chat.open {isPartialQuery:true}` + `steerWithMessage`, which submits whatever is in the
   composer at fire time), so an **async** `run_in_terminal` completion notice (its "The terminal has
