@@ -397,23 +397,30 @@ the critical path.
   `acceptTool`/`skipTool` require `viewModel.getItems().at(-1)` to be a **response**, and
   `ChatViewModel.getItems()` appends every pending (queued/steering) request _after_ it — so once a
   message is queued in a session, its waiting tool confirmation can no longer be resolved by
-  command, only by clicking the card (the card's own buttons call `state.confirm` directly). Our
-  `respond` mid-turn is _designed_ to auto-queue, so "send, then approve" silently wedges.
-  Field-confirmed: allow/deny worked until steering + queued messages were sent, then never again
-  that session. **No extension-reachable fix** — all four confirmation commands (incl. the
-  `…PostExecution` pair) share one base class and the identical bail; nothing else reaches
+  command, only by clicking the card (the card's own buttons call `state.confirm` directly), so any
+  send made while a turn runs is followed by a wedge. **Field-confirmed twice:** allow/deny worked
+  until steering + queued messages were sent, then never again that session; and again with the row
+  queued from **VS Code's own chat UI**, proving it is provenance-independent — the mere presence of
+  a pending row does it, whoever created it. **This is a command-API limitation to design around,
+  not a broken upstream feature** (local approval is unaffected). **No extension-reachable fix** —
+  all four confirmation commands (incl. the `…PostExecution` pair) share one base class and the
+  identical bail; nothing else reaches
   `state.confirm`. Half-measure shipped: `decide`
   now opens the session first, which fixes the _other_ silent bail (no widget had the session
-  loaded). **How we get into the wedge is now understood (§4.35):** `761d18b` replaced
-  `steerWithMessage` wholesale and dropped its `requestInProgress` guard, so a steer/queue holds the
-  message even when nothing is running — the paused-on-confirmation state — and the held row can
-  never drain. `respond` no longer names a queue kind at all; `steer` still does, and is gated on
+  loaded). **How we make it worse is now understood (§4.35):** `761d18b` replaced `steerWithMessage`
+  wholesale and dropped its `requestInProgress` guard, so a steer/queue held the message even when
+  nothing was running — the paused-on-confirmation state — and the held row could never drain.
+  `respond` no longer names a queue kind at all; `steer` still does, and is gated on
   the client. Remaining candidates, in order: (1) **client-side** — while a decision is pending,
   make Allow/Deny the primary action on the phone and don't offer Steer/Queue (we already stream
-  that state), so the operator never wedges it; (2) an explicit, labelled **"clear queue & approve"**
-  escape (`removeAllPendingRequests` then `acceptTool`) — never automatic, it discards queued text;
-  (3) **upstream** — the local `Ctrl+Enter` keybinding breaks identically, so file it: search for
-  the last **response** item (`[...items].reverse().find(isResponseVM)`) rather than the last item.
+  that state), so the operator never wedges it — **necessary but not sufficient**, since the local
+  user can queue too; (2) an explicit, labelled **"clear queue & approve"** escape
+  (`removeAllPendingRequests` then `acceptTool`) — never automatic, it discards queued text;
+  (3) **upstream, only if confirmed** — test whether the local `Ctrl+Enter` keybinding fails in the
+  same state (predicted from source, **untested**). If it does, it is a user-visible bug worth
+  filing: search for the last **response** item (`[...items].reverse().find(isResponseVM)`) rather
+  than the last item. If it doesn't, the keybinding has another route — find it, we may be able to
+  use it.
 - **Stop-and-send / a wedged session can still raise the local pending-requests modal — OPEN
   (2026-07-28, docs/02.3 §4.35).** A submit with no `queue` kind, made while the session holds
   messages and no request is in progress, opens a **modal** ("You already have pending requests…

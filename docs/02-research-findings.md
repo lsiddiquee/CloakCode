@@ -142,6 +142,9 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.31** `acceptTool`/`skipTool` bail **silently** unless a widget already has that session
   loaded (hence `vscode.open` first) **and** the last view-model item is a response — any
   **queued/steering** row is appended after it and wedges the approval (unreachable remotely).
+  Field-confirmed **provenance-independent**: a row queued/steered from VS Code's **own UI** wedges
+  it identically. Local approval is unaffected (the card calls `state.confirm` directly), so this is
+  a **command-API limitation to design around**, not a broken upstream feature.
 - **§4.35** The **queue kind is VS Code's call, not ours**: it applies `queue ??= Queued` only while
   a request is in flight, and its own Queue/Steer actions send plainly when none is. Naming a kind
   unconditionally holds the message when **nothing is running** — i.e. paused on a confirmation — and
