@@ -132,12 +132,16 @@ earlier design (docs/02 §4.15/§4.16) is superseded.
   (answered structurally); everything else an **approval** (`awaitingDecision`, rendered Allow/Deny).
 - **Resolve by command.** `session.decide {toolCallId, decision}` fires VS Code’s own
   `workbench.action.chat.acceptTool` (allow) / `skipTool` (deny), targeted by the session URI
-  `vscode-chat-session://local/<base64url(sessionId)>` (`localChatSessionUri`). VS Code matches the
-  widget by **exact** URI equality, so a wrong id can never resolve a **different session** (docs/02
-  §4.20). `acceptTool`/`skipTool` resolve that session’s _first waiting_ confirmation and are **not**
-  keyed on `toolCallId`, so within one session a **stale** tap (for a call that already completed)
-  would otherwise resolve whatever is now current — the actuator therefore **fails closed** unless the
-  requested `toolCallId` is still pending in the spool (drift audit S5). Questions resolve via
+  `vscode-chat-session://local/<base64url(sessionId)>` (`localChatSessionUri`), **after opening that
+  session** — the command resolves its widget with `getWidgetBySessionResource`, which matches only a
+  widget that already has the session loaded and otherwise returns silently (docs/02.3 §4.31). VS
+  Code matches the widget by **exact** URI equality, so a wrong id can never resolve a **different
+  session** (docs/02 §4.20). `acceptTool`/`skipTool` resolve that session’s _first waiting_
+  confirmation and are **not** keyed on `toolCallId`, so within one session a **stale** tap (for a
+  call that already completed) would otherwise resolve whatever is now current — the actuator
+  therefore **fails closed** unless the requested `toolCallId` is still pending in the spool (drift
+  audit S5). A **queued or steering** request in the same session blocks the command outright
+  (§4.31) — decide first, then send. Questions resolve via
   `session.answer` → `_chat.notifyQuestionCarouselAnswer` (docs/02 §4.16/§4.17).
 - **Debounce surfacing (anti-flicker).** Because the hook fires before VS Code decides, an
   auto-approved call would briefly show then vanish. The observer **debounces** surfacing by

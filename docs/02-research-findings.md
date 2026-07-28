@@ -139,6 +139,9 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.27** The self-installed hook must be **cross-platform**: run the host runtime as node
   (`ELECTRON_RUN_AS_NODE=1`, safe on real node) and prefix the **Windows** form with PowerShell's
   `&`; ship one portable config via VS Code's `windows`/`linux`/`osx` override keys (no runtime branch).
+- **§4.31** `acceptTool`/`skipTool` bail **silently** unless a widget already has that session
+  loaded (hence `vscode.open` first) **and** the last view-model item is a response — any
+  **queued/steering** row is appended after it and wedges the approval (unreachable remotely).
 
 ### On-disk storage & logs — [02.4](02.4-storage-and-logs.md)
 

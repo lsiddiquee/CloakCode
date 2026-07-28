@@ -124,6 +124,13 @@ export function buildActuators({
           ? "workbench.action.chat.acceptTool"
           : "workbench.action.chat.skipTool";
       log.info("actuator.decide", { sessionId, decision, toolCallId, traceId });
+      // OPEN the session first, like every other actuator. The command resolves
+      // its target with `getWidgetBySessionResource` — which matches only
+      // widgets that ALREADY have that session loaded — and returns SILENTLY
+      // (no throw, so no `rpc.failed`) when there is none. A remote approval for
+      // a session no window happens to be showing was therefore a silent no-op.
+      // docs/02.3 §4.20.
+      await execute("vscode.open", uri);
       await execute(cmd, { sessionResource: uri });
     },
     answer: async ({ sessionId, toolCallId, answers, traceId }) => {

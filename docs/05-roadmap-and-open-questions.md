@@ -393,6 +393,18 @@ the critical path.
 
 ## Known issues (to fix)
 
+- **A queued/steering request blocks remote approval — OPEN (2026-07-28, docs/02.3 §4.31).**
+  `acceptTool`/`skipTool` require `viewModel.getItems().at(-1)` to be a **response**, and
+  `ChatViewModel.getItems()` appends every pending (queued/steering) request _after_ it — so once a
+  message is queued in a session, its waiting tool confirmation can no longer be resolved by
+  command, only by clicking the card (the card's own buttons call `state.confirm` directly). Our
+  `respond` mid-turn is _designed_ to auto-queue, so "send, then approve" silently wedges. **No
+  extension-reachable fix** (same class as the old composer-capture blocker): nothing exposes the
+  pending queue, and dequeuing would discard the operator's message. Half-measure shipped: `decide`
+  now opens the session first, which fixes the _other_ silent bail (no widget had the session
+  loaded). Candidates: warn on the phone when a decision is pending and the operator types
+  (client-side, needs the pending state we already stream); or ask upstream to search the last
+  **response** item rather than the last item.
 - **Steer composer-capture — RESOLVED (2026-07-24).** The earlier steer prefilled the **shared**
   composer (`chat.open {isPartialQuery:true}` + `steerWithMessage`, which submits whatever is in the
   composer at fire time), so an **async** `run_in_terminal` completion notice (its "The terminal has

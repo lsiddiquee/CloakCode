@@ -96,7 +96,11 @@ describe("buildActuators", () => {
       toolCallId: "t",
       decision: "allow",
     });
+    // OPEN first: `acceptTool` resolves the widget by session resource and
+    // silently returns when no widget has that session loaded (vscode
+    // `chatWidgetService.getWidgetBySessionResource`).
     expect(allow.calls).toEqual([
+      ["vscode.open", ["uri:s"]],
       ["workbench.action.chat.acceptTool", [{ sessionResource: "uri:s" }]],
     ]);
 
@@ -106,7 +110,7 @@ describe("buildActuators", () => {
       toolCallId: "t",
       decision: "deny",
     });
-    expect(deny.calls[0][0]).toBe("workbench.action.chat.skipTool");
+    expect(deny.calls[1][0]).toBe("workbench.action.chat.skipTool");
   });
 
   it("decide with no session is a no-op (no command)", async () => {
@@ -146,7 +150,7 @@ describe("buildActuators", () => {
       toolCallId: "tc__vscode-9",
       decision: "allow",
     });
-    expect(calls[0]?.[0]).toBe("workbench.action.chat.acceptTool");
+    expect(calls[1]?.[0]).toBe("workbench.action.chat.acceptTool");
   });
 
   it("answer delivers to BOTH the raw and base id for a suffixed carousel", async () => {

@@ -112,6 +112,17 @@ Base: `~/.vscode-server/data/User/`
 > ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
 > rediscovery would waste someone's time.
 
+- **A VS Code command that just `return`s is indistinguishable from one that worked (2026-07-28).**
+  Symptom: the phone's Allow/Deny did nothing, while the extension log showed a clean
+  `actuator.decide … decision=deny` and **no** `rpc.failed`. `executeCommand` only rejects for
+  "command not found" or a thrown handler — every _precondition_ a workbench action checks internally
+  fails by returning `undefined`, which looks exactly like success. `acceptTool`/`skipTool` have two
+  such silent bails (docs/02.3 §4.31): no widget currently has that session loaded, and the last
+  view-model row isn't a response (a queued/steering request is appended after it). **Lesson:** for
+  actuators, log the _intent_ but never read that log as proof of effect; guarantee the preconditions
+  you can (we now `vscode.open` the session before deciding, as the other actuators always did), and
+  when reading upstream, check what the action's `run()` returns early on — not just its id.
+
 - **A resumed TLS session presents NO certificate — cert pinning must disable resumption
   (2026-07-27).** Symptom: over `wss://` with `cloakcode.gatewayCertFingerprint`, the **first**
   connect worked (gateway logged `provider.auth_required`) and the very next reconnect died with
