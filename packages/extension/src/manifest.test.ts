@@ -33,4 +33,10 @@ describe("extension manifest — security-relevant setting scopes (S4)", () => {
     expect(props["cloakcode.mfa"].scope).toBe("machine");
     expect(props["cloakcode.mfaEnrolment"].scope).toBe("machine");
   });
+
+  it("embeddedBridge is machine-scoped (a workspace can't make a window serve)", () => {
+    // Opening someone's repo must not flip this window into hosting its own
+    // bridge + phone link.
+    expect(props["cloakcode.embeddedBridge"].scope).toBe("machine");
+  });
 });

@@ -63,6 +63,32 @@ describe("resolveConnectionPlan", () => {
       resolveConnectionPlan({ gatewayUrl: "wss://hub:7901#fp=oops" }),
     ).toThrow(/64 hex/i);
   });
+
+  it("is disabled (no bridge at all) when the embedded bridge is turned off", () => {
+    // Opt-in isolation: this window then only ever talks to a gateway the
+    // operator named, and never quietly starts serving its own PWA.
+    expect(
+      resolveConnectionPlan({ gatewayUrl: undefined, embeddedBridge: false }),
+    ).toEqual({ kind: "disabled" });
+  });
+
+  it("still connects OUT when the embedded bridge is off (it gates only the fallback)", () => {
+    expect(
+      resolveConnectionPlan({
+        gatewayUrl: "ws://hub:7900",
+        embeddedBridge: false,
+      }),
+    ).toEqual({ kind: "gateway", url: "ws://hub:7900" });
+  });
+
+  it("defaults to hosting the embedded bridge", () => {
+    expect(resolveConnectionPlan({ gatewayUrl: undefined })).toEqual({
+      kind: "embedded",
+    });
+    expect(
+      resolveConnectionPlan({ gatewayUrl: undefined, embeddedBridge: true }),
+    ).toEqual({ kind: "embedded" });
+  });
 });
 
 describe("resolveGatewayPin", () => {

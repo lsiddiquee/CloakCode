@@ -7,7 +7,9 @@ import type { GatewayPinConfig } from "./gateway-tls.js";
  * adapter (`extension.ts`); this only decides WHAT to do.
  */
 export type ConnectionPlan =
-  { kind: "gateway"; url: string; fingerprint?: string } | { kind: "embedded" };
+  | { kind: "gateway"; url: string; fingerprint?: string }
+  | { kind: "embedded" }
+  | { kind: "disabled" };
 
 /**
  * Resolve the connection plan from the setting + env. Pure.
@@ -15,7 +17,10 @@ export type ConnectionPlan =
  * - `CLOAKCODE_GATEWAY_URL` (env) then `gatewayUrl` (setting), first usable wins
  *   → connect OUT to that standalone gateway. A hostless `ws://:port` is skipped
  *   (an unfilled `${env:HOST_IP}`), so F5 on a non-WSL host still goes embedded.
- * - Else embedded (serve our own PWA + `/bridge`).
+ * - Else embedded (serve our own PWA + `/bridge`) — unless `embeddedBridge` is
+ *   `false`, which means **no bridge at all**: this window talks only to a
+ *   gateway the operator named, and never quietly starts serving its own PWA and
+ *   phone link. The flag gates the fallback, not the outbound link.
  *
  * The chosen URL may be the gateway's **pairing URL** — address plus a
  * `#fp=<fingerprint>` pin in one copy-paste string (docs/04). The pin is split
@@ -26,10 +31,11 @@ export type ConnectionPlan =
 export function resolveConnectionPlan(input: {
   gatewayUrl: string | undefined;
   envGatewayUrl?: string | undefined;
+  embeddedBridge?: boolean | undefined;
 }): ConnectionPlan {
   const raw =
     usableGatewayUrl(input.envGatewayUrl) ?? usableGatewayUrl(input.gatewayUrl);
-  if (!raw) return { kind: "embedded" };
+  if (!raw) return input.embeddedBridge === false ? { kind: "disabled" } : { kind: "embedded" };
   const { url, fingerprint } = splitPinnedGatewayUrl(raw);
   return { kind: "gateway", url, ...(fingerprint ? { fingerprint } : {}) };
 }

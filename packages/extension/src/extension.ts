@@ -472,10 +472,13 @@ export async function activate(
     // so it is never silently dropped in favour of an unpinned connection.
     let plan: ConnectionPlan;
     let gatewayPin: GatewayPinConfig;
+    // Opt-out switch for hosting our own bridge + PWA in this window (default on).
+    const embeddedBridge = cfgNow.get<boolean>("embeddedBridge") ?? true;
     try {
       plan = resolveConnectionPlan({
         gatewayUrl: cfgNow.get<string>("gatewayUrl"),
         envGatewayUrl: process.env["CLOAKCODE_GATEWAY_URL"],
+        embeddedBridge,
       });
       gatewayPin = resolveGatewayPin({
         urlFingerprint: plan.kind === "gateway" ? plan.fingerprint : undefined,
@@ -608,6 +611,22 @@ export async function activate(
         log.warn("gateway.unreachable", {
           error: err instanceof Error ? err.message : String(err),
         });
+        // The fallback is opt-out (`cloakcode.embeddedBridge`): a window told to
+        // use a gateway may prefer no bridge at all over quietly serving its own
+        // PWA and phone link on this machine.
+        if (!embeddedBridge) {
+          log.info("bridge.disabled", { reason: "gateway-unreachable" });
+          void vscode.commands.executeCommand(
+            "setContext",
+            "cloakcode.embedded",
+            false,
+          );
+          status.text = "$(broadcast) CloakCode $(warning)";
+          status.tooltip =
+            `CloakCode: gateway ${gatewayUrl} is unreachable and ` +
+            `cloakcode.embeddedBridge is off — no bridge started.`;
+          return `gateway ${gatewayUrl} unreachable — embedded bridge disabled`;
+        }
         bridge = await startEmbeddedBridge(
           deps,
           portPlan,
@@ -617,6 +636,10 @@ export async function activate(
           await resolveOperatorAuth(cfgNow),
         );
       }
+    } else if (plan.kind === "disabled") {
+      // No gateway configured AND the embedded bridge turned off: intentionally
+      // inert. The observer still runs; nothing is served and nothing is dialled.
+      log.info("bridge.disabled", { reason: "no-gateway-configured" });
     } else {
       bridge = await startEmbeddedBridge(
         deps,
@@ -642,12 +665,16 @@ export async function activate(
       ? `CloakCode: gateway mode (${gatewayClient.url}) — click for the phone link`
       : bridge
         ? `CloakCode bridge on 127.0.0.1:${bridge.port} — click for the phone link`
-        : "CloakCode: bridge failed to start";
+        : plan.kind === "disabled"
+          ? "CloakCode: no gateway configured and cloakcode.embeddedBridge is off"
+          : "CloakCode: bridge failed to start";
     return gatewayClient
       ? `gateway ${gatewayClient.url}`
       : bridge
         ? `embedded bridge on 127.0.0.1:${bridge.port}`
-        : "no bridge or gateway (failed to start)";
+        : plan.kind === "disabled"
+          ? "no bridge — embedded bridge disabled"
+          : "no bridge or gateway (failed to start)";
   };
 
   // Tear down the live connection and re-establish from the latest settings.
@@ -683,6 +710,7 @@ export async function activate(
   // reconnects).
   const reconnectKeys = [
     "cloakcode.gatewayUrl",
+    "cloakcode.embeddedBridge",
     "cloakcode.port",
     ...EXPOSURE_SETTING_KEYS,
   ];

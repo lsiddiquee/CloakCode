@@ -615,7 +615,13 @@ usually a per-machine fact, overridable per workspace) and the hub is reachable,
 **only the protocol**. The leader is whoever you pointed the extensions at, so **N extensions in
 one environment all register with the one gateway** and it de-dupes. If the configured hub is
 **unreachable**, the extension **falls back to embedded** so you're never locked out — surfacing
-the webapp locally is always available.
+the webapp locally is always available. That fallback is **opt-out**
+(`cloakcode.embeddedBridge`, default on, machine-scoped): with it off, a window that has no gateway
+configured — or whose gateway is not answering — starts **nothing** and says so in the status bar,
+rather than quietly standing up a second hub with its own operator code on a machine whose owner
+meant to route everything through one. It gates only the fallback: connecting OUT is unaffected, the
+local session observer keeps running, and a gateway that is reachable but **requires sign-in**
+already refuses to fall back regardless.
 
 **Routing + de-dup.** `sessions.list` fans out to every connected provider and returns the
 **union, de-duped by `sessionId`** (a globally-unique UUID, preferring the `owned` provider) — this
