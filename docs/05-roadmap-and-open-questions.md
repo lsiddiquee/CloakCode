@@ -404,23 +404,29 @@ the critical path.
   `…PostExecution` pair) share one base class and the identical bail; nothing else reaches
   `state.confirm`. Half-measure shipped: `decide`
   now opens the session first, which fixes the _other_ silent bail (no widget had the session
-  loaded). Candidates, in order: (1) **client-side** — while a decision is pending, make Allow/Deny
-  the primary action on the phone and warn before sending (we already stream that state), so the
-  operator never wedges it; (2) an explicit, labelled **"clear queue & approve"** escape
-  (`removeAllPendingRequests` then `acceptTool`) — never automatic, it discards queued text;
+  loaded). **How we get into the wedge is now understood (§4.35):** `761d18b` replaced
+  `steerWithMessage` wholesale and dropped its `requestInProgress` guard, so a steer/queue holds the
+  message even when nothing is running — the paused-on-confirmation state — and the held row can
+  never drain. `respond` no longer names a queue kind at all; `steer` still does, and is gated on
+  the client. Remaining candidates, in order: (1) **client-side** — while a decision is pending,
+  make Allow/Deny the primary action on the phone and don't offer Steer/Queue (we already stream
+  that state), so the operator never wedges it; (2) an explicit, labelled **"clear queue & approve"**
+  escape (`removeAllPendingRequests` then `acceptTool`) — never automatic, it discards queued text;
   (3) **upstream** — the local `Ctrl+Enter` keybinding breaks identically, so file it: search for
   the last **response** item (`[...items].reverse().find(isResponseVM)`) rather than the last item.
-- **Stop-and-send can still raise the local pending-requests modal — OPEN (2026-07-28, docs/02.3
-  §4.35).** A submit with no `queue` kind, made while the session holds pending messages and no
-  request is in progress, opens a **modal** ("You already have pending requests… Keep / Remove /
-  Cancel") only the local desktop can answer; the remote send hangs behind it, and Cancel drops it
-  silently. **Fixed for `respond`** by always passing `acceptInputOptions: {queue:"queued"}` — the
-  same early return the local _Add to Queue_ button uses, and behaviour-preserving everywhere else
-  (idle sends still drain immediately; mid-turn VS Code applied that kind itself). **Not fixable the
-  same way for `stop`:** the `cancelCurrentRequest` branch clears `options.queue` upstream, so the
-  kind is discarded. Left as-is: it needs a deliberate stop **and** a non-empty queue, and the local
-  user sees the dialog. Real fix is client-side — show the queue on the phone so the operator never
-  sends blind (which also avoids the §4.31 wedge, since queueing is what creates it).
+- **Stop-and-send / a wedged session can still raise the local pending-requests modal — OPEN
+  (2026-07-28, docs/02.3 §4.35).** A submit with no `queue` kind, made while the session holds
+  messages and no request is in progress, opens a **modal** ("You already have pending requests…
+  Keep / Remove / Cancel") only the local desktop can answer; the remote send hangs behind it, and
+  Cancel drops it silently. **Naming a queue kind to dodge it was tried and reverted the same day**
+  (`ec02544` → reverted): upstream applies a kind only while a request is genuinely in flight, so
+  forcing one holds the message when **nothing** is running — which is the paused-on-confirmation
+  state — and the held row then wedges the approval into a deadlock (§4.31). `respond` therefore
+  names no kind; only `steer` does. **No extension-side guard is possible:** our `inTurn` stays true
+  while a turn waits on a confirmation, exactly when `requestInProgress` is false. **Fix belongs on
+  the client:** while a decision is pending, surface Allow/Deny and don't offer Steer/Queue — the
+  phone already has that state (it renders the buttons). Plain send stays safe there, since with no
+  kind VS Code dispatches it as a real turn rather than holding it.
 - **Steer composer-capture — RESOLVED (2026-07-24).** The earlier steer prefilled the **shared**
   composer (`chat.open {isPartialQuery:true}` + `steerWithMessage`, which submits whatever is in the
   composer at fire time), so an **async** `run_in_terminal` completion notice (its "The terminal has

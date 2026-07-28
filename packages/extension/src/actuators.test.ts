@@ -42,24 +42,22 @@ describe("buildActuators", () => {
     await actuators.respond({ sessionId: "s", text: "hi" });
     expect(calls).toEqual([
       ["vscode.open", ["uri:s"]],
-      [
-        "workbench.action.chat.submit",
-        [{ inputValue: "hi", acceptInputOptions: { queue: "queued" } }],
-      ],
+      ["workbench.action.chat.submit", [{ inputValue: "hi" }]],
     ]);
   });
 
-  it("respond never raises the local pending-requests modal", async () => {
-    // `confirmPendingRequestsBeforeSend` opens a MODAL ("You already have
-    // pending requests… Keep / Remove / Cancel") that only the person at the
-    // desktop can answer — a remote send would hang. It returns early on
-    // `options.queue`, so ALWAYS naming a queue kind is the override. docs/02.3 §4.32.
+  it("respond names NO queue kind — VS Code decides whether to hold it", async () => {
+    // Upstream applies `options.queue ??= Queued` only while a request is in
+    // flight, and its own Queue/Steer actions guard on `requestInProgress`
+    // first. Naming a kind unconditionally holds the message even when nothing
+    // is running — and a turn paused on a confirmation is NOT "in progress", so
+    // the held row wedges the approval it is waiting on. docs/02.3 §4.35.
     const { actuators, calls } = harness();
     await actuators.respond({ sessionId: "s", text: "hi" });
     const submit = calls.find(
       ([cmd]) => cmd === "workbench.action.chat.submit",
-    )?.[1][0] as { acceptInputOptions?: { queue?: string } };
-    expect(submit.acceptInputOptions?.queue).toBeTruthy();
+    )?.[1][0] as { acceptInputOptions?: unknown };
+    expect(submit.acceptInputOptions).toBeUndefined();
   });
 
   it("steer submits the text directly with the steering queue kind (no composer read)", async () => {

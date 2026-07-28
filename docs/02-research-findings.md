@@ -142,11 +142,12 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.31** `acceptTool`/`skipTool` bail **silently** unless a widget already has that session
   loaded (hence `vscode.open` first) **and** the last view-model item is a response — any
   **queued/steering** row is appended after it and wedges the approval (unreachable remotely).
-- **§4.35** A `chat.submit` with **no queue kind**, made while messages are pending and no request
-  is in progress, opens a **local-only modal** ("You already have pending requests… Keep / Remove /
-  Cancel") that stalls the remote send (Cancel drops it silently) — `respond` now always passes
-  `{queue:"queued"}`, the same early return the local _Add to Queue_ button uses; `stop`-and-send
-  can't be protected (its `cancelCurrentRequest` branch clears the kind upstream).
+- **§4.35** The **queue kind is VS Code's call, not ours**: it applies `queue ??= Queued` only while
+  a request is in flight, and its own Queue/Steer actions send plainly when none is. Naming a kind
+  unconditionally holds the message when **nothing is running** — i.e. paused on a confirmation — and
+  that held row wedges the approval (§4.31) into a **deadlock**. So `respond` names **no** kind;
+  only `steer` does. Our `inTurn` can't guard it (it stays true while paused, when `requestInProgress`
+  is false), so the gate belongs on the client, keyed on the pending decision.
 
 ### On-disk storage & logs — [02.4](02.4-storage-and-logs.md)
 

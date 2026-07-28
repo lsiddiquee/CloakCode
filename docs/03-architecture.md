@@ -100,7 +100,7 @@ overlay; questions reuse the `confirmation` part, approvals show `toolName` + co
 | --- | --- | --- | --- | --- | --- | --- |
 | **Approve / deny** a tool call | hook `PreToolUse` → spool `awaitingDecision` | `session.decide {toolCallId, decision}` | `chat.acceptTool` / `skipTool` (by session URI) | _Remote approval_ | Surfacing retires **only** on `PostToolUse` delete or a later turn (`isSuperseded`) — **never** on the tool's own `execution_start` landing in the transcript. A `run_in_terminal` writes its start while still awaiting approval, so that would hide the live card (regressed 2026-07-18). §4.20 | `hook-spool.test.ts` |
 | **Answer a question** | hook `PreToolUse` (interactive tool) → spool question | `session.answer {toolCallId, answers}` | `_chat.notifyQuestionCarouselAnswer` | _Remote approval_ | Free-text-only answer ⇒ **bare string** unless `hasOptions` (then `freeformValue`); multi-select ⇒ `selectedValues` (+ optional `freeformValue`); on a single-select a typed answer **wins** and clears the pick. §4.16/§4.17 | `hook-spool.test.ts`, `actuators.test.ts` |
-| **Send / queue** next | composer | `session.respond {text}` | `chat.submit {inputValue, acceptInputOptions:{queue:'queued'}}` | _Mid-turn flag_ | Gated by `inTurn`. Payload-carrying — the shared composer is never read. The queue kind is **always** named: without one, a submit made while messages are pending opens a modal only the local desktop can answer (docs/02.3 §4.35); it is what VS Code applies itself mid-turn, and an idle send still drains immediately. | `actuators.test.ts` |
+| **Send / queue** next | composer | `session.respond {text}` | `chat.submit {inputValue}` (VS Code holds it itself while a turn runs) | _Mid-turn flag_ | Gated by `inTurn`. Payload-carrying — the shared composer is never read. Names **no** queue kind on purpose: upstream applies one only while a request is genuinely in flight, and forcing it would hold the message when nothing is running (docs/02.3 §4.35). | `actuators.test.ts` |
 | **Steer** (mid-turn) | composer while `inTurn` | `session.steer {text}` | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}` | _Mid-turn flag_ | Composer-free (our text, not a local draft); leaves **no** on-disk marker (reads as a plain `user.message`). | `actuators.test.ts` |
 | **Stop** / **Stop & send** | composer while `inTurn` | `session.stop {}` / `session.stop {text}` | `chat.cancel` / `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` (one atomic "Stop and Send") | _Mid-turn flag_ | Pure Stop writes **no** `turn_end`, so `inTurn` can stick true until the next turn (masked by the client's optimistic `onStopped` reset; docs/05); a force-stop can also leak a spool file the `isSuperseded` self-heal sweeps next turn. | `actuators.test.ts` |
 
@@ -474,16 +474,16 @@ the session URI, and none leaves a distinct on-disk marker (docs/02 §4.28):
 
 | Action           | RPC                                  | Extension command sequence                                                  |
 | ---------------- | ------------------------------------ | --------------------------------------------------------------------------- |
-| Queue / send     | `session.respond {text}`             | `chat.submit {inputValue, acceptInputOptions:{queue:'queued'}}`             |
+| Queue / send     | `session.respond {text}`             | `chat.submit {inputValue}` (VS Code holds it while a turn runs)             |
 | **Steer**        | `session.steer {text}`               | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}`           |
 | **Stop & send**  | `session.stop {text}`                | `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` |
 | **Stop**         | `session.stop {}`                    | `chat.cancel` (no-arg)                                                      |
 
 **Queue doubles as the stale-`inTurn` escape hatch:** `inTurn` can still lag (a pure Stop
 via `chat.cancel` writes no `turn_end`, so it stays true until the next turn — docs/05
-Known issues). Because Queue is a payload-carrying `chat.submit` it works either way — it queues
-while a turn runs and just sends if the turn has already ended (an idle queue is drained at
-once by `processPendingRequests`) — so a stale `inTurn` never traps the operator. The flag is now sourced from the **debug-log's** turn spans (docs/02
+Known issues). Because Queue is a payload-carrying `chat.submit` that names **no** queue kind,
+it works either way — VS Code holds it while a turn runs and sends it outright if the turn has
+already ended — so a stale `inTurn` never traps the operator. The flag is now sourced from the **debug-log's** turn spans (docs/02
 §4.34) and **also streams live** over `session.subscribe` (`{kind:"turn", inTurn}`, emitted
 on transition), so the composer flips steer/queue↔send the moment the turn opens or closes —
 not only on the next `sessions.list` refresh (SHIPPED 2026-07-16). The derivation + self-heal

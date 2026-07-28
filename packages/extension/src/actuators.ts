@@ -52,21 +52,14 @@ export function buildActuators({
       // `sessionId` names the transcript AND is what Copilot base64url-encodes
       // into `vscode-chat-session://local/<id>`, a registered editor. See docs/02.
       //
-      // ALWAYS name a queue kind. Without one, a submit made while the session
-      // holds queued/steering messages raises a MODAL only the person at the
-      // desktop can answer, and the remote send hangs behind it;
-      // `confirmPendingRequestsBeforeSend` returns early on `options.queue`
-      // (docs/02.3 §4.32). `queued` also matches what VS Code itself defaults to
-      // mid-turn (`options.queue ??= Queued`), so this changes nothing else:
-      // idle + empty queue still sends immediately (the queue is drained at once),
-      // and a non-empty queue keeps its messages, ours going last.
+      // NO queue kind, deliberately: VS Code holds the message itself
+      // (`options.queue ??= Queued`) only while a request is genuinely in
+      // flight, which is a state we cannot observe as reliably as it can
+      // (docs/02.3 §4.35). Naming a kind here would hold it unconditionally.
       const uri = sessionUri(sessionId);
       log.info("actuator.respond", { sessionId, traceId });
       await execute("vscode.open", uri);
-      await execute("workbench.action.chat.submit", {
-        inputValue: text,
-        acceptInputOptions: { queue: "queued" },
-      });
+      await execute("workbench.action.chat.submit", { inputValue: text });
     },
     steer: async ({ sessionId, text, traceId }) => {
       // Redirect the IN-FLIGHT turn (docs/02 §4.28): focus the session, then
