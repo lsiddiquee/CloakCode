@@ -135,6 +135,23 @@ Base: `~/.vscode-server/data/User/`
   Use absolute `raw.githubusercontent.com` URLs (they also need the repo to be **public** and the
   commit **pushed** before the images resolve).
 
+- **The agent's browser runs on the HOST, not in the devcontainer — screenshots must be written to
+  the host's path for the same repo (2026-07-29).** `page.screenshot({ path: "/workspaces/…" })`
+  reports success and the file never appears: the path is resolved by the browser process, which
+  lives outside the container. Write instead to the host-side view of the mount — here the WSL UNC
+  path `\\wsl.localhost\Ubuntu\home\<user>\source\personal\CloakCode\docs\media\<name>.png` (doubled
+  backslashes in a JS string) — and the PNG lands in the workspace. Related traps from the same
+  session, all confirmed dead ends: `require("fs")` is not defined in the evaluated snippet;
+  `browser.newContext({ deviceScaleFactor: 2 })` throws; CDP `Emulation.setDeviceMetricsOverride`
+  raises in-page `devicePixelRatio` but Playwright still captures at CSS scale, and a later
+  `setViewportSize` resets the override; `setViewportSize` resizes only the screenshot **canvas**,
+  not the visual viewport (`window.innerWidth/Height` stayed pinned at 414×600), so asking for a
+  taller shot just adds white padding. Net: captures are **414×600 CSS px at DPR 1**, which is why
+  the newer `docs/media` images are 414-wide while the original three are 828-wide. Also,
+  `click_element` fails wherever CSS `zoom` is applied ("`<div class=\"title\">` intercepts pointer
+  events") — fall back to `page.evaluate(() => document.querySelector(sel).click())`, and remember
+  evaluated snippets are **JS, not TS** (`as HTMLButtonElement` is a `SyntaxError`).
+
 - **A VS Code command that just `return`s is indistinguishable from one that worked (2026-07-28).**
   Symptom: the phone's Allow/Deny did nothing, while the extension log showed a clean
   `actuator.decide … decision=deny` and **no** `rpc.failed`. `executeCommand` only rejects for

@@ -32,11 +32,10 @@ machine with nothing synced and nothing to enable, in the VS Code Copilot UI wit
 
 <sub>Screenshots are the real PWA running against the repo's [UI playground](packages/web-playground/README.md) fixtures — sample sessions, not anyone's code.</sub>
 
-> **Status — pre-1.0 (`0.2.x`), usable day to day.** The observer (list · live mirror · blocker
-> detection), the actuator (answer · approve · steer · queue · stop) and the security core (operator
-> TOTP, per-window provider tokens, `wss://` with certificate pinning) all ship. What's left before
-> **v1** is polish and the items tracked in
-> [docs/05 — Roadmap](docs/05-roadmap-and-open-questions.md).
+> **Status — 1.0, shipped.** The observer (list · live mirror · blocker detection), the actuator
+> (answer · approve · steer · queue · stop) and the security core (operator TOTP, per-window provider
+> tokens, `wss://` with certificate pinning) are all released on the Marketplace, npm and Docker.
+> What comes next is tracked in [docs/05 — Roadmap](docs/05-roadmap-and-open-questions.md).
 
 ## Why it works
 
@@ -62,6 +61,11 @@ The full empirical account (experiments and wrong turns included) is in
   extension** in the app and paste the pairing URL it shows into `"cloakcode.gatewayUrl"`; it
   carries the gateway's certificate fingerprint as a `#fp=…` fragment so the first connection is
   pinned, not trusted blindly.
+
+|                                                    |                                                    |
+| :------------------------------------------------: | :------------------------------------------------: |
+|    <img src="docs/media/settings.png" width="260" alt="The app's settings menu, with the Connect an extension action">    |    <img src="docs/media/connect-extension.png" width="260" alt="The Connect an extension view showing a pinned wss pairing URL and the certificate fingerprint">    |
+| **Where it lives** — the settings menu, alongside the read-only and workspace-ID toggles. | **One paste pairs it** — the pairing URL already carries the pin, so the extension verifies the exact certificate instead of trusting the first one it meets. |
 
 ## Getting started (development)
 

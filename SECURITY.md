@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-CloakCode is pre-1.0. Security fixes are applied to the latest release and the `main` branch. Older
-releases are not maintained separately.
+CloakCode follows semantic versioning from 1.0. Security fixes are applied to the latest release and
+the `main` branch. Older releases are not maintained separately.
 
 ## Reporting a vulnerability
 

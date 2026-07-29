@@ -21,10 +21,33 @@ nothing here can leak into production, knowingly or unknowingly.
   network, no egress).
 - `src/fixtures.ts` — canned sessions / transcripts / a pending blocker, matching
   the `@cloakcode/protocol` schemas.
+- `src/scenarios.ts` — the named bridge **states** (below). Fixtures say what the
+  transcript contains; a scenario says how the ingress behaves.
 - `src/main.tsx` — installs the fake, then mounts the real `App` imported from
   `@cloakcode/web` (via that package's `exports`).
 
 Not published, not built into any artifact (`"private": true`).
+
+## Scenarios
+
+Several screens are only reachable when the ingress **refuses** or **answers**
+something, so they can't be expressed as fixture data. Pick one with
+`?scenario=<id>`; the index is also printed to the browser console.
+
+| `?scenario=`   | Shows                                                                        |
+| -------------- | ---------------------------------------------------------------------------- |
+| `default`      | Populated list, two live blockers, a pinned `wss://` provider listener.       |
+| `sign-in`      | Operator TOTP prompt — every op refused with `needsAuth` until a code.        |
+| `first-run`    | First-run enrolment: the pairing QR, then verify a code.                      |
+| `insecure`     | The plain-`ws://` provider opt-in, with the confidentiality warning.          |
+| `empty`        | A paired gateway with nothing to mirror.                                      |
+| `offline`      | The socket never opens — the app's offline state.                             |
+
+The gated scenarios accept **any 6-digit code** (there is no secret to check
+against) and clear any stored operator token on load, so they always start at the
+screen they exist to show. Every value they serve — the token, the enrolment
+secret, the certificate fingerprint — is fixture material with nothing real
+behind it.
 
 ## Capturing the README screenshots
 
