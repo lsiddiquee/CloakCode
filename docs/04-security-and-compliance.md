@@ -184,7 +184,7 @@ extension-supplied agent for every host except `localhost`/`127.0.0.1`** (an exp
 microsoft/vscode#120354) and substitutes its own session-caching one — so a `wss://` gateway reached by
 any other name resumes anyway, and fingerprint-only pinning rejects it on every reconnect after the
 first. That made provider **sign-in unreachable**: entering a code triggers a reconnect, and the
-reconnect is precisely the connection that resumes. What the host *does* preserve is the request
+reconnect is precisely the connection that resumes. What the host _does_ preserve is the request
 `options`: `ca`, `checkServerIdentity` and `rejectUnauthorized` all survive.
 
 So a fingerprint-only link **self-provisions its own CA** (`selfProvisionedPin`) instead of asking the

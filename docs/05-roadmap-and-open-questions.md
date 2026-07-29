@@ -212,7 +212,7 @@ build+test on push/PR; `release.yml` = publish on a `v*` tag). Distribution targ
 (no independent/per-package versions). Internal packages (`protocol`/`agent`/`web`) are bundled into
 the artifacts, so their version is cosmetic and left at `0.0.0`.
 
-**`1.0.0` — cut 2026-07-29.** The `0.y.z` lane existed because breaking changes ride a *minor* bump
+**`1.0.0` — cut 2026-07-29.** The `0.y.z` lane existed because breaking changes ride a _minor_ bump
 under SemVer 0.x, which suited a moving target; the target has stopped moving. All three halves now
 ship: the **observer** (list · live mirror · blocker detection), the **actuator** (answer · approve ·
 steer · queue · stop) and the **security core** (operator TOTP, per-window provider tokens, `wss://`

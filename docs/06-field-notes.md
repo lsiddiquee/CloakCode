@@ -181,7 +181,7 @@ Base: `~/.vscode-server/data/User/`
   - When a pin/auth check fails, **fail closed** — do not fall back to the embedded bridge (a
     working-looking local bridge masks "something else answered"). Distinguish "a different cert"
     from "no cert at all" — they produced byte-identical logs — but name each fingerprint
-    **truncated (12 hex)**, never in full: the presented value comes from bytes the *remote* chose,
+    **truncated (12 hex)**, never in full: the presented value comes from bytes the _remote_ chose,
     so a full echo hands the operator a paste-ready "fix" and turns the pin into trust-on-first-use.
     A pin is only worth something when it is read out-of-band.
 

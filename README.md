@@ -27,7 +27,7 @@ machine with nothing synced and nothing to enable, in the VS Code Copilot UI wit
 
 |                                                    |                                                    |                                                    |
 | :------------------------------------------------: | :------------------------------------------------: | :------------------------------------------------: |
-|    <img src="docs/media/sessions.png" width="260">    |    <img src="docs/media/approval.png" width="260">    |    <img src="docs/media/question.png" width="260">    |
+|    <img src="docs/media/sessions.png" width="260" alt="Session list grouped by instance and workspace">    |    <img src="docs/media/approval.png" width="260" alt="A held run_in_terminal tool call with Deny and Allow buttons">    |    <img src="docs/media/question.png" width="260" alt="A multiple-choice question from Copilot with a free-text option">    |
 | **Every session, every machine** — dev container, WSL and host in one list, grouped by workspace, live/idle at a glance. | **Approve a held tool call** — the agent is paused on a command; allow or deny it from the phone and the run continues. | **Answer a blocker** — the multiple-choice question Copilot asked, rendered richly, with a free-text option. |
 
 <sub>Screenshots are the real PWA running against the repo's [UI playground](packages/web-playground/README.md) fixtures — sample sessions, not anyone's code.</sub>

@@ -27,6 +27,15 @@ allowBuilds:
 ignoredOptionalDependencies:
   - keytar
 
+# GHSA host-confusion fix for fast-uri (< 3.1.4), reached only via
+# @vscode/vsce -> secretlint -> ajv. Dev-only and absent from both shipped
+# artifacts (each is an esbuild bundle with a deps-free manifest), but pinned so
+# the repo carries no open high-severity alert. Held to ^3 because ajv declares
+# fast-uri ^3; drop when vsce ships a patched ajv. NOTE: overrides live here, not
+# in package.json — pnpm 11 no longer reads the `pnpm` field and warns if you do.
+overrides:
+  fast-uri@<3.1.4: "^3.1.4"
+
 # Supply-chain hardening (https://pnpm.io/supply-chain-security).
 # Delay resolving freshly-published versions so a compromised release is likely
 # caught + yanked before we ever install it. pnpm v11 defaults this to 1440
