@@ -82,7 +82,7 @@ export const SESSIONS: SessionSummary[] = [
     sessionId: "66666666-6666-4666-8666-666666666666",
     workspace: "notes",
     workspaceHash: "wsNotes",
-    title: "Read-only: a session in a workspace with no extension here",
+    title: "Draft the release notes for the notes-sync rewrite",
     turns: 5,
     status: "idle",
     idleSeconds: 7 * 24 * 3600,

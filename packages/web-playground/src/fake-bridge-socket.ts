@@ -55,7 +55,9 @@ export class FakeBridgeSocket {
         ok: true,
         op: "sessions.list",
         result: SESSIONS,
-        gateway: "playground",
+        // A plausible hub name — the fixtures span three instances, as a real
+        // shared gateway does.
+        gateway: "home",
       });
     } else if (frame.op === "session.subscribe") {
       this.streamSession(frame);

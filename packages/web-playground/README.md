@@ -25,3 +25,16 @@ nothing here can leak into production, knowingly or unknowingly.
   `@cloakcode/web` (via that package's `exports`).
 
 Not published, not built into any artifact (`"private": true`).
+
+## Capturing the README screenshots
+
+The images in [`docs/media/`](../../docs/media) are shot from here, so they show
+the real UI without exposing anyone's sessions. Two things to get right:
+
+- Run the dev server with a `wss://` override —
+  `VITE_BRIDGE_URL=wss://cloakcode.local/bridge pnpm --filter @cloakcode/web-playground dev`.
+  The fake socket ignores the URL, but `isBridgeInsecure()` reads it, so without
+  the override every shot carries the (correct, but here misleading) plain-`http`
+  insecure-mode banner.
+- Screenshot with animations disabled and the read-only workspace revealed
+  (gear → **Show read-only workspaces**), so the list shows all three instances.

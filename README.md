@@ -25,9 +25,17 @@ on a one-word answer. GitHub now ships native remote for Copilot too, but it str
 to GitHub and needs cloud session storage enabled by policy; CloakCode keeps the session on your
 machine with nothing synced and nothing to enable, in the VS Code Copilot UI with your own models.
 
-> **Status — M0 (dev experience + design).** The read/observe half (list sessions, live mirror,
-> blocker detection) is proven, and the answer/steer/stop actuator is wired end-to-end. The remaining
-> pre-release work is the **security core** (bounded-egress boundary + bridge auth/TLS, M4). See
+|                                                    |                                                    |                                                    |
+| :------------------------------------------------: | :------------------------------------------------: | :------------------------------------------------: |
+|    <img src="docs/media/sessions.png" width="260">    |    <img src="docs/media/approval.png" width="260">    |    <img src="docs/media/question.png" width="260">    |
+| **Every session, every machine** — dev container, WSL and host in one list, grouped by workspace, live/idle at a glance. | **Approve a held tool call** — the agent is paused on a command; allow or deny it from the phone and the run continues. | **Answer a blocker** — the multiple-choice question Copilot asked, rendered richly, with a free-text option. |
+
+<sub>Screenshots are the real PWA running against the repo's [UI playground](packages/web-playground/README.md) fixtures — sample sessions, not anyone's code.</sub>
+
+> **Status — pre-1.0 (`0.2.x`), usable day to day.** The observer (list · live mirror · blocker
+> detection), the actuator (answer · approve · steer · queue · stop) and the security core (operator
+> TOTP, per-window provider tokens, `wss://` with certificate pinning) all ship. What's left before
+> **v1** is polish and the items tracked in
 > [docs/05 — Roadmap](docs/05-roadmap-and-open-questions.md).
 
 ## Why it works
@@ -49,7 +57,11 @@ The full empirical account (experiments and wrong turns included) is in
   loopback; run **CloakCode: Set Up Phone Tunnel** to get a phone-reachable URL.
 - **Gateway** (optional hub for many windows / machines):
   [`@cloakcode/gateway`](packages/gateway/README.md) via `npx @cloakcode/gateway`, or the Docker
-  image. Point each window at it with `"cloakcode.gatewayUrl": "ws://<host>:3543"`.
+  image. It serves the phone on the **operator** listener (`3543`) and accepts extensions on the
+  **provider** listener (`wss://<host>:3544`). Don't hand-write that address — run **Connect an
+  extension** in the app and paste the pairing URL it shows into `"cloakcode.gatewayUrl"`; it
+  carries the gateway's certificate fingerprint as a `#fp=…` fragment so the first connection is
+  pinned, not trusted blindly.
 
 ## Getting started (development)
 
@@ -92,9 +104,10 @@ docs/              Design & the full research record (read docs/README.md first)
 research/          Validated Python PoCs (session lister + blocker detector)
 packages/
   protocol/        SessionPart union + RPC schema (zod) — the contract
-  agent/           (planned) pausable tool-calling + confirmation loop — stub until the actuator (M4)
+  agent/           (planned) pausable tool-calling + confirmation loop — reserved, no source yet
   extension/       VS Code host: vscode.lm + transcript observer + localhost bridge
   web/             Phone-first React/Vite PWA client
+  web-playground/  Dev-only: the real PWA against in-browser fixtures, no gateway needed
   gateway/         Standalone hub: serves the PWA + a WebSocket hub for many windows
 ```
 
@@ -104,8 +117,10 @@ packages/
 ## Deploying & security
 
 CloakCode binds `127.0.0.1` by **default** and reaches your phone through a **private tunnel** — so
-nothing sits on your LAN. Running the gateway wider (LAN / container / WSL) is **trusted-network-only**
-until the security core lands, so prefer **forward, don't widen**.
+nothing sits on your LAN. When you do widen it (LAN / container / WSL), the listeners are
+authenticated: the phone proves itself with **TOTP**, each extension with a **provider token**, and
+the provider link is `wss://` with the certificate **pinned** by the pairing URL. Even so, prefer
+**forward, don't widen** — the smallest exposure is still the best one.
 
 - **Deployment options** (embedded vs gateway, per-client addressing, dev-container / WSL forwarding,
   host-firewall rules): [docs/07 — Deployment](docs/07-deployment.md).
