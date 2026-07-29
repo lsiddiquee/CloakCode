@@ -2,9 +2,12 @@
 
 ## What's proven vs. what's left
 
-- **Proven (read half):** list sessions · view transcript · track blockers · surface
-  multiple-choice richly. All server-side, no proposed API, works for stock sessions.
-- **Left (write half):** answer/steer a session remotely — the actuator.
+- **Shipped (1.0.0):** the **observer** (list sessions · view transcript · track blockers · surface
+  multiple-choice richly), the **actuator** (answer · approve/deny · steer · queue · stop) and the
+  **security core** (operator TOTP, per-window provider tokens, pinned `wss://`). All server-side,
+  no proposed API, works for stock sessions.
+- **Left:** the refinements below — notably the prose-only blocker (Q3), same-folder window
+  ownership (Q7), the observability backbone (Q8) and the queued-row approval wedge (Known issues).
 
 ## Competitive landscape — GitHub's own remote control (verified 2026-07-25)
 
@@ -179,7 +182,7 @@ a list refresh. The follower (`SessionFollower`) now derives the flag from the *
 
 ### M5 — Packaging
 
-Repo is **private until MVP, then public**. CI/CD lives in `.github/workflows/` (`ci.yml` =
+Repo is **public** (opened for the 1.0.0 release). CI/CD lives in `.github/workflows/` (`ci.yml` =
 build+test on push/PR; `release.yml` = publish on a `v*` tag). Distribution targets:
 
 - **Extension → VS Code Marketplace** via `@vscode/vsce publish` (publisher `rexwel`; the
@@ -206,10 +209,21 @@ build+test on push/PR; `release.yml` = publish on a `v*` tag). Distribution targ
 
 **One product version, lockstep, SemVer.** The extension and gateway are bound by the
 `@cloakcode/protocol` contract and must ship as a compatible pair, so they share a single version
-(no independent/per-package versions). Stay on `0.y.z` until MVP — under SemVer 0.x, breaking
-changes ride a **minor** bump, which fits a moving target. Internal packages
-(`protocol`/`agent`/`web`) are bundled into the artifacts, so their version is cosmetic and left at
-`0.0.0`.
+(no independent/per-package versions). Internal packages (`protocol`/`agent`/`web`) are bundled into
+the artifacts, so their version is cosmetic and left at `0.0.0`.
+
+**`1.0.0` — cut 2026-07-29.** The `0.y.z` lane existed because breaking changes ride a *minor* bump
+under SemVer 0.x, which suited a moving target; the target has stopped moving. All three halves now
+ship: the **observer** (list · live mirror · blocker detection), the **actuator** (answer · approve ·
+steer · queue · stop) and the **security core** (operator TOTP, per-window provider tokens, `wss://`
+with certificate pinning, fail-closed on a pin mismatch) — the last of which was the stated
+pre-release blocker. From 1.0.0 the **RPC contract in `@cloakcode/protocol` is a compatibility
+promise**: a breaking change to it costs a major bump, because an extension and a gateway on
+different majors are no longer a valid pair.
+
+**Format constraint:** the VS Code Marketplace requires integer-only `major.minor.patch` and rejects
+`-rc`/`-beta` suffixes, so `set-version.mjs` refuses pre-release strings. A pre-release _extension_
+lane (Microsoft's odd-minor convention / `vsce publish --pre-release`) is a post-1.0 follow-up.
 
 The version lives in the committed `package.json` files (vsce reads
 `packages/extension/package.json`; npm reads `packages/gateway/package.json`) — a tag alone can't

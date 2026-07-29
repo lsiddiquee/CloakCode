@@ -5,6 +5,11 @@ machine) — with _zero code-sync to GitHub_.** Your code never leaves your mach
 **no new egress** — it mirrors Copilot's own transcript and relays your prompts to your devices, and
 never logs secrets or raw code.
 
+|                                                                                                                          |                                                                                                                           |                                                                                                       |
+| :----------------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------: |
+|      <img src="https://raw.githubusercontent.com/lsiddiquee/CloakCode/main/docs/media/sessions.png" width="260">      |      <img src="https://raw.githubusercontent.com/lsiddiquee/CloakCode/main/docs/media/approval.png" width="260">      |      <img src="https://raw.githubusercontent.com/lsiddiquee/CloakCode/main/docs/media/question.png" width="260">      |
+| **Every session, every machine** — dev container, WSL and host in one list, grouped by workspace, live/idle at a glance. | **Approve a held tool call** — the agent is paused on a command; allow or deny it from the phone and the run continues. | **Answer a blocker** — the multiple-choice question Copilot asked, rendered richly, with a free-text option. |
+
 ## The problem
 
 You kick off a long Copilot agent task in VS Code, then step away from your desk. Minutes

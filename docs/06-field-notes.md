@@ -112,6 +112,19 @@ Base: `~/.vscode-server/data/User/`
 > ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
 > rediscovery would waste someone's time.
 
+- **Marketplace README images can NEVER come from inside the `.vsix` — and in a monorepo a relative
+  path silently points at the wrong file (2026-07-29).** `vsce package` **rewrites** every relative
+  image path in the README to an absolute `https://github.com/<owner>/<repo>/raw/HEAD/<path>` URL,
+  because the Marketplace renders the page on the web and fetches images over HTTPS. Proven with a
+  throwaway extension: `![shot](media/shot.png)` was packaged as
+  `![shot](https://github.com/lsiddiquee/CloakCode/raw/HEAD/media/shot.png)` — **even though
+  `media/shot.png` was itself bundled in the `.vsix`**. So shipping the PNGs in the package buys
+  nothing but weight. Worse, the default base URL is the **repo root**, while our README lives at
+  `packages/extension/README.md`; a relative `media/x.png` there resolves to `<root>/media/x.png`,
+  which doesn't exist — and vsce emits **no warning**, so it fails silently on the published page.
+  Use absolute `raw.githubusercontent.com` URLs (they also need the repo to be **public** and the
+  commit **pushed** before the images resolve).
+
 - **A VS Code command that just `return`s is indistinguishable from one that worked (2026-07-28).**
   Symptom: the phone's Allow/Deny did nothing, while the extension log showed a clean
   `actuator.decide … decision=deny` and **no** `rpc.failed`. `executeCommand` only rejects for
