@@ -33,7 +33,9 @@ fi
 
 # --- defaults (env, overridable by flags) ------------------------------------
 HOST="${CLOAKCODE_GATEWAY_HOST:-127.0.0.1}"
-PORT="${CLOAKCODE_GATEWAY_PORT:-7900}"
+# Empty by default so the gateway applies its own rule: try 3543, fall back to a
+# free ephemeral port. Only a user-set value locks a port.
+PORT="${CLOAKCODE_GATEWAY_PORT:-}"
 WEB_DIR="${CLOAKCODE_WEB_DIR:-$WEB_DEFAULT}"
 # Empty by default so the gateway resolves the machine hostname as its instance
 # id (see resolveInstanceId); only a user-set value overrides it.
@@ -58,7 +60,7 @@ Usage: $(basename "${BASH_SOURCE[0]}") [options]
 
 Options:
   --host <addr>        bind address (default 127.0.0.1; 0.0.0.0 for LAN)
-  --port <n>           port (default 7900)
+  --port <n>           operator port (default: 3543, or a free port if taken; 0 = ephemeral)
   --web-dir <path>     PWA directory to serve (default: the bundled web/)
   --instance-id <id>   identity: authenticator label + tunnel-name seed + phone name (default: machine hostname)
   --tunnel             expose via a PRIVATE Microsoft Dev Tunnel
@@ -149,17 +151,19 @@ fi
 echo "CloakCode gateway"
 echo "  bundle : $MAIN"
 echo "  host   : $HOST"
-echo "  port   : $PORT"
+echo "  port   : ${PORT:-<3543, or a free port>}"
 echo "  web    : $WEB_DIR"
 echo "  tunnel : ${TUNNEL:-off}  (instance-id: ${INSTANCE_ID:-<hostname>})"
 [[ -n "$VERBOSE" ]] && echo "  verbose: on"
 if [[ "$HOST" == "0.0.0.0" ]]; then
-  echo "  note   : binding 0.0.0.0 exposes the gateway on your network; there is no" >&2
-  echo "           app-auth yet, so only do this on a trusted LAN." >&2
+  echo "  note   : binding 0.0.0.0 exposes the operator listener on your network." >&2
+  echo "           Operator TOTP auto-enables when exposed, but prefer loopback +" >&2
+  echo "           a private tunnel unless the LAN is trusted." >&2
 fi
 
 export CLOAKCODE_GATEWAY_HOST="$HOST"
-export CLOAKCODE_GATEWAY_PORT="$PORT"
+# Export only when set; empty ⇒ let the gateway pick (3543, else ephemeral).
+if [ -n "$PORT" ]; then export CLOAKCODE_GATEWAY_PORT="$PORT"; fi
 export CLOAKCODE_WEB_DIR="$WEB_DIR"
 # Export only when set; empty ⇒ let the gateway default to the machine hostname.
 if [ -n "$INSTANCE_ID" ]; then export CLOAKCODE_INSTANCE_ID="$INSTANCE_ID"; fi

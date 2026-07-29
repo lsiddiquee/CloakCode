@@ -18,10 +18,15 @@ const manifest = JSON.parse(
 ) as {
   contributes: {
     configuration: { properties: Record<string, { scope?: string }> };
+    commands: { command: string; title: string }[];
   };
 };
 
 const props = manifest.contributes.configuration.properties;
+const readme = readFileSync(
+  fileURLToPath(new URL("../README.md", import.meta.url)),
+  "utf8",
+);
 
 describe("extension manifest — security-relevant setting scopes (S4)", () => {
   it("gatewayUrl/gatewayToken are machine-scoped (a workspace can't redirect the provider)", () => {
@@ -39,4 +44,19 @@ describe("extension manifest — security-relevant setting scopes (S4)", () => {
     // bridge + phone link.
     expect(props["cloakcode.embeddedBridge"].scope).toBe("machine");
   });
+});
+
+describe("extension manifest — the README documents what we ship", () => {
+  // The README is the Marketplace page: an undocumented setting or command is a
+  // support question we only find out about after publishing.
+  it.each(Object.keys(props))("documents the %s setting", (key) => {
+    expect(readme).toContain(key);
+  });
+
+  it.each(manifest.contributes.commands.map((c) => c.title))(
+    "documents the %s command",
+    (title) => {
+      expect(readme).toContain(title);
+    },
+  );
 });
