@@ -199,6 +199,25 @@ wrong cert fails closed before any frame is sent; a probe that reaches nothing i
 The pairing payload therefore ships **no certificate** — only the pin — because the extension obtains
 the cert itself and the pin is the whole trust decision.
 
+**Two invariants here read like defects out of context.** Both are load-bearing; changing either
+silently breaks pinning rather than failing a test, so they are recorded rather than left to be
+rediscovered:
+
+- **The probe's disabled validation _is_ the pin.** `fetchPinnedCertPem` sets
+  `rejectUnauthorized:false` — the one thing a certificate check must never do, in isolation. In
+  context it is the only way to _see_ a self-signed cert at all, since Node rejects the chain before
+  any user code runs. The socket sends **no application data**, `verifyPinnedCert` runs against the
+  peer certificate before the PEM is returned, and a mismatch throws. Presenting a copied certificate
+  buys an attacker nothing — the handshake still demands the matching private key. **Deleting the
+  probe does not harden anything:** without it, fingerprint-only pinning fails on every reconnect
+  (the resumption + proxy-agent problem above), which is how it was arrived at.
+- **The persisted keypair is read, not tested-then-read.** `resolveTlsMaterial` reads the stored cert
+  and key directly and treats **only `ENOENT`** as "absent" — never `existsSync`-then-read, which
+  both races (the file can vanish between the two calls) and, worse, misreads _unreadable_ as
+  _missing_. Any other read failure propagates, because quietly regenerating over a pair we merely
+  failed to read would rotate the fingerprint that every paired extension pins, turning a transient
+  permissions problem into a fleet-wide pin mismatch.
+
 **A pin failure never falls back to the embedded bridge.** `connectGateway` rejects with a distinct
 `GatewayCertPinError` (not the generic "unreachable"), and the extension logs
 `gateway.cert_pin_mismatch`, shows an error notification and starts **no** bridge — same fail-closed
@@ -430,6 +449,14 @@ security updates promptly. The initial critical Vitest advisory was remediated o
 upgrading Vitest and its coverage provider, now at 4.1.10. The remaining Vite/esbuild advisories
 were remediated the same day with Vite 6.4.3 and esbuild 0.25.12; `pnpm audit` reports no known
 vulnerabilities.
+
+**Handling a static-analysis finding.** Fix by default — a finding that survives is one the next
+reader has to re-adjudicate. Where a finding is genuinely a deliberate design property, suppress it
+**on the platform** (an alert dismissal carrying the reason) rather than with an in-source pragma or
+a workflow query filter: a pragma normalizes suppressions in exactly the files where they are least
+welcome, and a filter blinds the rule repository-wide. The rationale belongs with the design, not
+with the alert — the two standing suppressions are the certificate-fetch probe and its test fixture,
+explained in [Transport confidentiality](#transport-confidentiality-authentication--encryption).
 
 ## Threat-model quick list
 

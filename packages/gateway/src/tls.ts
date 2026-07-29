@@ -1,11 +1,5 @@
 import { X509Certificate } from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -91,10 +85,16 @@ export async function resolveTlsMaterial(
   // 2. Persisted self-signed pair.
   const certPath = join(opts.storeDir, TLS_CERT_FILE);
   const keyPath = join(opts.storeDir, TLS_KEY_FILE);
-  if (existsSync(certPath) && existsSync(keyPath)) {
-    const cert = readFileSync(certPath, "utf8");
-    const key = readFileSync(keyPath, "utf8");
-    return { cert, key, fingerprint: certFingerprint(cert), source: "loaded" };
+  const storedCert = readPemIfPresent(certPath);
+  const storedKey =
+    storedCert === undefined ? undefined : readPemIfPresent(keyPath);
+  if (storedCert !== undefined && storedKey !== undefined) {
+    return {
+      cert: storedCert,
+      key: storedKey,
+      fingerprint: certFingerprint(storedCert),
+      source: "loaded",
+    };
   }
 
   // 3. Generate + persist (dir 0700, key 0600, cert 0644). chmod after write so
@@ -108,6 +108,25 @@ export async function resolveTlsMaterial(
   writeFileSync(certPath, cert, { mode: 0o644 });
   chmodSync(certPath, 0o644);
   return { cert, key, fingerprint: certFingerprint(cert), source: "generated" };
+}
+
+/**
+ * Read a persisted PEM, treating "not there" as `undefined` and **every other**
+ * failure as fatal.
+ *
+ * Deliberately not `existsSync` + `readFileSync`: that is a check-then-use race
+ * (CodeQL `js/file-system-race`) and the read already reports absence. The
+ * rethrow matters more than the race — regenerating over a pair we merely failed
+ * to *read* would rotate the fingerprint that every paired extension pins, so an
+ * unreadable store must fail loud rather than silently re-key.
+ */
+function readPemIfPresent(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
 }
 
 /** `true` for a loopback host (skip it as a CN / duplicate SAN). */

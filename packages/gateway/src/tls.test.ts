@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -113,6 +114,45 @@ describe("resolveTlsMaterial — generate + persist", () => {
     expect(calls).toBe(1); // second call used the persisted pair
     expect(second.source).toBe("loaded");
     expect(second.fingerprint).toBe(first.fingerprint);
+  });
+
+  it("regenerates when only half the persisted pair is present", async () => {
+    const storeDir = tmp();
+    let calls = 0;
+    const generateCert = async () => {
+      calls++;
+      return fixture;
+    };
+
+    // A torn write / half-deleted store: cert without its key.
+    writeFileSync(join(storeDir, TLS_CERT_FILE), fixture.cert);
+    const mat = await resolveTlsMaterial({ storeDir, generateCert });
+
+    expect(calls).toBe(1);
+    expect(mat.source).toBe("generated");
+  });
+
+  it("rethrows an unreadable persisted pair instead of regenerating over it", async () => {
+    const storeDir = tmp();
+    let calls = 0;
+    const generateCert = async () => {
+      calls++;
+      return fixture;
+    };
+
+    // Present but unreadable (EISDIR — uid-independent, unlike chmod 000).
+    writeFileSync(join(storeDir, TLS_CERT_FILE), fixture.cert);
+    mkdirSync(join(storeDir, TLS_KEY_FILE));
+
+    // Silently regenerating would rotate the fingerprint and break every
+    // extension already pinned to it.
+    await expect(
+      resolveTlsMaterial({ storeDir, generateCert }),
+    ).rejects.toThrow(/EISDIR/);
+    expect(calls).toBe(0);
+    expect(readFileSync(join(storeDir, TLS_CERT_FILE), "utf8")).toBe(
+      fixture.cert,
+    );
   });
 });
 
