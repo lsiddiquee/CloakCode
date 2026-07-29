@@ -487,16 +487,24 @@ export function subscribeSessionsChanges(
  * resolve when `isOk` accepts the reply, reject on an error envelope / bad reply
  * / timeout. Shared by every fire-and-ack actuator call so the socket lifecycle
  * lives in one place.
+ *
+ * `awaitAck: false` resolves as soon as the frame is SENT. The composer sends
+ * are acked only after the actuator's `chat.submit` resolves, which can outlast
+ * the deadline while a turn streams — and rolling the UI back then invites a
+ * duplicate send of a message that did land (docs/02.1). A failure BEFORE the
+ * send still rejects: nothing went out, so it is worth surfacing.
  */
 function oneShotRpc(
   op: string,
   params: unknown,
   isOk: (raw: unknown) => boolean,
   url: string,
+  awaitAck = true,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const id = crypto.randomUUID();
+    // Reply deadline when awaiting an ack; socket teardown when not.
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("bridge timed out"));
@@ -505,6 +513,9 @@ function oneShotRpc(
     ws.addEventListener("open", () => {
       sendAuthPrelude(ws);
       ws.send(JSON.stringify({ id, op, params, traceId: newTraceId() }));
+      // Settles the caller; the socket stays open so the frame is delivered and
+      // a needs-auth/enrol reply is still observed. Later rejects are inert.
+      if (!awaitAck) resolve();
     });
 
     ws.addEventListener("message", (ev) => {
@@ -550,10 +561,10 @@ function oneShotRpc(
 
 /**
  * Send a `remote-operator` message to a session's active chat (M3b). With a
- * `toolCallId` it answers a specific pending blocker; without one it's a
- * free-form chat prompt. One-shot over the bridge; resolves on the ack, rejects
- * on error or timeout. The extension host turns this into
- * `workbench.action.chat.open`.
+ * `toolCallId` it answers a specific pending blocker and resolves on the ack;
+ * without one it's a free-form chat prompt from the composer, which is
+ * fire-and-forget (resolves once sent — docs/02.1). The extension host turns
+ * this into `workbench.action.chat.submit`.
  */
 export function respondSession(
   params: {
@@ -568,6 +579,7 @@ export function respondSession(
     params,
     (raw) => sessionRespondResponseSchema.safeParse(raw).success,
     url,
+    params.toolCallId !== undefined,
   );
 }
 
@@ -618,9 +630,8 @@ export function answerSession(
 
 /**
  * Steer the in-flight turn: inject `text` INTO the running turn to redirect it
- * (not queued after). Only meaningful while `SessionSummary.inTurn`. The
- * extension host prefills the composer then fires `steerWithMessage`. A
- * `remote-operator` action; resolves on the ack, rejects on error/timeout.
+ * (not queued after). Only meaningful while `SessionSummary.inTurn`. A
+ * `remote-operator` action; fire-and-forget — resolves once sent (docs/02.1).
  */
 export function steerSession(
   params: { sessionId: string; text: string },
@@ -631,13 +642,14 @@ export function steerSession(
     params,
     (raw) => sessionSteerResponseSchema.safeParse(raw).success,
     url,
+    false,
   );
 }
 
 /**
  * Stop the in-flight turn (`chat.cancel`). With `text` it's STOP-AND-SEND
  * (cancel, then send `text` as a fresh prompt); without, a pure stop. A
- * `remote-operator` action; resolves on the ack, rejects on error/timeout.
+ * `remote-operator` action; fire-and-forget — resolves once sent (docs/02.1).
  */
 export function stopSession(
   params: { sessionId: string; text?: string },
@@ -648,5 +660,6 @@ export function stopSession(
     params,
     (raw) => sessionStopResponseSchema.safeParse(raw).success,
     url,
+    false,
   );
 }

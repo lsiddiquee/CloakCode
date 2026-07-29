@@ -100,9 +100,9 @@ overlay; questions reuse the `confirmation` part, approvals show `toolName` + co
 | --- | --- | --- | --- | --- | --- | --- |
 | **Approve / deny** a tool call | hook `PreToolUse` → spool `awaitingDecision` | `session.decide {toolCallId, decision}` | `chat.acceptTool` / `skipTool` (by session URI) | _Remote approval_ | Surfacing retires **only** on `PostToolUse` delete or a later turn (`isSuperseded`) — **never** on the tool's own `execution_start` landing in the transcript. A `run_in_terminal` writes its start while still awaiting approval, so that would hide the live card (regressed 2026-07-18). §4.20 | `hook-spool.test.ts` |
 | **Answer a question** | hook `PreToolUse` (interactive tool) → spool question | `session.answer {toolCallId, answers}` | `_chat.notifyQuestionCarouselAnswer` | _Remote approval_ | Free-text-only answer ⇒ **bare string** unless `hasOptions` (then `freeformValue`); multi-select ⇒ `selectedValues` (+ optional `freeformValue`); on a single-select a typed answer **wins** and clears the pick. §4.16/§4.17 | `hook-spool.test.ts`, `actuators.test.ts` |
-| **Send / queue** next | composer | `session.respond {text}` | `chat.submit {inputValue}` (VS Code holds it itself while a turn runs) | _Mid-turn flag_ | Gated by `inTurn`. Payload-carrying — the shared composer is never read. Names **no** queue kind on purpose: upstream applies one only while a request is genuinely in flight, and forcing it would hold the message when nothing is running (docs/02.3 §4.35). | `actuators.test.ts` |
-| **Steer** (mid-turn) | composer while `inTurn` | `session.steer {text}` | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}` | _Mid-turn flag_ | Composer-free (our text, not a local draft); leaves **no** on-disk marker (reads as a plain `user.message`). | `actuators.test.ts` |
-| **Stop** / **Stop & send** | composer while `inTurn` | `session.stop {}` / `session.stop {text}` | `chat.cancel` / `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` (one atomic "Stop and Send") | _Mid-turn flag_ | Pure Stop writes **no** `turn_end`, so `inTurn` can stick true until the next turn (masked by the client's optimistic `onStopped` reset; docs/05); a force-stop can also leak a spool file the `isSuperseded` self-heal sweeps next turn. | `actuators.test.ts` |
+| **Send / queue** next | composer | `session.respond {text}` | `chat.submit {inputValue}` (VS Code holds it itself while a turn runs) | _Mid-turn flag_ | Gated by `inTurn`. Payload-carrying — the shared composer is never read. Names **no** queue kind on purpose: upstream applies one only while a request is genuinely in flight, and forcing it would hold the message when nothing is running (docs/02.3 §4.35). Delivery is **fire-and-forget** (resolves on send, not on the ack — docs/02.1 §4.36). | `actuators.test.ts` |
+| **Steer** (mid-turn) | composer while `inTurn` | `session.steer {text}` | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}` | _Mid-turn flag_ | Composer-free (our text, not a local draft); leaves **no** on-disk marker (reads as a plain `user.message`). Delivery is **fire-and-forget** (§4.36) — the ack waits on `chat.submit`, which outlasts the client deadline mid-turn. | `actuators.test.ts` |
+| **Stop** / **Stop & send** | composer while `inTurn` | `session.stop {}` / `session.stop {text}` | `chat.cancel` / `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` (one atomic "Stop and Send") | _Mid-turn flag_ | Pure Stop writes **no** `turn_end`, so `inTurn` can stick true until the next turn (masked by the client's optimistic `onStopped` reset; docs/05); a force-stop can also leak a spool file the `isSuperseded` self-heal sweeps next turn. Delivery is **fire-and-forget** (§4.36). | `actuators.test.ts` |
 
 **Visibility rules that gate these (also easy to regress):**
 
@@ -478,6 +478,12 @@ the session URI, and none leaves a distinct on-disk marker (docs/02 §4.28):
 | **Steer**        | `session.steer {text}`               | `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}`           |
 | **Stop & send**  | `session.stop {text}`                | `chat.submit {inputValue, acceptInputOptions:{cancelCurrentRequest:true}}` |
 | **Stop**         | `session.stop {}`                    | `chat.cancel` (no-arg)                                                      |
+
+**Delivery is optimistic (fire-and-forget).** All four resolve on the client once the frame is
+**sent**, not when the extension acks — the ack waits on `chat.submit`, which routinely outlasts the
+client's reply deadline mid-turn, and rolling the composer back then invited a duplicate send
+(docs/02.1 §4.36). Failures before the send still surface; late acks and errors are dropped, and
+nothing retries. Blocker `decide`/`answer` (and a targeted `respond`) still confirm on the ack.
 
 **Queue doubles as the stale-`inTurn` escape hatch:** `inTurn` can still lag (a pure Stop
 via `chat.cancel` writes no `turn_end`, so it stays true until the next turn — docs/05

@@ -96,6 +96,11 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
   shared composer is **never read**. **Steer's composer-capture caveat is SOLVED (2026-07-24)** —
   `chat.submit {inputValue, acceptInputOptions:{queue:'steering'}}` carries our text (the old
   `chat.open`+`steerWithMessage` read the composer); none leaves an on-disk marker.
+- **§4.36** The **composer sends are fire-and-forget**: steer / stop / untargeted respond resolve
+  when the frame is **sent**, not on the ack. The extension acks only after `chat.submit` resolves,
+  which outlasts the client's 5 s deadline mid-turn — so a landed message was shown as
+  "bridge timed out", inviting a duplicate. Pre-send failures still reject; late acks/errors are
+  dropped; no retry (non-idempotent). `decide`/`answer`/targeted `respond` still confirm.
 
 ### Turn tracking & observer liveness — [02.2](02.2-turn-tracking.md)
 

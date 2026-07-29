@@ -252,6 +252,17 @@ Not needed for MVP, but planned — grouped here so the design accounts for them
 unlocked by the debug-log + client-store richness we mapped (docs/02 §4.11, §4.14); none is on
 the critical path.
 
+- **Confirmed delivery for the composer sends (steer / queue / stop).** These are now
+  **fire-and-forget**: they resolve on the client once the frame is sent, because the extension acks
+  only after `chat.submit` resolves — which routinely outlasts any sane client deadline mid-turn, and
+  failing the UI then invited a duplicate send (docs/02.1 §4.36). The cost is that a genuine
+  **post-send** failure is silent. To close it, correlate the outcome by **`traceId`** rather than by
+  socket lifetime: keep the `traceId` we already stamp on every frame, and either (a) surface the
+  eventual ack out-of-band on the live `session.subscribe` stream (so the send does not own a socket),
+  or (b) mark the message delivered when the observer sees the injected `user.message` land, giving a
+  real "delivered" tick instead of a transport-level guess. Either also unlocks honest per-message
+  state (sending → delivered → failed) on the phone. Needs a protocol addition, so it is post-MVP.
+
 - **Session telemetry (was "Slice 2").** Surface per-turn `model`, input/output/**cached**
   tokens, `ttft`, request duration, and cost (`copilotUsageNanoAiu` / `copilotCredits`) from the
   debug-log `llm_request` spans — a session-total header plus a small per-turn badge. Read-only,

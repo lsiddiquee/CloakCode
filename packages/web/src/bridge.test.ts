@@ -23,6 +23,7 @@ class MockWebSocket {
   static instances: MockWebSocket[] = [];
   readonly url: string;
   readonly sent: string[] = [];
+  closed = false;
   private readonly listeners: Record<string, Listener[]> = {};
 
   constructor(url: string) {
@@ -39,6 +40,7 @@ class MockWebSocket {
   }
 
   close(): void {
+    this.closed = true;
     this.emit("close");
   }
 
@@ -588,22 +590,122 @@ describe("actuator one-shot RPCs", () => {
   });
 
   it("rejects with the server error message", async () => {
-    const p = stopSession({ sessionId: "s" }, "ws://test/bridge");
+    const p = decideSession(
+      { sessionId: "s", toolCallId: "t", decision: "allow" },
+      "ws://test/bridge",
+    );
     socket(0).open();
     socket(0).message({ id: "x", ok: false, error: { message: "denied" } });
     await expect(p).rejects.toThrow("denied");
   });
 
   it("rejects when the socket errors", async () => {
-    const p = steerSession({ sessionId: "s", text: "x" }, "ws://test/bridge");
+    const p = answerSession(
+      { sessionId: "s", toolCallId: "t", answers: [] },
+      "ws://test/bridge",
+    );
     socket(0).triggerError();
     await expect(p).rejects.toThrow("cannot reach the bridge");
   });
 
   it("rejects after the timeout", async () => {
-    const p = respondSession({ sessionId: "s", text: "x" }, "ws://test/bridge");
+    const p = respondSession(
+      { sessionId: "s", toolCallId: "t", text: "x" },
+      "ws://test/bridge",
+    );
     vi.advanceTimersByTime(5000);
     await expect(p).rejects.toThrow("timed out");
+  });
+});
+
+// The composer sends can take longer to ack than the reply deadline while a turn
+// streams; rolling the UI back then invites a duplicate re-send (docs/02.1).
+describe("composer sends are fire-and-forget", () => {
+  const BRIDGE = "ws://test/bridge";
+  const composerSends: Array<[string, () => Promise<void>]> = [
+    [
+      "session.steer",
+      () => steerSession({ sessionId: "s", text: "x" }, BRIDGE),
+    ],
+    ["session.stop", () => stopSession({ sessionId: "s" }, BRIDGE)],
+    [
+      "session.respond",
+      () => respondSession({ sessionId: "s", text: "x" }, BRIDGE),
+    ],
+  ];
+
+  it.each(composerSends)(
+    "%s resolves once the frame is sent",
+    async (op, go) => {
+      const p = go();
+      socket(0).open();
+      await expect(p).resolves.toBeUndefined();
+      expect(JSON.parse(socket(0).sent.at(-1)!).op).toBe(op);
+    },
+  );
+
+  it.each(composerSends)(
+    "%s does not close the socket before the frame is sent",
+    async (_op, go) => {
+      const p = go();
+      socket(0).open();
+      await p;
+      expect(socket(0).sent).toHaveLength(1);
+      expect(socket(0).closed).toBe(false);
+    },
+  );
+
+  it.each(composerSends)(
+    "%s survives an ack that never arrives — no timeout failure, no retry",
+    async (_op, go) => {
+      const p = go();
+      socket(0).open();
+      await expect(p).resolves.toBeUndefined();
+      vi.advanceTimersByTime(60_000);
+      await expect(p).resolves.toBeUndefined();
+      expect(MockWebSocket.instances).toHaveLength(1);
+      expect(socket(0).sent).toHaveLength(1);
+    },
+  );
+
+  it("drops a late error envelope instead of failing the send", async () => {
+    const p = steerSession({ sessionId: "s", text: "x" }, BRIDGE);
+    socket(0).open();
+    await expect(p).resolves.toBeUndefined();
+    socket(0).message({ id: "x", ok: false, error: { message: "too late" } });
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it("still fails when the bridge cannot be reached — nothing was sent", async () => {
+    const p = steerSession({ sessionId: "s", text: "x" }, BRIDGE);
+    socket(0).triggerError();
+    await expect(p).rejects.toThrow("cannot reach the bridge");
+  });
+
+  it("still sends the auth prelude before the op", async () => {
+    storeToken("tok-ff");
+    const p = steerSession({ sessionId: "s", text: "x" }, BRIDGE);
+    socket(0).open();
+    await p;
+    expect(JSON.parse(socket(0).sent[0]!).op).toBe("auth");
+    expect(JSON.parse(socket(0).sent[1]!).op).toBe("session.steer");
+    clearStoredToken();
+  });
+
+  it("answers a blocker with an ack — a targeted respond still confirms", async () => {
+    let settled = false;
+    const p = respondSession(
+      { sessionId: "s", toolCallId: "t", text: "x" },
+      BRIDGE,
+    ).then(() => {
+      settled = true;
+    });
+    socket(0).open();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    socket(0).message({ id: "x", ok: true, op: "session.respond" });
+    await p;
+    expect(settled).toBe(true);
   });
 });
 

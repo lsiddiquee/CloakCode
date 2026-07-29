@@ -123,6 +123,25 @@ Base: `~/.vscode-server/data/User/`
   you can (we now `vscode.open` the session before deciding, as the other actuators always did), and
   when reading upstream, check what the action's `run()` returns early on — not just its id.
 
+- **An RPC deadline must be longer than the SLOWEST thing the handler awaits (2026-07-29).**
+  Symptom: the phone showed "send failed: bridge timed out" on Steer, yet the message landed a beat
+  later — the composer rolled back with the text still in it, inviting a duplicate send of something
+  already delivered. The client capped every one-shot RPC at 5 s, but the extension acks only after
+  `await deps.<actuator>()` resolves, and `vscode.open` + `chat.submit` can run far longer while a
+  turn streams (the standalone gateway adds another hop on top). **Lesson:** before picking a
+  timeout, ask what the far end awaits before acking; if that is unbounded, a timeout is the wrong
+  tool — decouple instead (we now resolve when the frame is _sent_, docs/02.1 §4.36). And prefer a
+  UI that never silently rolls back a **non-idempotent** action: "failed" must mean "definitely did
+  not happen", or the operator will re-send.
+
+- **Don't close a WebSocket you opened just to send one frame (2026-07-29).** The companion trap to
+  the above: making a send fire-and-forget by resolving early is only safe if the socket stays open
+  afterwards. Resolve-then-`close()` can tear the connection down before the frame is flushed, and
+  the action vanishes with no error anywhere — strictly worse than the timeout it replaced. Keep the
+  existing teardown path (deadline / reply / error) owning `close()`, and let the caller's promise
+  settle independently; rejecting an already-resolved promise is inert, so the cleanup path needs no
+  special-casing.
+
 - **A resumed TLS session presents NO certificate — cert pinning must disable resumption
   (2026-07-27).** Symptom: over `wss://` with `cloakcode.gatewayCertFingerprint`, the **first**
   connect worked (gateway logged `provider.auth_required`) and the very next reconnect died with
