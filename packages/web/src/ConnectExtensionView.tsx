@@ -77,7 +77,8 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
       <ol className="connect-steps">
         <li>
           <div className="connect-label">
-            <code>cloakcode.gatewayUrl</code>
+            Gateway URL
+            <code className="connect-setting">cloakcode.gatewayUrl</code>
           </div>
           {info.urls.length === 0 && (
             <p className="hint dim">
@@ -100,7 +101,10 @@ function ConnectDetails({ info }: { info: GatewayConnectInfo }): JSX.Element {
         {info.fingerprint && (
           <li>
             <div className="connect-label">
-              <code>cloakcode.gatewayCertFingerprint</code>
+              Certificate fingerprint
+              <code className="connect-setting">
+                cloakcode.gatewayCertFingerprint
+              </code>
             </div>
             <p className="hint dim">
               Already included in the URL above — copy it here only if you

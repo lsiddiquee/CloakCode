@@ -33,6 +33,11 @@ describe("ConnectExtensionView", () => {
 
     // Address + pin in one copy-paste string, so they cannot drift apart.
     await screen.findByText("wss://192.168.1.10:7443#fp=ABCDEF");
+    // Each step leads with a human label; the setting id stays as a secondary
+    // hint so it is still findable in settings.json.
+    expect(screen.getByText("Gateway URL")).toBeTruthy();
+    expect(screen.getByText("Certificate fingerprint")).toBeTruthy();
+    expect(screen.getByText("cloakcode.gatewayUrl")).toBeTruthy();
     expect(screen.getByText("cloakcode.gatewayCertFingerprint")).toBeTruthy();
     expect(screen.getByText("AB:CD:EF")).toBeTruthy();
     // The certificate itself is never handed out for pairing — the pin is the
@@ -54,6 +59,7 @@ describe("ConnectExtensionView", () => {
     expect(banner.textContent).toMatch(/provider.*plain ws/i);
     // No fingerprint pin is offered for a plain-ws listener.
     expect(screen.queryByText("cloakcode.gatewayCertFingerprint")).toBeNull();
+    expect(screen.queryByText("Certificate fingerprint")).toBeNull();
   });
 
   it("explains how to enable TLS when it is off", async () => {
