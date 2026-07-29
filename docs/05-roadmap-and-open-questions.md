@@ -240,11 +240,19 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
    run prepare-release.yml -f version=0.2.0`). That workflow creates `release/vX.Y.Z`, stamps the
    version into the three shipped manifests via `scripts/set-version.mjs`, commits
    `chore(release): vX.Y.Z`, and pushes the branch (a durable record of the cut — open its PR link).
-2. Review + merge the PR.
+2. Review + merge the PR. `main` requires one approving review and GitHub won't let you approve
+   your own PR, so a solo maintainer merges the (mechanical, CI-green) release PR with
+   **`gh pr merge <n> --admin --merge`** — `enforce_admins` is deliberately off for exactly this.
+   That is also why the release merges are merge commits despite `required_linear_history`.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` **verifies the tag matches
    the committed version** (fails on drift), then builds → tests → packages the `.vsix` + gateway
    tarball → GitHub Release (always) → gated Marketplace / npm / Docker publishes. Docker/tarball are
    named from the tag; the `.vsix`/npm version come from `package.json`.
+   **If a publish step fails, re-run it — don't re-tag.** All the publishes are sequential steps of
+   one job, so a flaky Marketplace (it fronts Azure DevOps and does go down; the failure surfaces as
+   a raw `Azure DevOps Services Unavailable` HTML page in the log) takes npm and Docker with it.
+   `gh run rerun <run-id> --failed` replays the whole job safely: the GitHub Release step
+   (`softprops/action-gh-release`) updates the existing release rather than erroring on it.
 
 **Release notes come from the commit log, not PRs.** Work lands on `main` directly and each cut is a
 single `chore(release)` PR, so GitHub's own PR-based auto-notes are near-empty. `release.yml` instead

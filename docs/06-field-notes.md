@@ -112,6 +112,16 @@ Base: `~/.vscode-server/data/User/`
 > ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
 > rediscovery would waste someone's time.
 
+- **Never commit with `-c core.hooksPath=.githooks` — this repo has no such directory, so it is a
+  silent `--no-verify` (2026-07-29).** Our hooks are the standard **pre-commit** framework, installed
+  at `.git/hooks/pre-commit`. Pointing `core.hooksPath` at a path that doesn't exist makes git run
+  **no hooks at all** and say nothing about it — it is not an error. A whole session's commits went in
+  unchecked this way, and the backlog (four MD049 emphasis violations in `docs/02.3`/`docs/04`, plus
+  the unstripped lockfile) only surfaced once `pre-commit run --all-files` was finally run by hand.
+  **Use plain `git commit`.** If you ever doubt whether hooks fired, look for the hook names in the
+  commit output — a clean commit that prints nothing but the summary line ran nothing. Belt and
+  braces: `pre-commit run --all-files` before a release.
+
 - **Marketplace README images can NEVER come from inside the `.vsix` — and in a monorepo a relative
   path silently points at the wrong file (2026-07-29).** `vsce package` **rewrites** every relative
   image path in the README to an absolute `https://github.com/<owner>/<repo>/raw/HEAD/<path>` URL,
