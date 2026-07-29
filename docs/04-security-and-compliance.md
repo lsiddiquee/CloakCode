@@ -241,6 +241,20 @@ trust-on-first-use. The fingerprint is public (integrity matters, not secrecy); 
 a mode-`0600`, never-logged gateway secret. Full build-ready design in
 [docs/05 — encrypted-link hardening](05-roadmap-and-open-questions.md).
 
+**Why a network MITM does not apply here** — worth stating explicitly, because "validation disabled"
+in the probe reads like the opposite. Answering the probe with another cert fails the fingerprint
+check before any app data exists; replaying the _real_ cert (it is public) still cannot complete a
+handshake without the private key; and catching a resumed session with the check skipped is closed off
+by `maxCachedSessions: 0` whenever a pin is configured. That leaves only **being the source of the
+pin** — and that hand-off is itself authenticated: the operator copies the pairing URL from the PWA's
+**Connect an extension** view, served over the tunnel's **publicly-trusted, browser-validated TLS**,
+behind the tunnel sign-in **and** operator TOTP, with the pin carried as a URL **fragment** that is
+never transmitted onward. So the pin's provenance is protected by the public PKI + two operator
+factors, not by the connection it is about to authenticate; there is no window where an
+unauthenticated party supplies it. **Residual trust** (accepted, not eliminated): the tunnel provider
+the operator chose and signed into, and the machine the URL is pasted on — both strictly larger
+compromises than wire access, and both already assumed by using a tunnel at all.
+
 **Insecure mode (opt-in, warned).** When the operator listener is bound off-loopback, or the provider
 listener is the plain-`ws://` opt-in, traffic is **authenticated but not encrypted** — a sniffer on
 that segment can read it. The gateway prints a consolidated **INSECURE MODE** banner to the console
