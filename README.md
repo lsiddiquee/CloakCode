@@ -37,6 +37,10 @@ machine with nothing synced and nothing to enable, in the VS Code Copilot UI wit
 > tokens, `wss://` with certificate pinning) are all released on the Marketplace, npm and Docker.
 > What comes next is tracked in [docs/05 — Roadmap](docs/05-roadmap-and-open-questions.md).
 
+Why this exists, and what it was like to build:
+**[Your Copilot agent is waiting for you — and you're not at your desk](https://www.likhansiddiquee.com/blog/your-copilot-is-waiting/)**
+— part 1 of the _Driving Copilot from anywhere_ series ([all parts](#background-reading)).
+
 ## Why it works
 
 - **Models:** the stable `vscode.lm` API gives consented access to Copilot models.
@@ -66,6 +70,9 @@ The full empirical account (experiments and wrong turns included) is in
 | :------------------------------------------------: | :------------------------------------------------: |
 |    <img src="docs/media/settings.png" width="260" alt="The app's settings menu, with the Connect an extension action">    |    <img src="docs/media/connect-extension.png" width="260" alt="The Connect an extension view showing a pinned wss pairing URL and the certificate fingerprint">    |
 | **Where it lives** — the settings menu, alongside the read-only and workspace-ID toggles. | **One paste pairs it** — the pairing URL already carries the pin, so the extension verifies the exact certificate instead of trusting the first one it meets. |
+
+Why the gateway exists and when you actually need one:
+[One phone link for every window](https://www.likhansiddiquee.com/blog/the-standalone-gateway/).
 
 ## Getting started (development)
 
@@ -131,6 +138,10 @@ the provider link is `wss://` with the certificate **pinned** by the pairing URL
 - **Security model** (zero code-sync, bounded egress, provenance tagging, threat model):
   [docs/04 — Security & compliance](docs/04-security-and-compliance.md).
 
+The same ground in prose — the reasoning, and the traps found on the way:
+[Deploying the gateway without opening doors you shouldn't](https://www.likhansiddiquee.com/blog/secured-deployment/)
+and [Security by construction](https://www.likhansiddiquee.com/blog/security-by-construction/).
+
 ## Documentation
 
 - [Vision & requirements](docs/01-vision-and-requirements.md)
@@ -141,6 +152,20 @@ the provider link is `wss://` with the certificate **pinned** by the pairing URL
 - [Field notes](docs/06-field-notes.md) — build/tooling gotchas & verified practices
 - [Deployment](docs/07-deployment.md)
 
+### Background reading
+
+The docs above are the reference and track `main`. The blog series is the narrative — why each
+decision was made, and what was tried first. _Driving Copilot from anywhere_:
+
+1. [Your Copilot agent is waiting for you — and you're not at your desk](https://www.likhansiddiquee.com/blog/your-copilot-is-waiting/)
+   — the problem, and why an agent that stalls on a one-word answer is the thing worth fixing.
+2. [One phone link for every window — now behind a code](https://www.likhansiddiquee.com/blog/the-standalone-gateway/)
+   — the standalone gateway, and the operator sign-in in front of it.
+3. [Deploying the gateway: containers, WSL, and your LAN](https://www.likhansiddiquee.com/blog/secured-deployment/)
+   — forwarding rather than widening, and what each shape actually exposes.
+4. [Security by construction: drive it from your phone, keep your code on your machine](https://www.likhansiddiquee.com/blog/security-by-construction/)
+   — zero code-sync as an architectural property, certificate pinning, and message provenance.
+
 ## Contributing
 
 Work milestone by milestone and slice by slice, following the dependency direction
@@ -148,6 +173,12 @@ Work milestone by milestone and slice by slice, following the dependency directi
 covered, and run the narrowest relevant check before continuing (`pnpm --filter @cloakcode/... test`,
 `poetry run pytest research`). See [.github/copilot-instructions.md](.github/copilot-instructions.md)
 for the full engineering discipline and the non-negotiable security rules.
+
+## Author
+
+Built by **Likhan Siddiquee** — [likhansiddiquee.com](https://www.likhansiddiquee.com/) ·
+[LinkedIn](https://www.linkedin.com/in/likhan/). Questions, ideas and bug reports are welcome as
+[issues](https://github.com/lsiddiquee/CloakCode/issues).
 
 ## License
 
