@@ -10,6 +10,9 @@ never logs secrets or raw code.
 |      <img src="https://raw.githubusercontent.com/lsiddiquee/CloakCode/main/docs/media/sessions.png" width="260" alt="Session list grouped by instance and workspace">      |      <img src="https://raw.githubusercontent.com/lsiddiquee/CloakCode/main/docs/media/approval.png" width="260" alt="A held run_in_terminal tool call with Deny and Allow buttons">      |      <img src="https://raw.githubusercontent.com/lsiddiquee/CloakCode/main/docs/media/question.png" width="260" alt="A multiple-choice question from Copilot with a free-text option">      |
 | **Every session, every machine** — dev container, WSL and host in one list, grouped by workspace, live/idle at a glance. | **Approve a held tool call** — the agent is paused on a command; allow or deny it from the phone and the run continues. | **Answer a blocker** — the multiple-choice question Copilot asked, rendered richly, with a free-text option. |
 
+Why this exists, in prose:
+**[Your Copilot agent is waiting for you — and you're not at your desk](https://www.likhansiddiquee.com/blog/your-copilot-is-waiting/)**.
+
 ## The problem
 
 You kick off a long Copilot agent task in VS Code, then step away from your desk. Minutes
@@ -199,6 +202,9 @@ or the Docker image) and point the extension at it. The gateway binds **two sepa
 the **operator** listener (the phone + PWA, loopback + your tunnel) and the **provider** listener —
 the one **this extension** connects to, `wss://` on port `3544` by default.
 
+Background: [why the gateway exists](https://www.likhansiddiquee.com/blog/the-standalone-gateway/),
+and [deploying it without opening doors you shouldn't](https://www.likhansiddiquee.com/blog/secured-deployment/).
+
 ### 1. Point the extension at it
 
 Open the gateway's app → **Settings → Connect an extension** (or read its startup console) and copy
@@ -254,6 +260,10 @@ mode. See the gateway package for npm / Docker usage.
   private Dev Tunnel (sign-in required), never a public or anonymous endpoint.
 - **Local logs only** (View → Output → _CloakCode_) — no telemetry.
 
+How that holds up under scrutiny — the threat model, certificate pinning, and why a network
+attacker can't defeat the pin:
+[Security by construction](https://www.likhansiddiquee.com/blog/security-by-construction/).
+
 ## Troubleshooting
 
 - **"Phone link is loopback"** — you're in local VS Code without a tunnel. Set
@@ -272,5 +282,20 @@ code --install-extension cloakcode-<version>.vsix
 ```
 
 ---
+
+## Background reading
+
+The repository docs are the reference; the _Driving Copilot from anywhere_ series is the narrative —
+why each decision was made, and what was tried first.
+
+1. [Your Copilot agent is waiting for you — and you're not at your desk](https://www.likhansiddiquee.com/blog/your-copilot-is-waiting/)
+2. [One phone link for every window — now behind a code](https://www.likhansiddiquee.com/blog/the-standalone-gateway/)
+3. [Deploying the gateway: containers, WSL, and your LAN](https://www.likhansiddiquee.com/blog/secured-deployment/)
+4. [Security by construction: drive it from your phone, keep your code on your machine](https://www.likhansiddiquee.com/blog/security-by-construction/)
+
+---
+
+Built by **Likhan Siddiquee** — [likhansiddiquee.com](https://www.likhansiddiquee.com/) ·
+[LinkedIn](https://www.linkedin.com/in/likhan/).
 
 CloakCode is open source (MIT) — <https://github.com/lsiddiquee/CloakCode>.
