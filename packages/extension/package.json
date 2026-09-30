@@ -238,17 +238,17 @@
     "@cloakcode/gateway": "workspace:*",
     "@cloakcode/protocol": "workspace:*",
     "qrcode-generator": "^2.0.4",
-    "ws": "^8.21.1",
-    "zod": "^4.4.3"
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "@types/vscode": "^1.90.0",
-    "@types/ws": "^8.5.12",
+    "@types/node": "^26.6.2",
+    "@types/vscode": "^1.138.0",
+    "@types/ws": "^8.18.1",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "0.28.1",
-    "tsx": "^4.23.1",
-    "typescript": "^5.6.0",
-    "vitest": "4.1.10"
+    "esbuild": "0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.11"
   }
 }

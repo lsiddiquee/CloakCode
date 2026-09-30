@@ -13,7 +13,7 @@ package-mode = false
 python = "^3.12"
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.15.0"
+ruff = ">=0.15,<0.17"
 mypy = "^2.2.0"
 pytest = "^9.1.0"
 

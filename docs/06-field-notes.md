@@ -337,6 +337,20 @@ Base: `~/.vscode-server/data/User/`
   transitive unchanged (Dependabot handles it against real npm once the point-fix lands / the proxy
   mirrors it), and always **cross-check the CURRENT advisory range** (not just the version the alert
   first cited) before picking the target.
+- **Dependency refresh, 2026-09-30:** `pnpm -r up --lockfile-only --depth 10` refreshed compatible
+  transitive pins, including `fast-uri@3.1.8` and `postcss@8.5.28`, without a forced major upgrade.
+  Run `scripts/strip-lockfile-tarballs.sh` afterward: the Microsoft registry proxy otherwise embeds
+  non-portable tarball URLs. `pnpm audit` then reported zero advisories (including dev dependencies).
+  Build workspace packages **before** integration tests: extension tests import the gateway's built
+  `dist/`, so an old build can give a false auth failure despite passing typechecks.
+- **Poetry artifact-host TLS failure, 2026-09-30:** PyPI metadata was reachable, but
+  `files.pythonhosted.org` failed TLS handshakes in this devcontainer. `PIP_INDEX_URL` works for pip
+  and pre-commit; Poetry instead needs a temporary `poetry source add --priority=primary` to resolve
+  and download packages. The Microsoft packagefeedproxy lagged the newest Ruff and librt patches, so
+  a temporary public index was used for those. Remove the temporary source and its `[package.source]`
+  entries from the generated lock, refresh the Poetry content hash, then run `poetry check --lock`
+  and compare **every locked artifact hash** with official PyPI JSON before committing. Do not leave
+  an environment-specific mirror in `pyproject.toml` or `poetry.lock`.
 - **Correlation/frame ids must be `crypto.randomUUID()`, never `Math.random()` — CodeQL
   `js/insecure-randomness` (2026-07-22).** Any random value that flows into a request/frame id (which a
   scanner treats as a security sink) trips the High CodeQL alert even for our benign RPC-correlation
