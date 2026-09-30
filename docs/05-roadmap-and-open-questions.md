@@ -244,10 +244,13 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
    your own PR, so a solo maintainer merges the (mechanical, CI-green) release PR with
    **`gh pr merge <n> --admin --merge`** — `enforce_admins` is deliberately off for exactly this.
    That is also why the release merges are merge commits despite `required_linear_history`.
-3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` **verifies the tag matches
-   the committed version** (fails on drift), then builds → tests → packages the `.vsix` + gateway
-   tarball → GitHub Release (always) → gated Marketplace / npm / Docker publishes. Docker/tarball are
-   named from the tag; the `.vsix`/npm version come from `package.json`.
+3. On a machine with a signing key registered with GitHub, update `main` after the merge, then
+   **sign and push** the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+   Confirm GitHub reports the tag as Verified; a Verified merge commit does **not** verify an
+   unsigned tag. `release.yml` **verifies the tag matches the committed version** (fails on drift),
+   then builds → tests → packages the `.vsix` + gateway tarball → GitHub Release (always) → gated
+   Marketplace / npm / Docker publishes. Docker/tarball are named from the tag; the `.vsix`/npm
+   version come from `package.json`.
    **If a publish step fails, re-run it — don't re-tag.** All the publishes are sequential steps of
    one job, so a flaky Marketplace (it fronts Azure DevOps and does go down; the failure surfaces as
    a raw `Azure DevOps Services Unavailable` HTML page in the log) takes npm and Docker with it.
