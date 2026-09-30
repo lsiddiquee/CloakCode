@@ -450,11 +450,9 @@ Base: `~/.vscode-server/data/User/`
   they only move via `pre-commit autoupdate`.
 - **Hook major update, 2026-09-30:** `pre-commit-hooks` v6 requires Python >=3.9 (CI uses 3.12);
   `conventional-pre-commit` v4 permits merge/fixup messages by default, so pass `--strict` to
-  preserve the previous rejection behavior.     `pre-commit autoupdate` uses `git describe` on upstream HEAD, not the highest version tag.
-  Gitleaks v8.30.1 is on a release commit diverged from upstream master, so autoupdate proposes
-  v8.30.0 instead. The weekly staleness workflow now checks all stable GitHub tags by version,
-  including side-branch releases; retain the newer pin and test both valid and rejected commit
-  messages when changing the commit-msg hook.
+  preserve the previous rejection behavior. Test both valid and rejected commit messages.
+  `pre-commit autoupdate` uses `git describe` on upstream HEAD rather than the highest tag;
+  gitleaks v8.30.1 is tagged off master, so review its proposed v8.30.0 downgrade manually.
 - **Edit-tool unicode trap.** The string-replace edit tools can write `\uXXXX` escapes as **literal
   text**. Use the actual glyphs (em-dash —, middot ·, arrow →, section §) in the replacement, or a
   Python heredoc with ASCII anchors for unicode-heavy edits.

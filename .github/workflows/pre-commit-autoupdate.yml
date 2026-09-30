@@ -7,7 +7,7 @@
 # ZERO-CODE-SYNC by design: this workflow NEVER pushes repo content. It has no
 # `contents: write`, opens no branch, and runs no `git push`. On a stale hook it
 # only opens/updates a tracking ISSUE (a text notification); a maintainer then
-# reviews the tagged releases and updates pins locally. This deliberately avoids the
+# runs `pre-commit autoupdate` locally and commits. This deliberately avoids the
 # common "auto-open a PR" pattern, which would require a push path in the repo.
 #
 # NOTE: ruff is intentionally NOT covered here — it is single-sourced via the
@@ -40,44 +40,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # autoupdate uses git describe on the default branch; release tags on
-          # side branches (e.g. gitleaks v8.30.1) can be missed or downgraded.
-          python - <<'PY'
-          import re
-          import subprocess
-          from pathlib import Path
-
-          path = Path(".pre-commit-config.yaml")
-          text = path.read_text()
-          hosted = re.findall(
-              r"(?m)^  - repo: https://github.com/([\w.-]+/[\w.-]+)\n    rev: (v?\d+\.\d+\.\d+)$",
-              text,
-          )
-          if len(hosted) != text.count("  - repo: https://github.com/"):
-              raise ValueError("A hosted pre-commit hook has an unrecognized revision")
-          for repo, pinned in hosted:
-              tags = subprocess.check_output(
-                  ["gh", "api", "--paginate", f"repos/{repo}/tags?per_page=100", "--jq", ".[].name"],
-                  text=True,
-              ).splitlines()
-              stable = [
-                  (tuple(map(int, match.groups())), tag)
-                  for tag in tags
-                  if (match := re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", tag))
-              ]
-              if not stable:
-                  raise ValueError(f"No stable version tags found for {repo}")
-              version, latest = max(stable)
-              if version > tuple(map(int, pinned.lstrip("v").split("."))):
-                  old = f"  - repo: https://github.com/{repo}\n    rev: {pinned}\n"
-                  if text.count(old) != 1:
-                      raise ValueError(f"Cannot update pinned revision for {repo}")
-                  text = text.replace(
-                      old, f"  - repo: https://github.com/{repo}\n    rev: {latest}\n", 1
-                  )
-          if text != path.read_text():
-              path.write_text(text)
-          PY
+          python -m pip install --upgrade pre-commit
+          # Modifies the working copy only — never committed or pushed.
+          pre-commit autoupdate
           if git diff --quiet -- .pre-commit-config.yaml; then
             echo "pre-commit hooks are up to date."
             exit 0
@@ -86,7 +51,7 @@ jobs:
           echo "Stale hooks detected:"
           echo "$diff"
           title="chore: pinned pre-commit hooks are out of date"
-          body="$(printf 'The weekly check found newer pinned revisions for pre-commit hooks that Dependabot cannot bump (it has no `pre-commit` ecosystem).\n\nReview the release tags and update the pins locally (autoupdate may miss tags on side branches).\n\n```diff\n%s\n```\n' "$diff")"
+          body="$(printf 'The weekly check found newer pinned revisions for pre-commit hooks that Dependabot cannot bump (it has no `pre-commit` ecosystem).\n\nRun `pre-commit autoupdate` locally, review, and commit the result.\n\n```diff\n%s\n```\n' "$diff")"
           existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number')"
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
