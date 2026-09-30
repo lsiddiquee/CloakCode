@@ -9,8 +9,8 @@ import { resolve } from "node:path";
 // the reverse, so nothing here can ever reach the shipped web build/vsix.
 export default defineConfig({
   plugins: [react()],
-  publicDir: resolve(__dirname, "../web/public"),
-  // Both this package and @cloakcode/web declare react ^18.3.1; force ONE
+  publicDir: resolve(import.meta.dirname, "../web/public"),
+  // Both this package and @cloakcode/web declare react ^19.3.0; force ONE
   // physical copy so hooks in the cross-package App don't hit "invalid hook
   // call" from a duplicate React.
   resolve: { dedupe: ["react", "react-dom"] },

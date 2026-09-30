@@ -28,16 +28,16 @@
   },
   "dependencies": {
     "@cloakcode/protocol": "workspace:*",
-    "otpauth": "^9.5.1",
+    "otpauth": "^9.5.2",
     "qrcode-generator": "^2.0.4",
     "selfsigned": "^5.5.0",
-    "ws": "^8.21.1"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "@types/ws": "^8.5.12",
-    "esbuild": "0.28.1",
-    "typescript": "^5.6.0",
-    "vitest": "4.1.10"
+    "@types/node": "^26.6.2",
+    "@types/ws": "^8.18.1",
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.11"
   }
 }
