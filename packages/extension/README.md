@@ -91,6 +91,15 @@ Enabling the setting is all it takes — CloakCode drives the CLI-install prompt
 you. Prefer your own tunnel? Set the `CLOAKCODE_PUBLIC_URL` environment variable to its URL and
 CloakCode uses that instead.
 
+This setup command is for the **embedded** bridge. If the extension connects to a
+Docker gateway, enable and sign in to the tunnel **in the gateway container** instead;
+the gateway image bundles the CLI. See
+[gateway Docker setup](../../packages/gateway/README.md#phone-tunnel-from-the-container).
+When embedded tunnel setup fails, check **Output → CloakCode** for
+`tunnel.cli`: it reports the executable found on the extension host's PATH,
+or that none was found. The terminal's PATH can differ from the extension host's;
+the log does not print the whole PATH or any login tokens.
+
 ## Live blocker overlay (optional)
 
 CloakCode installs a small **Copilot notifier hook** (a single per-environment file) so your phone

@@ -248,6 +248,13 @@ export async function activate(
     base: { component: "extension" },
     sessionLogDir,
   });
+  const tunnelLog: TunnelLog = (message) => {
+    if (message.startsWith("devtunnel CLI ")) {
+      log.info("tunnel.cli", { msg: message });
+    } else {
+      log.debug("tunnel", { msg: message });
+    }
+  };
   // Every remote actuation is provenance-stamped so the session log answers
   // "who acted" — the phone, never the local keyboard (docs/04).
   const actuatorLog = log.child({ provenance: "remote-operator" });
@@ -905,8 +912,10 @@ export async function activate(
         return;
       }
       showLinkPanel(
-        await resolvePhoneUrl(bridge.port, devTunnelName(instanceId), (m) =>
-          log.debug("tunnel", { msg: m }),
+        await resolvePhoneUrl(
+          bridge.port,
+          devTunnelName(instanceId),
+          tunnelLog,
         ),
       );
     }),
@@ -1065,7 +1074,7 @@ export async function activate(
       const url = await startOrRecoverTunnel(
         bridge.port,
         devTunnelName(instanceId),
-        (m) => log.debug("tunnel", { msg: m }),
+        tunnelLog,
       );
       if (url) showLinkPanel(url);
     }),
@@ -1083,7 +1092,7 @@ export async function activate(
     void startOrRecoverTunnel(
       b.port,
       devTunnelName(instanceId),
-      (m) => log.debug("tunnel", { msg: m }),
+      tunnelLog,
       true,
     );
   }

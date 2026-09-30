@@ -133,6 +133,12 @@ authenticated: the phone proves itself with **TOTP**, each extension with a **pr
 the provider link is `wss://` with the certificate **pinned** by the pairing URL. Even so, prefer
 **forward, don't widen** — the smallest exposure is still the best one.
 
+- **Docker gateway tunnel:** the image already contains the `devtunnel` CLI. Enable it with
+  `CLOAKCODE_TUNNEL=devtunnel`; finish the device-code sign-in shown in `docker logs`.
+  Mount `-v cloakcode-devtunnel:/home/app/.local/share/DevTunnels` to retain the login when the
+  container is replaced. This volume stores **login tokens, not the CLI binary**. See
+  [gateway Docker setup](packages/gateway/README.md#phone-tunnel-from-the-container) for a complete
+  command and the separate volume for the operator TOTP secret.
 - **Deployment options** (embedded vs gateway, per-client addressing, dev-container / WSL forwarding,
   host-firewall rules): [docs/07 — Deployment](docs/07-deployment.md).
 - **Security model** (zero code-sync, bounded egress, provenance tagging, threat model):

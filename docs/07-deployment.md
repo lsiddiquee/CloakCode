@@ -133,8 +133,11 @@ phone tunnel itself. Sign-in is **device-code, so it runs headless — no `docke
 prints to `docker logs`, the login blocks until you finish it in any browser, and the container exits
 if the code expires (just restart). It defaults to a **GitHub** login
 (`CLOAKCODE_TUNNEL_PROVIDER=microsoft` for a Microsoft account). See the
-[gateway README — Docker](../packages/gateway/README.md#run-it--docker) for the run commands, the
-`CLOAKCODE_TUNNEL` / `CLOAKCODE_TUNNEL_PROVIDER` variables, and the persist volume.
+[gateway README — Docker](../packages/gateway/README.md#run-it--docker) for the run commands,
+the `CLOAKCODE_TUNNEL` / `CLOAKCODE_TUNNEL_PROVIDER` variables, and the two distinct volumes:
+`cloakcode-devtunnel` stores the **sign-in tokens**, while `cloakcode-mfa` stores the **operator
+TOTP secret**. The CLI comes from the image, not a cache volume. Neither volume is the dev
+container's tooling cache.
 
 ## Authenticated links (shipped) + encrypted transport (the remaining gap)
 

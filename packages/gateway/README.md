@@ -93,17 +93,32 @@ straight from the container, enable it and mount a volume for the token so you o
 ```bash
 docker run -p 3544:3544 \
   -e CLOAKCODE_TUNNEL=devtunnel \
+  -v cloakcode-mfa:/home/app/.cloakcode \
   -v cloakcode-devtunnel:/home/app/.local/share/DevTunnels \
   ghcr.io/lsiddiquee/cloakcode-gateway:latest
 ```
 
-On first run it prints a **device code + URL** to the console (`docker logs`) — open the URL in any
-browser and enter the code. The sign-in is **device-code, so `-it` is not needed** (it runs fully
-detached); it blocks until you finish, and if the code expires the container exits — just restart. The
-token lives in the mounted volume, so later runs sign in silently. Sign-in defaults to **GitHub**; set
-`-e CLOAKCODE_TUNNEL_PROVIDER=microsoft` for a Microsoft account. The container runs as a non-root user
-(`app`). Prefer your own ingress instead? Leave the tunnel off and front the published port with
-Cloudflare Tunnel / Tailscale / a reverse proxy.
+On first run the gateway **entrypoint inside this container** runs `devtunnel user login -d -g`.
+It prints a **device code + URL** to the console (or `docker logs -f <container>` if detached);
+open the URL in any browser and enter the code. No host or VS Code extension login is required.
+The sign-in is **device-code, so `-it` is not needed**; startup waits until you finish. If the code
+expires the container exits — just restart. Sign-in defaults to **GitHub**; set
+`-e CLOAKCODE_TUNNEL_PROVIDER=microsoft` for a Microsoft account. The container runs as the
+non-root user `app`.
+
+The image contains the CLI at `/usr/local/bin/devtunnel` regardless of volumes. The named
+`cloakcode-devtunnel` volume mounts at `/home/app/.local/share/DevTunnels` and retains **only
+sign-in state** across container replacements; it does not cache the executable. The separate
+`cloakcode-mfa` volume retains the operator TOTP secret so paired phones do not need re-enrolment.
+Do not mount over `/usr/local/bin` or copy token files into the repository. To diagnose a missing-CLI
+message from a running container, check `docker exec <container> sh -c 'command -v devtunnel;
+devtunnel --version'`; use `docker logs <container>` for the actual failure. If the message comes
+from **CloakCode: Set Up Phone Tunnel** in VS Code, that command is for an embedded bridge, not a
+gateway-hosted tunnel. Prefer your own ingress instead? Leave the tunnel off and front the published
+port with Cloudflare Tunnel / Tailscale / a reverse proxy.
+For the gateway's own tunnel attempt, `docker logs <container>` reports the CLI
+path found on the gateway process's PATH (or that none was found); it does not
+dump the full PATH or sign-in tokens.
 
 ### Persisting state across container upgrades (volumes)
 

@@ -549,6 +549,14 @@ Base: `~/.vscode-server/data/User/`
   relying on the invariant flag (removed 2026-07-18). `libicu` is SO-versioned per Debian release
   (`libicu72` bookworm / `libicu76` trixie / …), so the Dockerfile resolves whichever the base image
   ships via `apt-cache search --names-only '^libicu[0-9]+$' | sort -V | tail -n1` rather than pinning.
+- **Tunnel CLI diagnostics (2026-09-30).** A VS Code `devtunnel CLI isn't installed` dialog
+  comes from the embedded extension's `execFile("devtunnel", …)` receiving `ENOENT`, not
+  from the Docker gateway (which bundles the binary). The extension host and terminal
+  can have different PATHs. On tunnel startup, `tunnel.cli` in **Output → CloakCode**
+  records the executable found on the extension host PATH (or no match); the gateway
+  emits the same diagnostic in its logs. This lookup is informational: subprocess
+  launch still determines whether the CLI actually works. Never log the entire PATH
+  or Dev Tunnel sign-in files.
 - **UI playground = a separate dev-only package + a fake WebSocket (2026-07-21).** To design the PWA
   with no gateway, `@cloakcode/web-playground` renders the **real** `@cloakcode/web` `App` and just
   swaps `globalThis.WebSocket` for an in-browser fake that replies from fixtures. Two design points

@@ -1,5 +1,7 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
+import { accessSync, constants, statSync } from "node:fs";
+import { delimiter, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -83,6 +85,12 @@ export async function startDevTunnel(
   name: string,
   log: TunnelLog = () => {},
 ): Promise<Tunnel> {
+  const executable = devTunnelOnPath();
+  log(
+    executable
+      ? `devtunnel CLI on process PATH: ${executable}`
+      : "devtunnel CLI not found on process PATH",
+  );
   await ensureTunnel(name, port, log);
   // Host WITHOUT `-p`: the port is added individually by `ensureTunnel`, so
   // hosting serves the tunnel's configured ports. Passing `-p` here makes the
@@ -95,6 +103,27 @@ export async function startDevTunnel(
   });
   const url = await firstTunnelUrl(child, port, log);
   return { url, stop: () => stop(child) };
+}
+
+function devTunnelOnPath(): string | undefined {
+  const name = process.platform === "win32" ? "devtunnel.exe" : "devtunnel";
+  for (const directory of (process.env["PATH"] ?? "").split(delimiter)) {
+    const candidate = resolve(directory || ".", name);
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch (err) {
+      if (
+        !["ENOENT", "EACCES", "ENOTDIR"].includes(
+          (err as NodeJS.ErrnoException).code ?? "",
+        )
+      ) {
+        throw err;
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Create the named tunnel + forwarded port, tolerating "already exists". */

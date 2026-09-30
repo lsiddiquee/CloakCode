@@ -3,13 +3,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock child_process so we can drive `devtunnel` without a real binary. Hoisted
 // so the mocks exist before the module under test is imported.
-const { spawnMock, execFileMock } = vi.hoisted(() => ({
-  spawnMock: vi.fn(),
-  execFileMock: vi.fn(),
-}));
+const { spawnMock, execFileMock, accessSyncMock, statSyncMock } = vi.hoisted(
+  () => ({
+    spawnMock: vi.fn(),
+    execFileMock: vi.fn(),
+    accessSyncMock: vi.fn(),
+    statSyncMock: vi.fn(() => ({ isFile: () => true })),
+  }),
+);
 vi.mock("node:child_process", () => ({
   spawn: spawnMock,
   execFile: execFileMock,
+}));
+vi.mock("node:fs", () => ({
+  accessSync: accessSyncMock,
+  statSync: statSyncMock,
+  constants: { X_OK: 1 },
 }));
 
 import { startDevTunnel, TunnelError } from "./tunnel.js";
@@ -42,10 +51,75 @@ const URL = "https://cloakcode-ab12cd34-7801.euw.devtunnels.ms";
 
 afterEach(() => {
   vi.clearAllMocks();
+  statSyncMock.mockImplementation(() => ({ isFile: () => true }));
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
 describe("startDevTunnel", () => {
+  it("logs the executable found on the process PATH without logging the PATH", async () => {
+    vi.stubEnv("PATH", "/unavailable:/opt/tunnel/bin");
+    accessSyncMock.mockImplementation((path: string) => {
+      if (path !== "/opt/tunnel/bin/devtunnel") {
+        throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      }
+    });
+    execOk();
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+    const log = vi.fn();
+
+    const p = startDevTunnel(7801, "n", log);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    child.stdout.emit("data", Buffer.from(URL));
+    await p;
+
+    expect(log).toHaveBeenCalledWith(
+      "devtunnel CLI on process PATH: /opt/tunnel/bin/devtunnel",
+    );
+    expect(log.mock.calls.flat().join(" ")).not.toContain("/unavailable");
+  });
+
+  it("logs when the CLI is not on the process PATH and preserves the missing error", async () => {
+    vi.stubEnv("PATH", "/unavailable");
+    accessSyncMock.mockImplementation(() => {
+      throw Object.assign(new Error("not found"), { code: "ENOENT" });
+    });
+    execFileMock.mockImplementation(
+      (_c: string, _a: string[], _o: unknown, cb: (...a: unknown[]) => void) =>
+        cb(
+          Object.assign(new Error("spawn devtunnel ENOENT"), {
+            code: "ENOENT",
+          }),
+        ),
+    );
+    const log = vi.fn();
+
+    await expect(startDevTunnel(7801, "n", log)).rejects.toMatchObject({
+      kind: "missing",
+    });
+    expect(log).toHaveBeenCalledWith("devtunnel CLI not found on process PATH");
+  });
+
+  it("does not report a directory named devtunnel as a CLI executable", async () => {
+    vi.stubEnv("PATH", "/opt/tunnel/bin");
+    statSyncMock.mockImplementation(() => ({ isFile: () => false }));
+    execFileMock.mockImplementation(
+      (_c: string, _a: string[], _o: unknown, cb: (...a: unknown[]) => void) =>
+        cb(
+          Object.assign(new Error("spawn devtunnel EACCES"), {
+            code: "EACCES",
+          }),
+        ),
+    );
+    const log = vi.fn();
+
+    await expect(startDevTunnel(7801, "n", log)).rejects.toMatchObject({
+      kind: "other",
+    });
+    expect(log).toHaveBeenCalledWith("devtunnel CLI not found on process PATH");
+  });
+
   it("resolves with the URL printed on stdout and can stop the child", async () => {
     execOk();
     const child = new MockChild();
