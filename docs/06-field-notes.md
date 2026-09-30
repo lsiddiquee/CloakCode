@@ -108,11 +108,12 @@ Base: `~/.vscode-server/data/User/`
 
 ## Build, tooling & agent gotchas (durable — the committed home; `/memories/` is ephemeral)
 
-- **Release tag verification (2026-09-30).** `v1.0.0` points to a Verified merge commit, but its
-  annotated tag itself reports `verification.reason=unsigned`, so the release tag has no Verified
-  badge. `git tag -a` alone does not sign. For future cuts, use `git tag -s vX.Y.Z -m "vX.Y.Z"` on
-  a machine with a GPG/SSH signing key registered on GitHub, then verify the tag's signature
-  status after pushing. Never replace a published release tag just to change its badge.
+- **Release verification (2026-09-30).** Every earlier release tag points to a Verified commit,
+  but the tags themselves are either lightweight or unsigned annotated tags (`v1.0.0` reports
+  `verification.reason=unsigned`). GitHub's commit badge is distinct from tag verification;
+  neither requires a signing key to publish. Signing a tag with a GitHub-registered key is optional
+  if a Verified tag is specifically wanted. Never replace a published release tag just to
+  change its badge.
 
 > Non-obvious traps that cost real time. This is the **committed** replacement for the assistant's
 > ephemeral `/memories/` store (a container rebuild wipes that). Add a bullet here whenever a
