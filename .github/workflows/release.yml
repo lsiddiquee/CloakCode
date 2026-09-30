@@ -1,6 +1,6 @@
 name: Release
 
-# Fires on a version tag (prefer `git tag -s v0.1.0 -m "v0.1.0"` for a Verified tag).
+# Fires on a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`).
 # Builds + tests, then packages and PUBLISHES to the MVP targets:
 #   • extension .vsix  → GitHub Release  (+ VS Code Marketplace when VSCE_PAT is set)
 #   • gateway          → GitHub Release tarball (+ npm when NPM_TOKEN is set)

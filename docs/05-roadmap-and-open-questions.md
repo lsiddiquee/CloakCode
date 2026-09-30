@@ -244,10 +244,11 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
    your own PR, so a solo maintainer merges the (mechanical, CI-green) release PR with
    **`gh pr merge <n> --admin --merge`** — `enforce_admins` is deliberately off for exactly this.
    That is also why the release merges are merge commits despite `required_linear_history`.
-3. On a machine with a signing key registered with GitHub, update `main` after the merge, then
-   **sign and push** the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
-   Confirm GitHub reports the tag as Verified; a Verified merge commit does **not** verify an
-   unsigned tag. `release.yml` **verifies the tag matches the committed version** (fails on drift),
+3. Update `main` after the merge, then tag and push:
+   `git tag vX.Y.Z && git push origin vX.Y.Z`. Signing the tag is optional
+   (`git tag -s vX.Y.Z -m "vX.Y.Z"` with a key registered on GitHub) if you want the **tag itself**
+   to show Verified; a Verified commit does not imply a Verified tag. Neither badge is required
+   for publishing. `release.yml` **verifies the tag matches the committed version** (fails on drift),
    then builds → tests → packages the `.vsix` + gateway tarball → GitHub Release (always) → gated
    Marketplace / npm / Docker publishes. Docker/tarball are named from the tag; the `.vsix`/npm
    version come from `package.json`.
