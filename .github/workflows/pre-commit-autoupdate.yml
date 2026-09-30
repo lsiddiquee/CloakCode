@@ -43,6 +43,40 @@ jobs:
           python -m pip install --upgrade pre-commit
           # Modifies the working copy only — never committed or pushed.
           pre-commit autoupdate
+          # autoupdate can select an older tag (e.g. gitleaks v8.30.0 over v8.30.1).
+          # Keep newer pinned semver releases rather than reporting a downgrade.
+          python - <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          import yaml
+
+          path = Path(".pre-commit-config.yaml")
+          original = yaml.safe_load(
+              subprocess.check_output(["git", "show", "HEAD:.pre-commit-config.yaml"], text=True)
+          )
+          updated = yaml.safe_load(path.read_text())
+          original_revs = {
+              item["repo"]: item["rev"]
+              for item in original["repos"]
+              if item["repo"] != "local"
+          }
+          text = path.read_text()
+          for item in updated["repos"]:
+              repo = item["repo"]
+              if repo not in original_revs:
+                  continue
+              old_rev, new_rev = original_revs[repo], item["rev"]
+              old = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", old_rev)
+              new = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", new_rev)
+              if old and new and tuple(map(int, new.groups())) < tuple(map(int, old.groups())):
+                  proposed = f"  - repo: {repo}\n    rev: {new_rev}\n"
+                  if text.count(proposed) != 1:
+                      raise ValueError(f"Cannot restore pinned revision for {repo}")
+                  text = text.replace(proposed, f"  - repo: {repo}\n    rev: {old_rev}\n", 1)
+          path.write_text(text)
+          PY
           if git diff --quiet -- .pre-commit-config.yaml; then
             echo "pre-commit hooks are up to date."
             exit 0
