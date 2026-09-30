@@ -50,9 +50,12 @@ Before making or reviewing any change, read and follow:
 
 ## Hard rules (in priority order)
 
-1. **ZERO code-sync — top priority.** Never introduce a path that pushes, uploads, or syncs the
-   workspace to GitHub (`git push`, GitHub REST, repo/Codespaces upload). If a task appears to
-   require it, **STOP and flag it** — do not implement it. Compliance is architectural.
+1. **ZERO code-sync in the product — top priority.** Never introduce a runtime path that
+   pushes, uploads, or syncs an end user's workspace to GitHub (`git push`, GitHub REST,
+   repo/Codespaces upload) or replicates it to phone clients. If a product feature
+   appears to require it, **STOP and flag it** — do not implement it. This does not
+   prohibit normal commits/pushes of the CloakCode source repository or its explicit
+   release workflows; those are distinct from runtime handling of a user's code.
 2. **Package boundaries.** Only `@cloakcode/extension` imports `vscode`. Keep `@cloakcode/protocol`
    and `@cloakcode/agent` pure and unit-testable without an extension host. `@cloakcode/web` imports
    neither `vscode` nor node-server internals. Shared types come from `@cloakcode/protocol` only —

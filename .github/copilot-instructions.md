@@ -23,9 +23,13 @@ actuator (answering/steering remotely) is the next build. See
 
 ## Non-negotiable rules (project-wide)
 
-1. **Zero code-sync.** NEVER add code that pushes, uploads, or syncs the workspace to
-   GitHub (`git push`, GitHub REST, repo/Codespaces upload). Compliance is architectural —
-   there must be **no such path** in the codebase.
+1. **Zero code-sync in the product.** CloakCode must never push, upload, or sync an
+   end user's workspace to GitHub (`git push`, GitHub REST, repo/Codespaces upload)
+   or replicate the workspace to phone clients. Compliance is architectural: no
+   such path in the extension, gateway, or clients. This is **not** a ban on
+   contributors committing/pushing the CloakCode source repository or on its
+   explicit release workflows; those are normal project-development operations,
+   not runtime behavior toward a user's workspace.
 2. **Bounded, self-owned egress.** CloakCode adds **no new path that sends your code anywhere
    Copilot doesn't already.** It mirrors Copilot's own transcript and relays your prompts into
    Copilot; if it ever runs its own model loop it does so through **your own consented

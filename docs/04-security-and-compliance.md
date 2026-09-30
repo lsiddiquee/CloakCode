@@ -7,8 +7,12 @@ enforced and the security lessons the investigation surfaced.
 
 ## Zero code-sync — enforced by architecture, not policy
 
-- **No git-remote path exists in CloakCode.** The extension has no code that runs
-  `git push`, calls the GitHub REST API, or syncs a repo. The guarantee is structural.
+- **Scope: the user's workspace at runtime, not this project's development.** Contributors
+  can commit and push CloakCode's source, and the explicit release workflows publish
+  CloakCode artifacts. Neither operation is a feature that uploads an extension user's
+  workspace. The extension and gateway must not add such a feature.
+- **No git-remote path exists in the product's runtime.** The extension has no code that runs
+  `git push`, calls the GitHub REST API, or syncs a user's repo. The guarantee is structural.
 - **The bridge binds to `127.0.0.1` only.** Nothing is network-listening beyond localhost;
   remote access is exclusively via an explicit tunnel to _your_ infrastructure.
 - **Egress allowlist.** Any future remote-ops destinations are explicitly allowlisted;
