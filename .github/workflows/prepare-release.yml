@@ -5,7 +5,8 @@ name: Prepare release
 # a `release/vX.Y.Z` branch, stamps the version into the shipped package.json
 # files (lockstep: extension + gateway share one version), commits, and opens a
 # PR to main. Review + merge, then cut the release by tagging:
-#     git tag vX.Y.Z && git push origin vX.Y.Z      # → release.yml publishes
+#     git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
+# Sign with a key registered on GitHub so the release tag shows Verified.
 #
 # The release branch is a durable record of each cut (not just the tag).
 on:
@@ -54,5 +55,5 @@ jobs:
             echo ""
             echo "1. **Open the PR:** [$URL]($URL)"
             echo "2. Review + merge it into \`main\`."
-            echo "3. Cut the release: \`git tag v$VERSION && git push origin v$VERSION\` → the Release workflow verifies the tag matches the committed version, then builds and publishes to the gated targets."
+            echo "3. On a machine with a GitHub-registered signing key, cut the release: \`git tag -s v$VERSION -m 'v$VERSION' && git push origin v$VERSION\` → the Release workflow verifies the tag matches the committed version, then builds and publishes to the gated targets."
           } >> "$GITHUB_STEP_SUMMARY"

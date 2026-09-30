@@ -94,7 +94,9 @@ try {
 console.log(
   `\nNext:\n` +
     `  1. Review + merge the release/v${version} PR it opens.\n` +
-    `  2. git tag v${version} && git push origin v${version}   → the Release workflow publishes.`,
+    `  2. On a machine with a GitHub-registered signing key:\n` +
+    `     git tag -s v${version} -m "v${version}" && git push origin v${version}\n` +
+    `     → the Release workflow publishes.`,
 );
 
 /** @returns {string} the committed root package.json version (fallback 0.0.0). */
