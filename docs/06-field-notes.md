@@ -448,6 +448,11 @@ Base: `~/.vscode-server/data/User/`
   Pre-commit-**only** hosted hooks (gitleaks, markdownlint-cli2, conventional-pre-commit,
   pre-commit-hooks) have a single pin so they don't drift, but Dependabot can't bump them either —
   they only move via `pre-commit autoupdate`.
+- **Hook major update, 2026-09-30:** `pre-commit-hooks` v6 requires Python >=3.9 (CI uses 3.12);
+  `conventional-pre-commit` v4 permits merge/fixup messages by default, so pass `--strict` to
+  preserve the previous rejection behavior. Test both valid and rejected commit messages.
+  `pre-commit autoupdate` uses `git describe` on upstream HEAD rather than the highest tag;
+  gitleaks v8.30.1 is tagged off master, so review its proposed v8.30.0 downgrade manually.
 - **Edit-tool unicode trap.** The string-replace edit tools can write `\uXXXX` escapes as **literal
   text**. Use the actual glyphs (em-dash —, middot ·, arrow →, section §) in the replacement, or a
   Python heredoc with ASCII anchors for unicode-heavy edits.

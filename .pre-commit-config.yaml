@@ -28,7 +28,7 @@ repos:
   # Repo hygiene — fast, language-agnostic sanity checks.
   # ---------------------------------------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         # Markdown trailing whitespace is meaningful (two spaces = hard break).
@@ -88,9 +88,10 @@ repos:
   # Conventional Commits — enforced on the commit message (commit-msg hook).
   # ---------------------------------------------------------------------------
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.6.0
+    rev: v4.4.0
     hooks:
       - id: conventional-pre-commit
+        args: ["--strict"]
         stages: [commit-msg]
 
   # ---------------------------------------------------------------------------
