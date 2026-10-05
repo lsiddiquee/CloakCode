@@ -21,12 +21,6 @@ allowBuilds:
   esbuild: true
   "@vscode/vsce-sign": false
 
-# VSCE's optional keytar integration stores publishing credentials. CloakCode
-# only uses VSCE for local packaging, so omit that unused native module and its
-# deprecated prebuild-install dependency.
-ignoredOptionalDependencies:
-  - keytar
-
 # GHSA host-confusion fix for fast-uri (< 3.1.4), reached only via
 # @vscode/vsce -> secretlint -> ajv. Dev-only and absent from both shipped
 # artifacts (each is an esbuild bundle with a deps-free manifest), but pinned so

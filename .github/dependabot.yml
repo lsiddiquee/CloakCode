@@ -32,6 +32,10 @@ updates:
     # Precedence: Dependabot puts a dependency in the FIRST matching group, so the
     # coupled pattern groups are listed before the broad type groups.
     groups:
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       react:
         # Runtime + its types must move together, including on majors (18 -> 19).
         patterns:

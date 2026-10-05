@@ -111,7 +111,7 @@ jobs:
       # --- Gated: VS Code Marketplace (needs VSCE_PAT; consider OVSX_TOKEN too) ---
       - name: Publish extension → VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: npx @vscode/vsce publish --packagePath "$(ls dist/extension/*.vsix | head -1)"
+        run: pnpm --filter @cloakcode/extension exec vsce publish --packagePath "$(ls dist/extension/*.vsix | head -1)"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 

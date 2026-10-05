@@ -263,13 +263,12 @@ Base: `~/.vscode-server/data/User/`
     (`gateway.cert_pin_mismatch`) then asserted a mismatch that never happened: **the event name is
     part of the message.**
 
-- **One upstream pnpm deprecation warning remains by design (2026-07-17).** Vitest/coverage 4.1.10
-  removes the old `glob@10` path; jsdom 28 removes its `whatwg-encoding` path; and
-  `ignoredOptionalDependencies: [keytar]` skips VSCE's unused credential-store integration plus its
-  deprecated `prebuild-install`. The sole remaining warning is `whatwg-encoding@3.1.1` through
-  latest `@vscode/vsce@3.9.2 → cheerio → encoding-sniffer`; it is a required parser path, not a
-  vulnerability (`pnpm audit` is clean). Do not silence it with `allowedDeprecatedVersions` or
-  override the required transitive dependency; wait for VSCE/Cheerio upstream.
+- **The upstream pnpm deprecation path is resolved (2026-10-05).** Vitest/coverage 4.1.10 removed
+  the old `glob@10` path; jsdom 28 removed its `whatwg-encoding` path. The remaining
+  `whatwg-encoding@3.1.1` came through `@vscode/vsce@3.9.2 → cheerio → encoding-sniffer`.
+  VSCE 4 removes that parser path and replaces its old keytar credential-store dependency, so the
+  obsolete `ignoredOptionalDependencies: [keytar]` exclusion is removed. No deprecation-silencing
+  override was needed. Packaging the VSIX with VSCE 4 was verified before merging #103.
 
 - **Major dep bump that changes generated `.d.ts` → `pnpm -r build` BEFORE `pnpm -r typecheck`
   (2026-07-22).** After bumping zod 3→4, `pnpm -r typecheck` failed only in `@cloakcode/gateway`
@@ -307,6 +306,36 @@ Base: `~/.vscode-server/data/User/`
   runtime). Whenever you clear such a pileup by hand, add/extend the matching group in the SAME change
   so it can't recur. Dependabot assigns a dep to the FIRST matching group — list coupled pattern
   groups before the broad type groups.
+
+- **Vitest runner and coverage must upgrade together, even when CI is green (2026-10-05).**
+  Dependabot #100 upgraded the workspace runners to 5.0.2 but left coverage on 4.1.11; the coverage
+  job passed while printing "Running mixed versions is not supported and may lead into bugs".
+  #101 upgraded only the root coverage provider; workspace coverage still ran v4. Combine the
+  runner/provider updates and group `vitest` + `@vitest/*` before the broad development group.
+  Vitest 5 drops Node 20, and jsdom 30.1.1 requires `^22.22.2 || ^24.15.0 || >=26.0.0`;
+  the root development engine range follows that requirement. CI/dev containers remain on Node 24;
+  the bundled gateway's separately staged `Node >=20` runtime manifest is unchanged.
+- **Extension packaging must be a PR gate, not a release-only surprise (2026-10-05).**
+  The vsce 4 major requires Node >=22 and changes packaging dependencies and credential storage.
+  A successful build/typecheck/test does not exercise `vsce package`. CI now runs the same
+  `pnpm --filter @cloakcode/extension package` path as releases, without publishing. Marketplace
+  publishing uses `pnpm --filter @cloakcode/extension exec vsce` so it runs the locked package
+  rather than `npx` resolving a fresh version. Explicit `VSCE_PAT` authentication remains supported
+  and bypasses stored-credential migration; no Marketplace auth-policy change is required.
+
+- **Package-feed proxy settings for this development environment (2026-10-05).** Use
+  `NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/` for local npm/pnpm commands and
+  `PIP_INDEX_URL=https://packagefeedproxy.microsoft.io/pypi/simple` for Python installs, including
+  pre-commit environment initialization. Direct `files.pythonhosted.org` hook installs failed TLS;
+  the PyPI proxy succeeded without disabling verification. Keep these as environment settings,
+  not committed registry pins. The npm mirror can regenerate unchanged package integrity entries
+  as SHA-1; preserve their existing SHA-512 pins when refreshing a lockfile, and strip registry
+  tarball URLs with the existing hook before committing.
+
+- **A linked worktree has its own `FETCH_HEAD` (2026-10-05).** Fetching a PR in the primary worktree
+  does not update the linked checkout's `FETCH_HEAD`. Validate a PR by its exact head SHA; when
+  Dependabot rebases, switch a clean disposable checkout to that SHA rather than assuming a
+  fast-forward from the old PR commit.
 
 - **`pnpm update <pkg>` at root is a silent no-op for workspace-package deps — use `pnpm -r update`
   (2026-07-22).** Bumping a lockfile pin only works if the manifest that declares the dep is in

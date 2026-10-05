@@ -45,6 +45,8 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r lint
       - run: pnpm -r test
+      - name: Package extension (.vsix, no publishing)
+        run: pnpm --filter @cloakcode/extension package
 
   docker:
     name: Gateway image — build · smoke-test
