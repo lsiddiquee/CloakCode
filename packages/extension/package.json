@@ -245,7 +245,7 @@
     "@types/node": "^26.6.3",
     "@types/vscode": "^1.138.0",
     "@types/ws": "^8.18.1",
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
