@@ -76,6 +76,10 @@ Why the gateway exists and when you actually need one:
 
 ## Getting started (development)
 
+Development requires Node **22.22.2+, 24.15.0+, or 26+** on those supported major lines.
+The dev container and CI use Node 24. This is the build/test toolchain requirement;
+the self-contained gateway still supports Node >=20 at runtime.
+
 Open in the dev container (VS Code: **Dev Containers: Reopen in Container**). It mounts the repo at
 `/workspaces/cloakcode`, sets up a persisted cache volume, and installs Node + pnpm + tooling. Then:
 
