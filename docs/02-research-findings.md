@@ -180,6 +180,12 @@ One line per finding; **`→`** links to the full write-up. Grouped by topic fil
 - **§4.26** `session-store.db` is a **lagging** index — read the logs directly.
 - **§4.28** The transcript storage root is **host-relative** — derive it from `context.globalStorageUri`
   (sibling `…/User/workspaceStorage`), not a hardcoded `~/.vscode-server` (0 sessions on desktop hosts).
+- **§4.37** Agent Host Copilot sessions are **missing from legacy discovery**: a read-only local
+  spike found the current `copilotcli:/…` session in the host catalog and session DB, but neither
+  `scanSessions` nor `findSessionLog` found it. The workspace transcript/debug-log map is not
+  universal. Follow-up attached directly to the existing container host over its token-protected
+  socket (AHP 0.9.0), finding the current session and active chat; production endpoint discovery
+  remains open. Detail in [02.4](02.4-storage-and-logs.md#agent-host-sessions-are-outside-legacy-discovery-437).
 
 ### Session state — [02.5](02.5-session-state.md)
 
