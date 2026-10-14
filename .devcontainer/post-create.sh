@@ -66,7 +66,7 @@ echo "==> python: installing poetry via pipx"
 if ! command -v poetry >/dev/null 2>&1; then
   pipx install poetry >/dev/null 2>&1 || true
 fi
-pipx inject poetry poetry-plugin-export >/dev/null 2>&1 || true
+pipx inject poetry 'poetry-plugin-pypi-mirror==0.6.5' >/dev/null 2>&1 || true
 if command -v poetry >/dev/null 2>&1 && [ -f pyproject.toml ]; then
   echo "==> python: poetry install (dev deps: ruff, mypy, pytest)"
   poetry install --no-interaction || true

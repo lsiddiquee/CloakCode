@@ -573,6 +573,30 @@ Base: `~/.vscode-server/data/User/`
   the gateway `Dockerfile` now just run `pnpm install --frozen-lockfile` (the old `--registry=…npmjs.org/`
   flags and `printf … > .npmrc` step were removed). Do **not** re-commit an `.npmrc` or re-add a `--registry`
   override; if you resolve through a private feed, put it in `~/.npmrc` and let the hook clean the lockfile.
+- **Devcontainer registry overrides must reach feature builds (2026-10-14).** The Python feature
+  upgrades pip while building the image, before `runArgs`, `remoteEnv`, or post-create apply.
+  A host `PIP_INDEX_URL` is not inherited by Docker builds automatically: the observed failure was
+  a TLS handshake error downloading pip metadata from `files.pythonhosted.org`.
+  The devcontainer forwards host `PIP_INDEX_URL` and `NPM_CONFIG_REGISTRY` as build arguments;
+  its Dockerfile exports them before features install and retains them for runtime installs.
+  Unset variables default to public PyPI and npm, with no committed private registry URL.
+  Keep URL defaults in Dockerfile `${ARG:-default}` expansion: Dev Containers CLI 0.89.0
+  truncated a `${localEnv:NAME:https://...}` default to `https` in the unset-variable check.
+  Set overrides in the environment of the host process launching Dev Containers (WSL for this
+  setup), then rebuild. The generated `.devcontainer.env` remains host-IP-only and is too late
+  for feature installation. These arguments are for credential-free registry URLs only: never
+  put tokens or passwords in them, because Docker build arguments and image environment are visible.
+  **Post-create also needs registry-aware installation:** Poetry does not use `PIP_INDEX_URL`
+  for project dependencies. Direct `poetry install` still tried `files.pythonhosted.org`, leaving
+  Ruff unavailable while the guarded script reported success. Poetry 2.5.1 has no built-in
+  dependency-index environment override: `POETRY_REPOSITORIES_PYPI_URL` is publishing config;
+  a runtime pool check still selected `https://pypi.org/simple/` with it set.
+  Post-create injects `poetry-plugin-pypi-mirror==0.6.5`, and the Dockerfile maps the host
+  `PIP_INDEX_URL` argument to its `POETRY_PYPI_MIRROR_URL` environment variable. Without a host
+  override that variable stays empty, retaining native public PyPI. Use ordinary
+  `poetry install --no-interaction`; the earlier export-to-pip workaround was removed.
+  No private source is written to the manifest or lockfile. The plugin supports Poetry
+  `>=2.1,<2.6` and uses its internals, so recheck compatibility when upgrading Poetry.
 - **Building the gateway Docker image on a restricted network (2026-07-18).** The build container has
   **no `~/.npmrc`**, so it defaults to public `registry.npmjs.org` — which fails on a corporate network
   where only an internal feed is reachable (symptom: TLS `handshake_failure`, or the FROM/apt work but

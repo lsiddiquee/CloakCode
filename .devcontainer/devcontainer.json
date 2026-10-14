@@ -2,7 +2,13 @@
   // CloakCode dev container.
   // Pure TypeScript/Node monorepo: VS Code extension + local bridge + React PWA client.
   "name": "CloakCode",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:24-bookworm",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "PIP_INDEX_URL": "${localEnv:PIP_INDEX_URL}",
+      "NPM_CONFIG_REGISTRY": "${localEnv:NPM_CONFIG_REGISTRY}"
+    }
+  },
   // Fixed workspace location regardless of the host folder name. This keeps every
   // absolute path (scripts, tasks, docs) stable no matter what the source folder is called.
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/cloakcode,type=bind",
