@@ -315,6 +315,12 @@ Base: `~/.vscode-server/data/User/`
   Vitest 5 drops Node 20, and jsdom 30.1.1 requires `^22.22.2 || ^24.15.0 || >=26.0.0`;
   the root development engine range follows that requirement. CI/dev containers remain on Node 24;
   the bundled gateway's separately staged `Node >=20` runtime manifest is unchanged.
+- **Vitest grouping is not a compatibility gate (2026-10-14).** Despite the first-match
+  `vitest`/`@vitest/*` group, #106 updated runners to 5.0.3 while #107 put coverage 5.0.3 in the
+  development group. Both PRs had green CI independently. The grouping now explicitly names
+  `@vitest/coverage-v8`, and the Node CI job asserts every declared workspace Vitest runner pin
+  equals the root coverage-provider pin before installing dependencies. Consolidate split updates;
+  do not rely on group placement or a successful coverage run to establish version alignment.
 - **Extension packaging must be a PR gate, not a release-only surprise (2026-10-05).**
   The vsce 4 major requires Node >=22 and changes packaging dependencies and credential storage.
   A successful build/typecheck/test does not exercise `vsce package`. CI now runs the same
