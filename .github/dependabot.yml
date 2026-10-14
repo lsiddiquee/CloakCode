@@ -35,6 +35,7 @@ updates:
       vitest:
         patterns:
           - "vitest"
+          - "@vitest/coverage-v8"
           - "@vitest/*"
       react:
         # Runtime + its types must move together, including on majors (18 -> 19).

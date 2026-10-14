@@ -32,6 +32,20 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Verify Vitest runner and coverage pins match
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, readdirSync } from 'node:fs';
+          const coverage = JSON.parse(readFileSync('package.json', 'utf8')).devDependencies['@vitest/coverage-v8'];
+          assert.ok(coverage, 'Missing @vitest/coverage-v8 pin');
+          for (const name of readdirSync('packages')) {
+            const pkg = JSON.parse(readFileSync(`packages/${name}/package.json`, 'utf8'));
+            const runner = pkg.devDependencies?.vitest;
+            if (runner) assert.equal(runner, coverage, `${pkg.name}: Vitest runner/provider pins must match`);
+          }
+          NODE
+
       # No committed .npmrc, so the default public npm registry applies; the
       # committed pnpm-lock.yaml is registry-portable (integrity-only, no absolute
       # tarball URLs — kept so by the `pnpm-lock-portable` pre-commit hook), so
