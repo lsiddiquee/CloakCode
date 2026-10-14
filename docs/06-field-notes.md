@@ -13,6 +13,18 @@
 > **committed** home for the traps the assistant used to keep in its ephemeral `/memories/` store
 > (which a rebuild wipes). Add gotchas there so nobody rediscovers them.
 
+## Release publication paths (2026-10-14)
+
+- `pnpm --filter @cloakcode/extension exec` changes cwd to `packages/extension`. A repository-relative
+  `dist/extension/*.vsix` path therefore fails with `ENOENT` even after GitHub asset upload succeeds.
+  Resolve the VSIX to an absolute path before entering the package directory; verified with a local
+  package-cwd probe and the failed v1.1.1 publication log.
+- `actions/setup-node` writes npm auth config referencing `NODE_AUTH_TOKEN`. Supply that variable
+  at job scope so earlier pnpm/vsce steps do not emit missing-env warnings; never print its value.
+- A workflow repair on `main` cannot change a rerun of an existing tag's old workflow. Manual
+  dispatch now derives `RELEASE_TAG` from the committed product version for release notes, assets,
+  GitHub Release updates, and image tags. Keep the original version tag unchanged.
+
 ## Goal & requirements (evolved)
 
 - Local-to-remote bridge to drive Copilot from a phone/desktop with **ZERO code-sync to GitHub**.

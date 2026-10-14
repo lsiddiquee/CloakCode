@@ -37,6 +37,7 @@ jobs:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,22 +59,27 @@ jobs:
 
       # The version ships from the committed package.json (vsce/npm read it), so
       # the tag must match what was bumped on the release branch. Fail fast on
-      # drift (e.g. tagging a commit that was never bumped). Skipped on manual
-      # workflow_dispatch, which has no v* tag.
-      - name: Verify tag matches committed version
-        if: startsWith(github.ref, 'refs/tags/v')
+      # drift (e.g. tagging a commit that was never bumped). Manual dispatch uses
+      # the committed product version so retries keep the same artifact names.
+      - name: Verify release version
         env:
           REF: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
-          TAG_VERSION="${REF#v}"
+          TAG_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$REF_TYPE" == "tag" && "$REF" != "v$TAG_VERSION" ]]; then
+            echo "::error::Tag $REF != committed version $TAG_VERSION." >&2
+            exit 1
+          fi
           for pkg in package.json packages/extension/package.json packages/gateway/package.json; do
             PKG_VERSION="$(node -p "require('./$pkg').version")"
-            if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
               echo "::error::Tag v$TAG_VERSION != $pkg version $PKG_VERSION. Run 'Prepare release', merge the PR, then tag." >&2
               exit 1
             fi
           done
-          echo "Tag v$TAG_VERSION matches all committed manifests."
+          echo "RELEASE_TAG=v$TAG_VERSION" >> "$GITHUB_ENV"
+          echo "Release v$TAG_VERSION matches all committed manifests."
 
       - run: pnpm -r build
       - run: pnpm -r test # never cut a release on red
@@ -85,7 +91,7 @@ jobs:
         run: pnpm --filter @cloakcode/gateway assemble
 
       - name: Tar the gateway bundle
-        run: tar -C dist -czf "cloakcode-gateway-${GITHUB_REF_NAME}.tgz" gateway
+        run: tar -C dist -czf "cloakcode-gateway-${RELEASE_TAG}.tgz" gateway
 
       # Build categorized release notes from Conventional Commits. GitHub's own
       # generate_release_notes only lists merged PRs since the last tag — our flow
@@ -93,14 +99,13 @@ jobs:
       # so those notes are near-empty. scripts/changelog.mjs reads the git log and
       # groups commits by type (features / fixes / … ) — useful by default.
       - name: Generate release notes
-        run: node scripts/changelog.mjs --to "$GITHUB_REF_NAME" > RELEASE_NOTES.md
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: node scripts/changelog.mjs --to "$RELEASE_TAG" > RELEASE_NOTES.md
 
       # --- Always: a GitHub Release with the artifacts (no external secrets) ---
       - name: GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           body_path: RELEASE_NOTES.md
           files: |
             dist/extension/*.vsix
@@ -111,7 +116,7 @@ jobs:
       # --- Gated: VS Code Marketplace (needs VSCE_PAT; consider OVSX_TOKEN too) ---
       - name: Publish extension → VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: pnpm --filter @cloakcode/extension exec vsce publish --packagePath "$(ls dist/extension/*.vsix | head -1)"
+        run: pnpm --filter @cloakcode/extension exec vsce publish --packagePath "$(pwd)/dist/extension/cloakcode-${RELEASE_TAG#v}.vsix"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
@@ -153,9 +158,9 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:${{ github.ref_name }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloakcode-gateway:${{ env.RELEASE_TAG }}
             ghcr.io/${{ github.repository_owner }}/cloakcode-gateway:latest
-            ghcr.io/${{ github.repository_owner }}/cloakcode-gateway:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/cloakcode-gateway:${{ env.RELEASE_TAG }}
 
       # NOTE: the Docker Hub repo Overview is NOT synced from CI. Editing it via
       # the API needs the account password / a repo-settings-scoped PAT (a

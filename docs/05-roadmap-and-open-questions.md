@@ -257,6 +257,11 @@ strings. A pre-release _extension_ lane (Microsoft's odd-minor convention / `vsc
    a raw `Azure DevOps Services Unavailable` HTML page in the log) takes npm and Docker with it.
    `gh run rerun <run-id> --failed` replays the whole job safely: the GitHub Release step
    (`softprops/action-gh-release`) updates the existing release rather than erroring on it.
+  If the failure is a workflow bug rather than a transient publish failure, fix the workflow on
+  `main` and use `gh workflow run release.yml --ref main` once the repair is validated. Manual
+  dispatch uses the committed product version for release/artifact names, updating the existing
+  release without moving its tag. Do this before any later version bump; do not dispatch from
+  a branch with unreleased product changes.
 
 **Release notes come from the commit log, not PRs.** Work lands on `main` directly and each cut is a
 single `chore(release)` PR, so GitHub's own PR-based auto-notes are near-empty. `release.yml` instead
